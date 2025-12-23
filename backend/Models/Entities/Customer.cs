@@ -28,6 +28,9 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [MinLength(10), MaxLength(20)]
         public string? Phone { get; set; }
 
+        [MaxLength(1000)]
+        public string? Notes { get; set; }
+
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; }

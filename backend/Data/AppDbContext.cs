@@ -85,8 +85,11 @@ namespace Appointmentbookingsystem.Backend.Data
             // ==================== CUSTOMER ====================
             modelBuilder.Entity<Customer>(entity =>
             {
-                entity.HasKey(c => c.Id);
-                entity.HasIndex(c => new { c.CompanyId, c.Email }).IsUnique();
+               entity.HasIndex(c => new { c.CompanyId, c.Email })
+          .IsUnique()
+          .HasDatabaseName("IX_Customers_CompanyId_Email")
+          .HasFilter("[IsActive] = 1");
+                       
 
                 entity.HasOne(c => c.Company)
                       .WithMany(co => co.Customers)
@@ -102,8 +105,10 @@ namespace Appointmentbookingsystem.Backend.Data
             // ==================== SERVICE ====================
             modelBuilder.Entity<Service>(entity =>
             {
-                entity.HasKey(s => s.Id);
-                entity.HasIndex(s => new { s.CompanyId, s.Name });
+               entity.HasIndex(s => new { s.CompanyId, s.Name })
+          .IsUnique()
+          .HasFilter("[IsActive] = 1")
+          .HasDatabaseName("IX_Services_CompanyId_Name_Active");
 
                 entity.HasOne(s => s.Company)
                       .WithMany(c => c.Services)

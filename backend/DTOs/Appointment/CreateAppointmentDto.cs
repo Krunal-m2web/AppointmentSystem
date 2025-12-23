@@ -23,7 +23,6 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
         public string Email { get; set; } = null!;
 
         [Required]
-        [Phone]
         [MaxLength(20)]
         public string Phone { get; set; } = null!;
 
@@ -36,10 +35,11 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
         [Required]
         public DateTime StartTime { get; set; }
 
-        public MeetingType MeetingType { get; set; }
+        [Required]
+        public string MeetingType { get; set; } = "Zoom";
 
         [Required]
-        public PaymentMethod PaymentMethod { get; set; }
+        public string PaymentMethod { get; set; } = "Card";
 
         [MaxLength(1000)]
         public string? Notes { get; set; }

@@ -186,8 +186,33 @@ namespace Appointmentbookingsystem.Backend.Controllers
             return NoContent();
         }
 
+        /// <summary>
+        /// DELETE /api/availability/staff/{staffId} - Delete all availability for a staff member
+        /// </summary>
+        [HttpDelete("staff/{staffId}")]
+        public async Task<IActionResult> DeleteAllAvailabilityForStaff(int staffId)
+        {
+            var availabilities = await _context.Availabilities
+                .Where(a => a.StaffId == staffId)
+                .ToListAsync();
+
+            if (!availabilities.Any())
+            {
+                return NoContent();
+            }
+
+            _context.Availabilities.RemoveRange(availabilities);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
         // ===== SLOT AVAILABILITY ENDPOINTS =====
 
+        /// <summary>
+        /// GET /api/availability/slots?staffId=1&serviceId=2&date=2025-12-15
+        /// Returns available time slots for a specific staff member, service, and date
+        /// </summary>
         /// <summary>
         /// GET /api/availability/slots?staffId=1&serviceId=2&date=2025-12-15
         /// Returns available time slots for a specific staff member, service, and date
@@ -200,8 +225,11 @@ namespace Appointmentbookingsystem.Backend.Controllers
         {
             // STEP 1: VALIDATE INPUTS
             
-            // Check if staff exists and is active
-            var staff = await _context.Staff.FindAsync(staffId);
+            // Check if staff exists and is active, include Company for timezone
+            var staff = await _context.Staff
+                .Include(s => s.Company)
+                .FirstOrDefaultAsync(s => s.Id == staffId);
+
             if (staff == null || !staff.IsActive)
                 return NotFound("Staff member not found or is inactive.");
 
@@ -217,7 +245,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (!canProvideService)
                 return BadRequest("This staff member cannot provide the selected service.");
 
-            // Don't allow booking in the past
+            // Don't allow booking in the past (compare against UTC date)
             if (date.Date < DateTime.UtcNow.Date)
                 return BadRequest("Cannot book appointments in the past.");
 
@@ -238,10 +266,34 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 return Ok(new List<TimeSlotDto>());
             }
 
+            // STEP 3: CONVERT WORKING HOURS TO UTC
+            // The stored availability times (e.g., 09:00 - 17:00) are in COMPANY LOCAL TIME.
+            // We need to convert "Date + 09:00 Local" to UTC.
+
+            string timezoneId = staff.Company.Timezone ?? "UTC";
+            TimeZoneInfo tzInfo;
+            try
+            {
+                tzInfo = TimeZoneInfo.FindSystemTimeZoneById(timezoneId);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                tzInfo = TimeZoneInfo.Utc;
+            }
+
+            // Create Local Start/End DateTimes (Unspecified Kind implies local to the tzInfo)
+            DateTime localWorkStart = date.Date.Add(availability.StartTime);
+            DateTime localWorkEnd = date.Date.Add(availability.EndTime);
+
+            // Convert to UTC
+            // Note: If timezone has DST, this handles it for the specific 'date'
+            DateTime utcWorkStart = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localWorkStart, DateTimeKind.Unspecified), tzInfo);
+            DateTime utcWorkEnd = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localWorkEnd, DateTimeKind.Unspecified), tzInfo);
+
             
-            // STEP 3: GET ALL BLOCKING FACTORS
+            // STEP 4: GET ALL BLOCKING FACTORS
             
-            // 3a. Get approved time-offs for this date
+            // 4a. Get approved time-offs for this date
             var timeOffs = await _context.TimeOffs
                 .Where(t => 
                     t.StaffId == staffId &&
@@ -250,7 +302,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     t.EndDateTimeUtc.Date >= date.Date)
                 .ToListAsync();
 
-            // 3b. Get existing confirmed appointments
+            // 4b. Get existing confirmed appointments
             var existingAppointments = await _context.Appointments
                 .Where(a => 
                     a.StaffId == staffId &&
@@ -259,7 +311,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .Select(a => new BookedSlot(a.StartDateTimeUtc, a.EndDateTimeUtc))
                 .ToListAsync();
 
-            // 3c. Get active reservations (not expired)
+            // 4c. Get active reservations (not expired)
             var now = DateTime.UtcNow;
             var activeReservations = await _context.AppointmentReservations
                 .Where(r => 
@@ -270,24 +322,16 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .ToListAsync();
 
             
-            // STEP 4: GENERATE TIME SLOTS
+            // STEP 5: GENERATE TIME SLOTS
             
             var slots = new List<TimeSlotDto>();
 
-            // Convert availability times to UTC DateTime for the selected date
-            DateTime workDayStart = DateTime.SpecifyKind(
-                date.Date.Add(availability.StartTime), 
-                DateTimeKind.Utc);
-            
-            DateTime workDayEnd = DateTime.SpecifyKind(
-                date.Date.Add(availability.EndTime), 
-                DateTimeKind.Utc);
+            // Generate slots every 30 minutes
+            int slotIntervalMinutes = 30; // Could be service.ServiceDuration, but usually slots are fixed intervals
+            DateTime currentSlotStart = utcWorkStart;
 
-            // Generate slots every 30 minutes (you can adjust this interval)
-            int slotIntervalMinutes = 30;
-            DateTime currentSlotStart = workDayStart;
-
-            while (currentSlotStart.AddMinutes(service.ServiceDuration) <= workDayEnd)
+            // Loop until the service duration would push past the end of the work day
+            while (currentSlotStart.AddMinutes(service.ServiceDuration) <= utcWorkEnd)
             {
                 DateTime currentSlotEnd = currentSlotStart.AddMinutes(service.ServiceDuration);
 
@@ -312,7 +356,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 }
 
                 // Move to next potential slot
-                currentSlotStart = currentSlotStart.AddMinutes(slotIntervalMinutes);
+                currentSlotStart = currentSlotStart.AddMinutes(slotIntervalMinutes); 
             }
 
             return Ok(slots);

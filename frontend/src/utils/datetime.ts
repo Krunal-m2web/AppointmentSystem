@@ -1,184 +1,212 @@
-// Date and time utilities with UTC support
+// =======================================================
+// Date & Time Utilities (UTC storage, Company TZ display)
+// =======================================================
 
 /**
- * Convert UTC date string to local date string
+ * Format date in a specific timezone
  */
-export function utcToLocal(utcDateString: string): Date {
-  return new Date(utcDateString);
-}
-
-/**
- * Convert local date to UTC string
- */
-export function localToUTC(localDate: Date): string {
-  return localDate.toISOString();
-}
-
-/**
- * Format date for display
- */
-export function formatDate(dateString: string, options?: Intl.DateTimeFormatOptions): string {
-  const date = new Date(dateString);
-  const defaultOptions: Intl.DateTimeFormatOptions = {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
+export function formatDate(
+  dateString: string,
+  timezone: string,
+  options?: Intl.DateTimeFormatOptions
+): string {
+  return new Date(dateString).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: timezone,
     ...options,
-  };
-  return date.toLocaleDateString('en-US', defaultOptions);
+  });
 }
 
 /**
- * Format time for display
+ * Format time in a specific timezone
  */
-export function formatTime(dateString: string, options?: Intl.DateTimeFormatOptions): string {
-  const date = new Date(dateString);
-  const defaultOptions: Intl.DateTimeFormatOptions = {
-    hour: '2-digit',
-    minute: '2-digit',
+export function formatTime(
+  dateString: string,
+  timezone: string,
+  options?: Intl.DateTimeFormatOptions
+): string {
+  return new Date(dateString).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: timezone,
     ...options,
-  };
-  return date.toLocaleTimeString('en-US', defaultOptions);
+  });
 }
 
 /**
- * Format date and time for display
+ * Format full date + time
  */
-export function formatDateTime(dateString: string): string {
-  return `${formatDate(dateString)} at ${formatTime(dateString)}`;
+export function formatDateTime(dateString: string, timezone: string): string {
+  return `${formatDate(dateString, timezone)} at ${formatTime(
+    dateString,
+    timezone
+  )}`;
 }
 
 /**
- * Get date in YYYY-MM-DD format
+ * Get YYYY-MM-DD string in a timezone
  */
-export function getDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+export function getDateString(date: Date, timezone: string): string {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const f = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${f("year")}-${f("month")}-${f("day")}`;
 }
 
 /**
- * Get time in HH:mm format
+ * Get HH:mm (24h) string in a timezone
  */
-export function getTimeString(date: Date): string {
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${hours}:${minutes}`;
+export function getTimeString(date: Date, timezone: string): string {
+  return date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: timezone,
+  });
 }
 
 /**
- * Combine date and time strings into UTC ISO string
+ * 🔥 CORE FUNCTION
+ * Convert company-timezone date & time → UTC ISO string
+ *
+ * Example:
+ *  date=2025-01-20
+ *  time=15:33
+ *  tz=America/New_York
+ *  → 2025-01-20T20:33:00.000Z
  */
-export function combineDateTimeToUTC(dateStr: string, timeStr: string): string {
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  const date = new Date(dateStr);
-  date.setHours(hours, minutes, 0, 0);
-  return date.toISOString();
-}
+export function combineDateTimeToUTC(
+  dateStr: string,
+  timeStr: string,
+  timezone: string
+): string {
+  // Robust parsing: extract numbers only for date
+  const dateParts = dateStr.match(/\d+/g);
+  if (!dateParts || dateParts.length < 3)
+    throw new Error("Invalid date format");
+  const [year, month, day] = dateParts.map(Number);
 
-/**
- * Get start of day in UTC
- */
-export function getStartOfDay(date: Date): Date {
-  const newDate = new Date(date);
-  newDate.setHours(0, 0, 0, 0);
-  return newDate;
-}
+  // Parsing time: handle 12h (AM/PM) or 24h
+  // Supports formats: "11:30am", "11:30 AM", "11:30", "14:30"
+  let hour = 0;
+  let minute = 0;
+  const timeMatch = timeStr.match(/(\d+):(\d+)\s*(am|pm)?/i);
+  if (timeMatch) {
+    hour = parseInt(timeMatch[1], 10);
+    minute = parseInt(timeMatch[2], 10);
+    const ampm = timeMatch[3]?.toUpperCase();
+    if (ampm === "PM" && hour < 12) hour += 12;
+    if (ampm === "AM" && hour === 12) hour = 0;
+  } else {
+    // Fallback if regex fails
+    const timeParts = timeStr
+      .split(":")
+      .map((s) => parseInt(s.replace(/\D/g, ""), 10));
+    hour = timeParts[0] || 0;
+    minute = timeParts[1] || 0;
+  }
 
-/**
- * Get end of day in UTC
- */
-export function getEndOfDay(date: Date): Date {
-  const newDate = new Date(date);
-  newDate.setHours(23, 59, 59, 999);
-  return newDate;
-}
+  // Step 1: Create a date object as if the input was UTC
+  const d = new Date(Date.UTC(year, month - 1, day, hour, minute));
 
-/**
- * Check if two dates are on the same day
- */
-export function isSameDay(date1: Date, date2: Date): boolean {
-  return (
-    date1.getFullYear() === date2.getFullYear() &&
-    date1.getMonth() === date2.getMonth() &&
-    date1.getDate() === date2.getDate()
+  if (isNaN(d.getTime())) throw new Error("Invalid date generated from inputs");
+
+  // Step 2: Use Intl to see how this UTC moment appears in our target timezone
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone === "UTC" ? "UTC" : timezone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(d);
+  const findItem = (type: string) =>
+    parseInt(parts.find((p) => p.type === type)?.value || "0");
+
+  // Step 3: Map the local components back to a UTC timestamp to find the diff
+  const tzDate = new Date(
+    Date.UTC(
+      findItem("year"),
+      findItem("month") - 1,
+      findItem("day"),
+      findItem("hour") % 24, // handle 24:00 if it happens
+      findItem("minute"),
+      findItem("second")
+    )
   );
+
+  const offsetMs = tzDate.getTime() - d.getTime();
+
+  // Step 4: UTC = Local - Offset
+  return new Date(d.getTime() - offsetMs).toISOString();
 }
 
 /**
- * Get days in month
+ * Check if two dates fall on the same day in a timezone
  */
-export function getDaysInMonth(year: number, month: number): number {
-  return new Date(year, month + 1, 0).getDate();
+export function isSameDay(d1: Date, d2: Date, timezone: string): boolean {
+  return getDateString(d1, timezone) === getDateString(d2, timezone);
 }
 
 /**
- * Get first day of month (0 = Sunday, 1 = Monday, etc.)
- */
-export function getFirstDayOfMonth(year: number, month: number): number {
-  return new Date(year, month, 1).getDay();
-}
-
-/**
- * Add days to date
+ * Add days (timezone-safe for display)
  */
 export function addDays(date: Date, days: number): Date {
-  const newDate = new Date(date);
-  newDate.setDate(newDate.getDate() + days);
-  return newDate;
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
 }
 
 /**
- * Add minutes to date
+ * Add minutes
  */
 export function addMinutes(date: Date, minutes: number): Date {
-  const newDate = new Date(date);
-  newDate.setMinutes(newDate.getMinutes() + minutes);
-  return newDate;
+  const d = new Date(date);
+  d.setMinutes(d.getMinutes() + minutes);
+  return d;
 }
 
 /**
- * Get timezone offset string (e.g., "UTC+5:30")
+ * Get current timezone offset string (e.g. UTC+05:30)
  */
-export function getTimezoneOffset(): string {
-  const offset = -new Date().getTimezoneOffset();
-  const hours = Math.floor(Math.abs(offset) / 60);
-  const minutes = Math.abs(offset) % 60;
-  const sign = offset >= 0 ? '+' : '-';
-  return `UTC${sign}${hours}:${String(minutes).padStart(2, '0')}`;
+export function getTimezoneOffset(timezone: string): string {
+  const now = new Date();
+
+  const utc = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));
+  const tz = new Date(now.toLocaleString("en-US", { timeZone: timezone }));
+
+  const diffMin = (tz.getTime() - utc.getTime()) / 60000;
+  const sign = diffMin >= 0 ? "+" : "-";
+  const h = Math.floor(Math.abs(diffMin) / 60);
+  const m = Math.abs(diffMin) % 60;
+
+  return `UTC${sign}${h}:${String(m).padStart(2, "0")}`;
 }
 
 /**
- * Common timezones
+ * Common timezones (IANA)
  */
 export const TIMEZONES = [
-  { value: 'America/New_York', label: 'Eastern Time (ET)' },
-  { value: 'America/Chicago', label: 'Central Time (CT)' },
-  { value: 'America/Denver', label: 'Mountain Time (MT)' },
-  { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
-  { value: 'America/Anchorage', label: 'Alaska Time (AKT)' },
-  { value: 'Pacific/Honolulu', label: 'Hawaii Time (HT)' },
-  { value: 'Europe/London', label: 'London (GMT/BST)' },
-  { value: 'Europe/Paris', label: 'Paris (CET/CEST)' },
-  { value: 'Europe/Berlin', label: 'Berlin (CET/CEST)' },
-  { value: 'Europe/Rome', label: 'Rome (CET/CEST)' },
-  { value: 'Europe/Madrid', label: 'Madrid (CET/CEST)' },
-  { value: 'Europe/Amsterdam', label: 'Amsterdam (CET/CEST)' },
-  { value: 'Europe/Brussels', label: 'Brussels (CET/CEST)' },
-  { value: 'Europe/Vienna', label: 'Vienna (CET/CEST)' },
-  { value: 'Europe/Warsaw', label: 'Warsaw (CET/CEST)' },
-  { value: 'Europe/Athens', label: 'Athens (EET/EEST)' },
-  { value: 'Europe/Istanbul', label: 'Istanbul (TRT)' },
-  { value: 'Europe/Moscow', label: 'Moscow (MSK)' },
-  { value: 'Asia/Dubai', label: 'Dubai (GST)' },
-  { value: 'Asia/Kolkata', label: 'India (IST)' },
-  { value: 'Asia/Shanghai', label: 'China (CST)' },
-  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
-  { value: 'Asia/Seoul', label: 'Seoul (KST)' },
-  { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
-  { value: 'Asia/Hong_Kong', label: 'Hong Kong (HKT)' },
-  { value: 'Australia/Sydney', label: 'Sydney (AEDT/AEST)' },
-  { value: 'Australia/Melbourne', label: 'Melbourne (AEDT/AEST)' },
-  { value: 'Pacific/Auckland', label: 'Auckland (NZDT/NZST)' },
+  { value: "America/New_York", label: "Eastern Time (ET)" },
+  { value: "America/Chicago", label: "Central Time (CT)" },
+  { value: "America/Denver", label: "Mountain Time (MT)" },
+  { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
+  { value: "Europe/London", label: "London (GMT/BST)" },
+  { value: "Europe/Paris", label: "Paris (CET/CEST)" },
+  { value: "Europe/Athens", label: "Athens (EET/EEST)" },
+  { value: "Asia/Kolkata", label: "India (IST)" },
+  { value: "Asia/Tokyo", label: "Tokyo (JST)" },
+  { value: "Australia/Sydney", label: "Sydney (AEDT/AEST)" },
 ];

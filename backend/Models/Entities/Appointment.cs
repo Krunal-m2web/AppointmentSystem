@@ -63,6 +63,9 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [Timestamp]
         public byte[]? Version { get; set; }
 
+        [MaxLength(1000)]
+        public string? Notes { get; set; }
+
         // Timestamps
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }

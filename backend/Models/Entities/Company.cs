@@ -30,6 +30,9 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [Required, MaxLength(3)]
         public string Currency { get; set; } = "USD";
 
+        [Required, MaxLength(50)]
+        public string Timezone { get; set; } = "UTC";
+
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; }

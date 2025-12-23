@@ -112,7 +112,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             var service = new Service
             {
                 CompanyId = dto.CompanyId,
-                Name = dto.Name,
+                Name = dto.Name.Trim(),
                 Description = dto.Description,
                 Price = dto.Price,
                 ServiceDuration = dto.ServiceDuration,
@@ -129,8 +129,16 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 }).ToList();
             }
 
-            _context.Services.Add(service);
-            await _context.SaveChangesAsync();
+            try
+            {
+                _context.Services.Add(service);
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                return BadRequest("Service name already exists for this company.");
+            }
+
 
             var response = new ServiceResponseDto
             {
@@ -174,7 +182,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (dto.Price.HasValue) service.Price = dto.Price.Value;
             if (dto.ServiceDuration.HasValue) service.ServiceDuration = dto.ServiceDuration.Value;
 
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                return BadRequest("Service name already exists for this company.");
+            }
 
             var response = new ServiceResponseDto
             {

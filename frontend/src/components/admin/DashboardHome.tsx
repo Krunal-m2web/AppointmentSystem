@@ -1,85 +1,29 @@
-import { useState } from 'react';
-import { Calendar, Clock, User, TrendingUp, DollarSign, Filter, ChevronDown, ExternalLink } from 'lucide-react';
-import { HeikinAshiChart } from './HeikinAshiChart';
+import { useState, useEffect } from 'react';
+import { Calendar, Clock, User, TrendingUp, DollarSign, Filter, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
+import { AnalyticsChart } from './AnalyticsChart';
 import { MiniCalendar } from './MiniCalendar';
-import { formatDate } from '../../utils/datetime';
 import { getToken, getCompanyIdFromToken } from '../../utils/auth';
+import { AppointmentResponse, getAppointments } from '../../services/appointmentApi';
+import { fetchStaff } from '../../services/staffApi';
+import { fetchServices } from '../../services/serviceApi';
 
-// Mock data
-const todayAppointments = [
-  {
-    id: 1,
-    clientName: 'John Doe',
-    service: 'Web Design',
-    time: '09:00 AM',
-    duration: '60 min',
-    location: 'Zoom',
-    status: 'confirmed',
-  },
-  {
-    id: 2,
-    clientName: 'Jane Smith',
-    service: 'Software Development',
-    time: '11:30 AM',
-    duration: '90 min',
-    location: 'In Person',
-    status: 'confirmed',
-  },
-  {
-    id: 3,
-    clientName: 'Mike Johnson',
-    service: 'Web Design',
-    time: '02:00 PM',
-    duration: '60 min',
-    location: 'Phone Call',
-    status: 'pending',
-  },
-];
+// Types
+interface DashboardStats {
+  totalAppointments: number;
+  pendingAppointments: number;
+  todayCount: number;
+  revenue: number;
+}
 
-const upcomingAppointments = [
-  {
-    id: 4,
-    clientName: 'Sarah Williams',
-    service: 'Software Development',
-    date: 'Tomorrow',
-    time: '10:00 AM',
-    duration: '90 min',
-    location: 'Zoom',
-  },
-  {
-    id: 5,
-    clientName: 'David Brown',
-    service: 'Web Design',
-    date: 'Dec 28, 2024',
-    time: '01:00 PM',
-    duration: '60 min',
-    location: 'In Person',
-  },
-];
+interface StaffOption {
+  id: number;
+  name: string;
+}
 
-// Mock chart data - combined
-const appointmentsChartData = [
-  { date: 'Nov 21', appointments: 5, revenue: 750 },
-  { date: 'Nov 22', appointments: 8, revenue: 1200 },
-  { date: 'Nov 23', appointments: 6, revenue: 900 },
-  { date: 'Nov 24', appointments: 10, revenue: 1500 },
-  { date: 'Nov 25', appointments: 4, revenue: 600 },
-  { date: 'Nov 26', appointments: 3, revenue: 450 },
-  { date: 'Nov 27', appointments: 7, revenue: 1050 },
-  { date: 'Nov 28', appointments: 9, revenue: 1350 },
-];
-
-const mockStaff = [
-  { id: 1, name: 'Sarah Johnson' },
-  { id: 2, name: 'Mike Wilson' },
-  { id: 3, name: 'Emily Davis' },
-];
-
-const mockServices = [
-  { id: 1, name: 'Web Design' },
-  { id: 2, name: 'Software Development' },
-  { id: 3, name: 'UI/UX Design' },
-];
+interface ServiceOption {
+  id: number;
+  name: string;
+}
 
 export function DashboardHome() {
   const [showStaffFilter, setShowStaffFilter] = useState(false);
@@ -87,6 +31,23 @@ export function DashboardHome() {
   const [selectedStaff, setSelectedStaff] = useState<number[]>([]);
   const [selectedServices, setSelectedServices] = useState<number[]>([]);
   const [dateRange, setDateRange] = useState('7days');
+  
+  // Data State
+  const [stats, setStats] = useState<DashboardStats>({
+    totalAppointments: 0,
+    pendingAppointments: 0,
+    todayCount: 0,
+    revenue: 0
+  });
+  const [todayAppointments, setTodayAppointments] = useState<AppointmentResponse[]>([]);
+  const [upcomingAppointments, setUpcomingAppointments] = useState<AppointmentResponse[]>([]);
+  const [chartData, setChartData] = useState<{ date: string; appointments: number; revenue: number }[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Dynamic staff and services from API
+  const [staffList, setStaffList] = useState<StaffOption[]>([]);
+  const [servicesList, setServicesList] = useState<ServiceOption[]>([]);
 
   const toggleStaff = (staffId: number) => {
     setSelectedStaff(prev =>
@@ -100,16 +61,173 @@ export function DashboardHome() {
     );
   };
 
-  // Multi-currency revenue
-  const revenueByCurrency = [
-    { currency: 'USD', amount: 8500, symbol: '$' },
-    // { currency: 'EUR', amount: 2300, symbol: '€' },
-    // { currency: 'GBP', amount: 1200, symbol: '£' },
-  ];
+  const formatTime = (isoString: string) => {
+    return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getDuration = (start: string, end: string) => {
+    const s = new Date(start);
+    const e = new Date(end);
+    const diffMs = e.getTime() - s.getTime();
+    const minutes = Math.floor(diffMs / 60000);
+    return `${minutes} min`;
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const token = getToken();
+        if (!token) {
+          throw new Error("Not authenticated");
+        }
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        // Fetch staff and services in parallel
+        const [staffData, servicesData] = await Promise.all([
+          fetchStaff().catch(() => []),
+          fetchServices().catch(() => [])
+        ]);
+        
+        setStaffList(staffData.map((s: any) => ({
+          id: s.id,
+          name: `${s.firstName} ${s.lastName}`
+        })));
+        
+        setServicesList(servicesData.map((s: any) => ({
+          id: s.id,
+          name: s.name
+        })));
+
+        // 1. Fetch Today's Appointments
+        const todayRes = await getAppointments({
+          startDate: todayStart.toISOString(),
+          endDate: todayEnd.toISOString(),
+          pageSize: 30 
+        }, token);
+
+        // 2. Fetch Upcoming Appointments (Tomorrow onwards)
+        const tomorrow = new Date(todayEnd);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0,0,0,0);
+        
+        const upcomingRes = await getAppointments({
+          startDate: tomorrow.toISOString(),
+          sortBy: 'date',
+          sortDirection: 'asc',
+          pageSize: 5
+        }, token);
+
+        // 3. Fetch specific counts (Total & Pending)
+        const totalRes = await getAppointments({ pageSize: 1 }, token);
+        const pendingRes = await getAppointments({ status: 'Pending', pageSize: 1 }, token);
+
+        // 4. Fetch Chart Data (Last 7 Days) for Revenue/History
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        sevenDaysAgo.setHours(0,0,0,0);
+        
+        const historyRes = await getAppointments({
+            startDate: sevenDaysAgo.toISOString(),
+            endDate: todayEnd.toISOString(),
+            pageSize: 30 
+        }, token);
+
+        // Process Chart Data & Revenue
+        const processedChart = processChartData(historyRes.appointments);
+        const totalRevenue = historyRes.appointments.reduce((sum, appt) => {
+          // Only count revenue for confirmed/completed appointments
+          if (appt.status === 'Confirmed' || appt.status === 'Completed') {
+            return sum + appt.price;
+          }
+          return sum;
+        }, 0);
+
+        setTodayAppointments(todayRes.appointments);
+        setUpcomingAppointments(upcomingRes.appointments);
+        setChartData(processedChart);
+        setStats({
+          totalAppointments: totalRes.totalCount,
+          pendingAppointments: pendingRes.totalCount,
+          todayCount: todayRes.totalCount,
+          revenue: totalRevenue
+        });
+
+      } catch (err: any) {
+        console.error("Dashboard fetch error:", err);
+        setError(err.message || "Failed to load dashboard data");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const processChartData = (appointments: AppointmentResponse[]) => {
+    const dailyMap = new Map<string, { appointments: number; revenue: number }>();
+    
+    // Initialize last 7 days with 0
+    for(let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        dailyMap.set(dateStr, { appointments: 0, revenue: 0 });
+    }
+
+    appointments.forEach(appt => {
+        const dateStr = new Date(appt.startDateTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (dailyMap.has(dateStr)) {
+            const entry = dailyMap.get(dateStr)!;
+            entry.appointments += 1;
+            // Add revenue for non-cancelled appointments
+            if (appt.status !== 'Cancelled') {
+                entry.revenue += appt.price;
+            }
+        }
+    });
+
+    return Array.from(dailyMap.entries()).map(([date, data]) => ({
+        date,
+        appointments: data.appointments,
+        revenue: data.revenue
+    }));
+  };
+
+  if (isLoading) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
+        <p className="text-gray-600">Loading dashboard data...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          <p className="text-red-700 font-medium mb-2">Error Loading Dashboard</p>
+          <p className="text-red-600">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-8">
-      <div className="mb-6 md:mb-8 flex justify-between items-start">
+      <div className="mb-6 md:mb-8 flex flex-col md:flex-row justify-between items-start gap-4">
         <div>
            <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
            <p className="text-gray-600 mt-1">Welcome back! Here's what's happening today.</p>
@@ -132,13 +250,12 @@ export function DashboardHome() {
       </div>
 
       {/* Stats Cards */}
-      {/* Stats Cards */}
-      <div className="flex gap-4 md:gap-6 mb-6 md:mb-8 w-full">
-        <div className="flex-1 bg-white rounded-lg shadow p-4 md:p-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
+        <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Total Appointments</p>
-              <p className="text-2xl font-bold mt-2">156</p>
+              <p className="text-2xl font-bold mt-2">{stats.totalAppointments}</p>
             </div>
             <div className="bg-blue-100 p-3 rounded-lg">
               <Calendar className="w-5 h-5 text-blue-600" />
@@ -146,11 +263,11 @@ export function DashboardHome() {
           </div>
         </div>
 
-        <div className="flex-1 bg-white rounded-lg shadow p-4 md:p-6">
+        <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Pending</p>
-              <p className="text-2xl font-bold mt-2">12</p>
+              <p className="text-2xl font-bold mt-2">{stats.pendingAppointments}</p>
             </div>
             <div className="bg-yellow-100 p-3 rounded-lg">
               <Clock className="w-5 h-5 text-yellow-600" />
@@ -158,13 +275,11 @@ export function DashboardHome() {
           </div>
         </div>
 
-        <div className="flex-1 bg-white rounded-lg shadow p-4 md:p-6">
+        <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">Today's Appointments</p>
-              <p className="text-2xl font-bold mt-2">
-                {todayAppointments.length}
-              </p>
+              <p className="text-2xl font-bold mt-2">{stats.todayCount}</p>
             </div>
             <div className="bg-green-100 p-3 rounded-lg">
               <TrendingUp className="w-5 h-5 text-green-600" />
@@ -172,17 +287,11 @@ export function DashboardHome() {
           </div>
         </div>
 
-        <div className="flex-1 bg-white rounded-lg shadow p-4 md:p-6">
+        <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Revenue</p>
-              <div className="mt-2 space-y-1">
-                {revenueByCurrency.map((rev) => (
-                  <p key={rev.currency} className="text-lg font-bold">
-                    {rev.symbol}{rev.amount.toLocaleString()} {rev.currency}
-                  </p>
-                ))}
-              </div>
+              <p className="text-sm text-gray-600">Revenue (7 Days)</p>
+              <p className="text-2xl font-bold mt-2">${stats.revenue.toLocaleString()}</p>
             </div>
             <div className="bg-purple-100 p-3 rounded-lg">
               <DollarSign className="w-5 h-5 text-purple-600" />
@@ -191,12 +300,11 @@ export function DashboardHome() {
         </div>
       </div>
 
-
-      {/* Analytics Filters */}
+      {/* Analytics Section */}
       <div className="bg-white rounded-lg shadow p-4 md:p-6 mb-6 md:mb-8">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
           <h2 className="text-lg md:text-xl font-semibold">Analytics</h2>
-          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Date Range */}
             <select
               value={dateRange}
@@ -204,82 +312,83 @@ export function DashboardHome() {
               className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="7days">Last 7 Days</option>
-              <option value="30days">Last 30 Days</option>
-              <option value="90days">Last 90 Days</option>
-              <option value="year">This Year</option>
             </select>
 
-            {/* Staff Filter */}
-            <div className="relative">
-              <button
-                onClick={() => setShowStaffFilter(!showStaffFilter)}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <Filter className="w-4 h-4" />
-                Staff {selectedStaff.length > 0 && `(${selectedStaff.length})`}
-                <ChevronDown className="w-4 h-4" />
-              </button>
-              {showStaffFilter && (
-                <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                  <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
-                    {mockStaff.map((staff) => (
-                      <label
-                        key={staff.id}
-                        className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedStaff.includes(staff.id)}
-                          onChange={() => toggleStaff(staff.id)}
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
-                        />
-                        <span className="text-sm">{staff.name}</span>
-                      </label>
-                    ))}
+            {/* Staff Filter - Dynamic */}
+            {staffList.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowStaffFilter(!showStaffFilter)}
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <Filter className="w-4 h-4" />
+                  Staff {selectedStaff.length > 0 && `(${selectedStaff.length})`}
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                {showStaffFilter && (
+                  <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
+                    <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
+                      {staffList.map((staff) => (
+                        <label
+                          key={staff.id}
+                          className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedStaff.includes(staff.id)}
+                            onChange={() => toggleStaff(staff.id)}
+                            className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <span className="text-sm">{staff.name}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
-            {/* Service Filter */}
-            <div className="relative">
-              <button
-                onClick={() => setShowServiceFilter(!showServiceFilter)}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <Filter className="w-4 h-4" />
-                Services {selectedServices.length > 0 && `(${selectedServices.length})`}
-                <ChevronDown className="w-4 h-4" />
-              </button>
-              {showServiceFilter && (
-                <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                  <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
-                    {mockServices.map((service) => (
-                      <label
-                        key={service.id}
-                        className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedServices.includes(service.id)}
-                          onChange={() => toggleService(service.id)}
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
-                        />
-                        <span className="text-sm">{service.name}</span>
-                      </label>
-                    ))}
+            {/* Service Filter - Dynamic */}
+            {servicesList.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowServiceFilter(!showServiceFilter)}
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <Filter className="w-4 h-4" />
+                  Services {selectedServices.length > 0 && `(${selectedServices.length})`}
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                {showServiceFilter && (
+                  <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
+                    <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
+                      {servicesList.map((service) => (
+                        <label
+                          key={service.id}
+                          className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedServices.includes(service.id)}
+                            onChange={() => toggleService(service.id)}
+                            className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <span className="text-sm">{service.name}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* Heikin Ashi Chart */}
-      <div className="bg-white rounded-lg shadow p-4 md:p-6 mb-8">
-        <h3 className="text-lg font-semibold mb-4">Appointments & Revenue Over Time (Heikin Ashi)</h3>
-        <HeikinAshiChart data={appointmentsChartData} />
+        {/* Appointments & Revenue Chart */}
+        <div>
+          <h3 className="text-md font-medium text-gray-700 mb-4">Appointments & Revenue (Last 7 Days)</h3>
+          <AnalyticsChart data={chartData} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
@@ -298,7 +407,10 @@ export function DashboardHome() {
               </p>
             </div>
             <div className="p-4 md:p-6 space-y-4">
-              {todayAppointments.map((appointment) => (
+              {todayAppointments.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No appointments scheduled for today.</p>
+              ) : (
+                todayAppointments.map((appointment) => (
                 <div
                   key={appointment.id}
                   className="flex flex-col sm:flex-row items-start gap-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
@@ -309,13 +421,16 @@ export function DashboardHome() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{appointment.clientName}</p>
-                        <p className="text-sm text-gray-600">{appointment.service}</p>
+                        <p className="font-medium truncate">{appointment.customerName}</p>
+                        <p className="text-sm text-gray-600">{appointment.serviceName}</p>
                       </div>
                       <span
-                        className={`text-xs px-3 py-1 rounded-full whitespace-nowrap ${appointment.status === 'confirmed'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-yellow-100 text-yellow-700'
+                        className={`text-xs px-3 py-1 rounded-full whitespace-nowrap ${
+                          appointment.status === 'Confirmed' ? 'bg-green-100 text-green-700' :
+                          appointment.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
+                          appointment.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
+                          appointment.status === 'Completed' ? 'bg-blue-100 text-blue-700' :
+                          'bg-gray-100 text-gray-700'
                           }`}
                       >
                         {appointment.status}
@@ -324,16 +439,19 @@ export function DashboardHome() {
                     <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-gray-600">
                       <span className="flex items-center gap-1">
                         <Clock className="w-4 h-4" />
-                        {appointment.time} ({appointment.duration})
+                        {formatTime(appointment.startDateTime)} ({getDuration(appointment.startDateTime, appointment.endDateTime)})
                       </span>
                       <span className="flex items-center gap-1">
                         <User className="w-4 h-4" />
-                        {appointment.location}
+                        {appointment.meetingType}
                       </span>
+                      {appointment.staffName && (
+                        <span className="text-indigo-600">• {appointment.staffName}</span>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))}
+              )))}
             </div>
           </div>
         </div>
@@ -352,16 +470,19 @@ export function DashboardHome() {
               <h3 className="text-lg font-semibold">Upcoming Appointments</h3>
             </div>
             <div className="p-4 md:p-6 space-y-4">
-              {upcomingAppointments.map((appointment) => (
+              {upcomingAppointments.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No upcoming appointments.</p>
+              ) : (
+                upcomingAppointments.map((appointment) => (
                 <div key={appointment.id} className="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                  <p className="font-medium">{appointment.clientName}</p>
-                  <p className="text-sm text-gray-600">{appointment.service}</p>
+                  <p className="font-medium">{appointment.customerName}</p>
+                  <p className="text-sm text-gray-600">{appointment.serviceName}</p>
                   <div className="flex items-center justify-between mt-2 text-sm text-gray-600">
-                    <span>{appointment.date}</span>
-                    <span>{appointment.time}</span>
+                    <span>{new Date(appointment.startDateTime).toLocaleDateString()}</span>
+                    <span>{formatTime(appointment.startDateTime)}</span>
                   </div>
                 </div>
-              ))}
+              )))}
             </div>
           </div>
         </div>

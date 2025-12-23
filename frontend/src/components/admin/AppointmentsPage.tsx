@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Edit2, Save, XCircle, ChevronDown, Phone, Mail, User, Loader2 } from 'lucide-react';
-import { formatDate, formatTime } from '../../utils/datetime';
+import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Edit2, Save, XCircle, ChevronDown, Phone, Mail, User, Loader2, Globe } from 'lucide-react';
+import { useTimezone } from '../../context/TimezoneContext';
+import { formatDate, formatTime, formatDateTime, combineDateTimeToUTC, getTimezoneOffset, getDateString, getTimeString } from '../../utils/datetime';
 import type { Appointment } from '../../types/types';
 import { getAppointments, AppointmentResponse } from '../../services/appointmentApi';
 import { fetchServices } from '../../services/serviceApi';
@@ -24,6 +25,10 @@ interface ServiceOption {
 }
 
 export function AppointmentsPage() {
+  const { timezone, refreshTimezone } = useTimezone();
+    // Get timezone display info
+  const timezoneDisplay = timezone.split('/').pop()?.replace('_', ' ');
+  const timezoneOffset = getTimezoneOffset(timezone);
   const [editingAppointmentId, setEditingAppointmentId] = useState<number | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -42,10 +47,15 @@ export function AppointmentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<StaffOption[]>([]);
   const [servicesList, setServicesList] = useState<ServiceOption[]>([]);
+  const [timezoneReady, setTimezoneReady] = useState(false);
 
   // Fetch appointments on mount
   useEffect(() => {
     const loadData = async () => {
+      // Wait for timezone to be fetched FIRST before loading appointments
+      const fetchedTimezone = await refreshTimezone();
+      console.log('AppointmentsPage: Timezone fetched:', fetchedTimezone);
+      setTimezoneReady(true); // Mark timezone as ready
       try {
         setIsLoading(true);
         setError(null);
@@ -118,7 +128,7 @@ export function AppointmentsPage() {
     };
 
     loadData();
-  }, []);
+  }, [refreshTimezone]);
 
 
   type RecurrenceType = 'none' | 'daily' | 'weekly' | 'monthly';
@@ -320,7 +330,11 @@ export function AppointmentsPage() {
         return;
       }
 
-      const dateTime = `${newAppointment.date}T${newAppointment.time}:00Z`;
+      const dateTime = combineDateTimeToUTC(
+        newAppointment.date,
+        newAppointment.time,
+        timezone
+      );
 
       const updatedAppointment: Appointment = {
         ...existing,
@@ -355,13 +369,18 @@ export function AppointmentsPage() {
       ? Math.max(...appointments.map(a => a.id))
       : 0;
 
-    const baseDate = new Date(`${newAppointment.date}T00:00:00`);
+    const [y, m, d_part] = newAppointment.date.split('-').map(Number);
+    const baseDate = new Date(Date.UTC(y, m - 1, d_part));
     const newAppointments: Appointment[] = [];
 
     // Helper to push one appointment for a given date
     const pushAppointmentForDate = (occurrenceDate: Date, indexOffset: number) => {
       const datePart = occurrenceDate.toISOString().split('T')[0]; // 'YYYY-MM-DD'
-      const dateTime = `${datePart}T${newAppointment.time}:00Z`;
+      const dateTime = combineDateTimeToUTC(
+        datePart,
+        newAppointment.time,
+        timezone
+      );
       const newId = currentMaxId + 1 + indexOffset;
 
       const appointmentToAdd: Appointment = {
@@ -433,8 +452,8 @@ export function AppointmentsPage() {
   // Edit appointment
   const openEditModal = (appointment: Appointment) => {
     const dt = new Date(appointment.startDateTime);
-    const date = dt.toISOString().split('T')[0];          // 'YYYY-MM-DD'
-    const time = dt.toISOString().substring(11, 16);       // 'HH:MM'
+    const date = getDateString(dt, timezone);
+    const time = getTimeString(dt, timezone);
 
     setNewAppointment({
       customerName: appointment.customerName,
@@ -467,12 +486,12 @@ export function AppointmentsPage() {
     return sortOrder === 'asc' ? '↑' : '↓';
   };
 
-  // Show loading state
-  if (isLoading) {
+  // Show loading state - wait for timezone AND appointments to load
+  if (isLoading || !timezoneReady) {
     return (
       <div className="p-4 md:p-8 flex flex-col items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
-        <p className="text-gray-600">Loading appointments...</p>
+        <p className="text-gray-600">{!timezoneReady ? 'Loading timezone settings...' : 'Loading appointments...'}</p>
       </div>
     );
   }
@@ -501,6 +520,12 @@ export function AppointmentsPage() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">Appointments</h1>
           <p className="text-gray-600 mt-1">View and manage all appointments</p>
+          {/* Timezone Indicator */}
+          <div className="flex items-center gap-2 mt-2 text-sm text-gray-500">
+            <Globe className="w-4 h-4" />
+            <span>Times shown in {timezoneDisplay} ({timezoneOffset})</span>
+            <span className="text-xs bg-gray-100 px-1 rounded">Debug: {timezone}</span>
+          </div>
         </div>
 
       </div>
@@ -660,11 +685,13 @@ export function AppointmentsPage() {
                         <div>
                           <p className="flex items-center gap-1">
                             <Calendar className="w-4 h-4" />
-                            {formatDate(data.startDateTime)}
+                            {/* Debug: Log timezone and raw datetime */}
+                            {(() => { console.log(`Formatting apt #${appointment.id}: raw=${appointment.startDateTime}, tz=${timezone}, formatted=${formatTime(appointment.startDateTime, timezone)}`); return null; })()}
+                            {formatDate(appointment.startDateTime, timezone)}
                           </p>
                           <p className="flex items-center gap-1 text-gray-600">
                             <Clock className="w-4 h-4" />
-                            {formatTime(data.startDateTime)} ({data.duration || 60} min)
+                            {formatTime(appointment.startDateTime, timezone)} ({appointment.duration || 60} min)
                           </p>
                         </div>
                       </div>
@@ -791,7 +818,7 @@ export function AppointmentsPage() {
                     Date & Time
                   </label>
                   <p className="mt-1 font-medium">
-                    {formatDate(selectedAppointment.startDateTime)} at {formatTime(selectedAppointment.startDateTime)}
+                     {formatDate(selectedAppointment.startDateTime, timezone)} at {formatTime(selectedAppointment.startDateTime, timezone)}
                   </p>
                 </div>
                 <div>

@@ -15,10 +15,12 @@ import { CalendarPage } from "../components/admin/CalendarPage";
 import { AppointmentsPage } from "../components/admin/AppointmentsPage";
 import { StaffMembers } from "../components/admin/StaffMembers";
 import { ManageServices } from "../components/admin/ManageServices";
-import { Customers } from "../components/admin/Customers";
+import { CustomersPage } from "../components/admin/Customers";
 import { ServicePricing } from "../components/admin/ServicePricing";
 import { PaymentSettings } from "../components/admin/PaymentSettings";
- 
+import { SettingsPage } from "../components/admin/SettingsPage";
+import { useTimezone } from "../context/TimezoneContext";
+import { useEffect } from "react";
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -32,12 +34,18 @@ type Tab =
   | "services"
   | "customers"
   | "pricing"
-  | "payment";
+  | "payment"
+  | "settings";
 
 export function AdminDashboard({
   onLogout,
 }: AdminDashboardProps) {
+  const { refreshTimezone } = useTimezone();
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+
+  useEffect(() => {
+    refreshTimezone();
+  }, [refreshTimezone]);
 
   const tabs = [
     {
@@ -75,6 +83,11 @@ export function AdminDashboard({
       id: "payment" as Tab,
       label: "Payment Settings",
       icon: DollarSign,
+    },
+    {
+      id: "settings" as Tab,
+      label: "Global Settings",
+      icon: Settings,
     },
   ];
 
@@ -129,9 +142,10 @@ export function AdminDashboard({
         {activeTab === "appointments" && <AppointmentsPage />}
         {activeTab === "staff" && <StaffMembers />}
         {activeTab === "services" && <ManageServices />}
-        {activeTab === "customers" && <Customers />}
+        {activeTab === "customers" && <CustomersPage />}
         {activeTab === "pricing" && <ServicePricing />}
         {activeTab === "payment" && <PaymentSettings />}
+        {activeTab === "settings" && <SettingsPage />}
       </main>
     </div>
   );

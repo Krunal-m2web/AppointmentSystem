@@ -50,6 +50,10 @@ namespace Backend.Migrations
                     b.Property<int>("MeetingType")
                         .HasColumnType("int");
 
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<int?>("ParentAppointmentId")
                         .HasColumnType("int");
 
@@ -226,6 +230,11 @@ namespace Backend.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<string>("Timezone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
@@ -281,6 +290,10 @@ namespace Backend.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
@@ -293,7 +306,9 @@ namespace Backend.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "Email")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_Customers_CompanyId_Email")
+                        .HasFilter("[IsActive] = 1");
 
                     b.ToTable("Customers");
                 });
@@ -367,7 +382,10 @@ namespace Backend.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompanyId", "Name");
+                    b.HasIndex("CompanyId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Services_CompanyId_Name_Active")
+                        .HasFilter("[IsActive] = 1");
 
                     b.ToTable("Services");
                 });

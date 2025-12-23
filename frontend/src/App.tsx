@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { TimezoneProvider } from './context/TimezoneContext';
 import { UserBooking } from './Pages/BookingPage';
 import StaffAuth from './components/Auth/StaffAuth';
 import AdminLogin from './components/Auth/AdminLogin';
 import AdminRegister from './components/Auth/AdminRegister';
 import { ProtectedRoute } from './components/Auth/ProtectedRoute';
 import { AdminDashboard } from './Pages/AdminPage';
+import { SettingsPage } from './components/admin/SettingsPage';
 import { getToken, clearToken } from './utils/auth';
 import { jwtDecode } from 'jwt-decode';
 
@@ -15,6 +17,7 @@ export default function App() {
   };
 
   return (
+    <TimezoneProvider>
     <BrowserRouter>
       <Routes>
         {/* Public Booking Route */}
@@ -51,6 +54,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
+    </TimezoneProvider>
   );
 }
 

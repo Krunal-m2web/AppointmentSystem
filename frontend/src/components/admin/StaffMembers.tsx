@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { fetchStaff, updateStaff, fetchStaffAvailability, createAvailability, deleteAvailability, deleteStaff, createStaff } from '../../services/staffApi';
-import { Search, Plus, X, User, Mail, Phone, Briefcase, Clock, Save } from 'lucide-react';
+import { fetchStaff, updateStaff, fetchStaffAvailability, createAvailability, deleteAllAvailabilityForStaff, deleteStaff, createStaff, fetchTimeOff, createTimeOff, deleteTimeOff, TimeOff } from '../../services/staffApi';
+import { Search, Plus, X, User, Mail, Phone, Briefcase, Clock, Save, Calendar, Trash2 } from 'lucide-react';
 import type { Staff, TimeSlot, StaffServiceInfo } from '../../types/types';
 import { fetchServices, ServiceListItem } from "../../services/serviceApi";
 import { getToken, getCompanyIdFromToken } from '../../utils/auth';
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-type TabType = 'details' | 'services' | 'schedules';
+type TabType = 'details' | 'services' | 'schedules' | 'timeoff';
 
 // Custom type for editing state where services are IDs and schedule is guaranteed array
 interface EditableStaff extends Omit<Staff, 'services' | 'schedule'> {
@@ -18,6 +18,7 @@ interface EditableStaff extends Omit<Staff, 'services' | 'schedule'> {
 }
 
 export function StaffMembers() {
+    const [isSaving, setIsSaving] = useState(false);
     const [staff, setStaff] = useState<Staff[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
@@ -28,7 +29,56 @@ export function StaffMembers() {
     const [bulkStartTime, setBulkStartTime] = useState('09:00');
     const [bulkEndTime, setBulkEndTime] = useState('17:00');
     const [services, setServices] = useState<ServiceListItem[]>([]);
+    const [timeOffs, setTimeOffs] = useState<TimeOff[]>([]);
+    const [newTimeOff, setNewTimeOff] = useState({ start: '', end: '', reason: '' });
 
+useEffect(() => {
+  if (!selectedStaff) return;
+
+  let cancelled = false;
+
+  const loadAvailability = async () => {
+    try {
+      const availability = await fetchStaffAvailability(selectedStaff.id);
+
+      if (cancelled) return;
+
+      const dayMap: Record<string, number> = {
+        Sunday: 0,
+        Monday: 1,
+        Tuesday: 2,
+        Wednesday: 3,
+        Thursday: 4,
+        Friday: 5,
+        Saturday: 6,
+      };
+
+      const scheduleData: TimeSlot[] = availability.map((a: any) => ({
+        id: a.id.toString(),
+        dayOfWeek:
+          typeof a.dayOfWeek === "string"
+            ? dayMap[a.dayOfWeek]
+            : a.dayOfWeek,
+        startTime: a.startTime.substring(0, 5),
+        endTime: a.endTime.substring(0, 5),
+      }));
+
+      setEditedStaff(prev =>
+        prev
+          ? { ...prev, schedule: scheduleData }
+          : null
+      );
+    } catch (e) {
+      console.error("Failed to load availability", e);
+    }
+  };
+
+  loadAvailability();
+
+  return () => {
+    cancelled = true;
+  };
+}, [selectedStaff?.id]);
 
     useEffect(() => {
         fetchStaff()
@@ -83,46 +133,24 @@ const applyBulkSchedule = () => {
             (s.email?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()))
     );
 
-    const handleSelectStaff = async (staffMember: Staff) => {
-        setSelectedStaff(staffMember);
+const handleSelectStaff = (staffMember: Staff) => {
+  const serviceIds =
+    staffMember.services?.map((s: any) =>
+      typeof s === "object" ? s.serviceId : s
+    ) ?? [];
 
-        try {
-            // If it's a new staff (id=0), skip availability fetch
-            let availability = [];
-            if (staffMember.id > 0) {
-                 availability = await fetchStaffAvailability(staffMember.id);
-            }
+  setSelectedStaff(staffMember);
 
-            // Access services as any because runtime it is objects
-            const currentServices = staffMember.services as any[];
-            const serviceIds = Array.isArray(currentServices)
-                ? currentServices.map((s: any) => (typeof s === 'object' ? s.serviceId : s))
-                : [];
+  setEditedStaff({
+    ...staffMember,
+    services: serviceIds,
+    schedule: [], // will be filled by useEffect
+    role: "",
+  });
 
-            setEditedStaff({
-                ...staffMember,
-                services: serviceIds,
-                schedule: availability.map((a: any) => ({
-                    id: a.id.toString(),
-                    dayOfWeek: a.dayOfWeek,
-                    startTime: a.startTime.substring(0, 5),
-                    endTime: a.endTime.substring(0, 5),
-                })),
-                role: '' // Default if missing
-            });
-        } catch (error) {
-            console.error("Error fetching staff details:", error);
-            // Fallback
-            setEditedStaff({
-                ...staffMember,
-                services: [],
-                schedule: [],
-                role: ''
-            });
-        }
+  setActiveTab("details");
+};
 
-        setActiveTab("details");
-    };
 
     const handleAddNewStaff = () => {
         const newStaff: Staff = {
@@ -153,52 +181,73 @@ const applyBulkSchedule = () => {
     };
 
 
-    const handleSave = async () => {
-        if (!editedStaff) return;
-
-        try {
-            const companyId = getCompanyIdFromToken(getToken() || "");
-            if (!companyId) {
-                alert("Error: Missing Company ID. Please log in again.");
-                return;
-            }
-
-            let staffId = editedStaff.id;
-
-            // CREATE or UPDATE Staff
-            if (editedStaff.id <= 0) { // Assuming new staff has ID 0 or negative
-                const newStaff = await createStaff({
-                    companyId,
-                    firstName: editedStaff.firstName || "",
-                    lastName: editedStaff.lastName || "",
-                    email: editedStaff.email || "",
-                    phone: editedStaff.phone,
-                    serviceIds: editedStaff.services,
-                    // Use entered password or fallback to default if empty (though UI should enforce it)
-                    password: editedStaff.password || "Password123!" 
-                });
-                staffId = newStaff.id;
-                alert(`Staff member created successfully!\n\nIMPORTANT: Their temporary password is "${editedStaff.password || "Password123!"}".\nPlease share this with them so they can log in.`);
-            } else {
-                // Update staff basic info
-                await updateStaff(editedStaff as any);
-                // Services are updated within updateStaff if passed correctly, 
-                // but checking backend implementation, updateStaff handles serviceIds mapping.
-                // We ensure 'services' in editedStaff are IDs which matches our update payload requirement.
-            }
-            
-            // Availability Handling
-            // 1. Remove existing availability
-            try {
-                const existing = await fetchStaffAvailability(staffId);
-                for (const slot of existing) {
-                    await deleteAvailability(slot.id);
+    const checkOverlap = (schedule: TimeSlot[]) => {
+        for (let i = 0; i < schedule.length; i++) {
+            for (let j = i + 1; j < schedule.length; j++) {
+                const s1 = schedule[i];
+                const s2 = schedule[j];
+                
+                if (s1.dayOfWeek === s2.dayOfWeek) {
+                    const start1 = parseInt(s1.startTime.replace(':', ''));
+                    const end1 = parseInt(s1.endTime.replace(':', ''));
+                    const start2 = parseInt(s2.startTime.replace(':', ''));
+                    const end2 = parseInt(s2.endTime.replace(':', ''));
+                    
+                    // Simple overlap check logic
+                    // (Start1 < End2) and (End1 > Start2)
+                    if (start1 < end2 && end1 > start2) {
+                        return true;
+                    }
                 }
-            } catch (e) {
-                // Ignore if creating new or no availability exists
             }
+        }
+        return false;
+    };
 
-            // 2. Save new schedule
+// Replace the handleSave function with this version:
+const handleSave = async () => {
+    if (!editedStaff || isSaving) return;
+    
+    // validate overlaps locally
+    if (checkOverlap(editedStaff.schedule)) {
+        alert("Error: The schedule contains overlapping time slots. Please correct them before saving.");
+        return;
+    }
+
+    setIsSaving(true); // Prevent multiple saves and show loading state
+
+    try {
+        const companyId = getCompanyIdFromToken(getToken() || "");
+        if (!companyId) {
+            alert("Error: Missing Company ID. Please log in again.");
+            setIsSaving(false);
+            return;
+        }
+
+        let staffId = editedStaff.id;
+
+        // CREATE or UPDATE Staff
+        if (editedStaff.id <= 0) {
+            const newStaff = await createStaff({
+                companyId,
+                firstName: editedStaff.firstName || "",
+                lastName: editedStaff.lastName || "",
+                email: editedStaff.email || "",
+                phone: editedStaff.phone,
+                serviceIds: editedStaff.services,
+                password: editedStaff.password || "Password123!" 
+            });
+            staffId = newStaff.id;
+        } else {
+            await updateStaff(editedStaff as any);
+        }
+        
+        // Availability Handling - Clear existing before creating new
+        if (staffId > 0 && editedStaff.schedule.length > 0) {
+            await deleteAllAvailabilityForStaff(staffId);
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // Save new schedule
             for (const slot of editedStaff.schedule) {
                 await createAvailability({
                     staffId: staffId,
@@ -208,25 +257,96 @@ const applyBulkSchedule = () => {
                     isAvailable: true,
                 });
             }
-            alert("Staff and schedule saved successfully!")
-
-            // Refresh staff list
-            const refreshed = await fetchStaff();
-            setStaff(refreshed);
-
-            // Reselect to update view
-            const updated = refreshed.find(s => s.id === staffId);
-            if (updated) {
-               // Reload full details
-               const currentTab = activeTab; 
-               await handleSelectStaff(updated);
-               setActiveTab(currentTab); 
-            }
-        } catch (err: any) {
-            console.error(err);
-            alert(`Failed to save staff: ${err.message}`);
+        } else if (staffId > 0 && editedStaff.schedule.length === 0) {
+            await deleteAllAvailabilityForStaff(staffId);
         }
-    };
+
+        const debugAvailability = await fetchStaffAvailability(staffId);
+console.log("DEBUG after save:", debugAvailability);
+
+        // Wait for data to settle
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Refresh staff list
+        const refreshed = await fetchStaff();
+        setStaff(refreshed);
+
+        // Reload the current staff member with fresh data
+        const updated = refreshed.find(s => s.id === staffId);
+        if (updated) {
+            const currentTab = activeTab;
+            
+            const availability = await fetchStaffAvailability(staffId);
+            const timeOffList = await fetchTimeOff(staffId);
+            
+            console.log("Reloaded availability:", availability);
+            
+            setTimeOffs(timeOffList);
+            setSelectedStaff(updated);
+            
+            const currentServices = updated.services as any[];
+            const serviceIds = Array.isArray(currentServices)
+                ? currentServices.map((s: any) => (typeof s === 'object' ? s.serviceId : s))
+                : [];
+
+            const dayMap: Record<string, number> = {
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
+};
+
+const scheduleData = availability.map((a: any) => ({
+  id: a.id.toString(),
+  dayOfWeek: typeof a.dayOfWeek === "string"
+    ? dayMap[a.dayOfWeek]
+    : a.dayOfWeek,
+  startTime: a.startTime.substring(0, 5),
+  endTime: a.endTime.substring(0, 5),
+}));
+
+
+            setEditedStaff({
+                ...updated,
+                services: serviceIds,
+                schedule: scheduleData,
+                role: ''
+            });
+            
+            setActiveTab(currentTab);
+        }
+
+        if (editedStaff.id <= 0) {
+            alert(`Staff member created successfully!\n\nIMPORTANT: Their temporary password is "${editedStaff.password || "Password123!"}".\nPlease share this with them so they can log in.`);
+        } else {
+            alert("Staff and schedule saved successfully!");
+        }
+
+    } catch (err: any) {
+        console.error("Save error:", err);
+        alert(`Failed to save staff: ${err.message}`);
+    } finally {
+        setIsSaving(false);
+    }
+};
+
+// Update the Save button to show loading state:
+// In the JSX, replace the save button with:
+<button
+    onClick={handleSave}
+    disabled={isSaving}
+    className={`flex items-center gap-2 px-6 py-2 rounded-lg transition-colors ${
+        isSaving 
+            ? 'bg-gray-400 cursor-not-allowed' 
+            : 'bg-indigo-600 hover:bg-indigo-700'
+    } text-white`}
+>
+    <Save className="w-5 h-5" />
+    {isSaving ? 'Saving...' : 'Save Changes'}
+</button>
 
     const handleDeleteStaff = async () => {
         if (!editedStaff || !confirm("Are you sure you want to remove this staff member? They will be marked as inactive.")) return;
@@ -288,6 +408,44 @@ const applyBulkSchedule = () => {
             schedule: editedStaff.schedule.filter((slot) => slot.id !== slotId),
         });
     };
+
+    const handleSaveTimeOff = async () => {
+        if (!editedStaff || !newTimeOff.start || !newTimeOff.end) {
+            alert("Please select start and end dates.");
+            return;
+        }
+        
+        try {
+            await createTimeOff({
+                staffId: editedStaff.id,
+                startDateTimeUtc: new Date(newTimeOff.start).toISOString(),
+                endDateTimeUtc: new Date(newTimeOff.end).toISOString(),
+                reason: newTimeOff.reason
+            });
+            
+            // Refresh
+            const updated = await fetchTimeOff(editedStaff.id);
+            setTimeOffs(updated);
+            setNewTimeOff({ start: '', end: '', reason: '' });
+            alert("Time Off added successfully");
+        } catch (e: any) {
+             alert(e.message);
+        }
+    };
+
+    const handleDeleteTimeOff = async (id: number) => {
+        if (!confirm("Remove this time off entry?")) return;
+        try {
+            await deleteTimeOff(id);
+             // Refresh
+             if (editedStaff) {
+                 const updated = await fetchTimeOff(editedStaff.id);
+                 setTimeOffs(updated);
+             }
+        } catch (e: any) {
+            alert(e.message);
+        }
+    }
 
     return (
         <div className="p-4 md:p-8">
@@ -394,6 +552,15 @@ const applyBulkSchedule = () => {
                                             }`}
                                     >
                                         Schedules
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('timeoff')}
+                                        className={`px-6 py-3 font-medium whitespace-nowrap ${activeTab === 'timeoff'
+                                                ? 'border-b-2 border-indigo-600 text-indigo-600'
+                                                : 'text-gray-600 hover:text-gray-800'
+                                            }`}
+                                    >
+                                        Time Off
                                     </button>
                                 </div>
                             </div>
@@ -655,6 +822,73 @@ const applyBulkSchedule = () => {
                                                     );
                                                 })}
                                             </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                            
+                                {activeTab === 'timeoff' && (
+                                    <div className="space-y-6">
+                                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                            <h3 className="font-semibold mb-3">Add Time Off</h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                                                <div>
+                                                    <label className="block text-sm text-gray-700 mb-1">Start Date & Time</label>
+                                                    <input 
+                                                        type="datetime-local" 
+                                                        className="w-full px-3 py-2 border rounded-lg"
+                                                        value={newTimeOff.start}
+                                                        onChange={e => setNewTimeOff({...newTimeOff, start: e.target.value})}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm text-gray-700 mb-1">End Date & Time</label>
+                                                    <input 
+                                                        type="datetime-local" 
+                                                        className="w-full px-3 py-2 border rounded-lg"
+                                                        value={newTimeOff.end}
+                                                        onChange={e => setNewTimeOff({...newTimeOff, end: e.target.value})}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="mb-3">
+                                                 <label className="block text-sm text-gray-700 mb-1">Reason</label>
+                                                 <input 
+                                                    type="text" 
+                                                    className="w-full px-3 py-2 border rounded-lg"
+                                                    placeholder="Vacation, Sick leave, etc."
+                                                    value={newTimeOff.reason}
+                                                    onChange={e => setNewTimeOff({...newTimeOff, reason: e.target.value})}
+                                                 />
+                                            </div>
+                                            <button 
+                                                onClick={handleSaveTimeOff}
+                                                className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700"
+                                            >
+                                                Add Time Off
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <h3 className="font-semibold">History</h3>
+                                            {timeOffs.length === 0 && <p className="text-gray-500 text-sm">No time off records.</p>}
+                                            {timeOffs.map(t => (
+                                                <div key={t.id} className="flex items-center justify-between p-3 border rounded-lg">
+                                                    <div>
+                                                        <div className="font-medium">
+                                                            {new Date(t.startDateTimeUtc).toLocaleString()} — {new Date(t.endDateTimeUtc).toLocaleString()}
+                                                        </div>
+                                                        <div className="text-sm text-gray-600">{t.reason || "No reason provided"}</div>
+                                                        <div className="text-xs text-gray-500 capitalize">Status: {t.status}</div>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => handleDeleteTimeOff(t.id)}
+                                                        className="text-red-600 hover:text-red-800 p-2"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 )}

@@ -7,40 +7,20 @@ interface EnhancedCalendarProps {
   onSelectDate: (date: Date) => void;
   selectedTime: string;
   onSelectTime: (time: string) => void;
+  timezone: string;
+  unavailableDates?: Date[];
+  timeSlots?: string[];
+  isLoadingSlots?: boolean;
 }
 
-const AVAILABLE_TIMES = [
-  "9:00am",
-  "9:30am",
-  "10:00am",
-  "10:30am",
-  "11:00am",
-  "11:30am",
-  "12:00pm",
-  "12:30pm",
-  "1:00pm",
-  "1:30pm",
-  "2:00pm",
-  "2:30pm",
-  "3:00pm",
-  "3:30pm",
-  "4:00pm",
-  "4:30pm",
-];
-
-const TIMEZONES = [
-  "India Standard Time",
-  "Eastern Standard Time",
-  "Pacific Standard Time",
-  "Greenwich Mean Time",
-];
-
-// Mock availability
-const getAvailabilityForDate = (date: Date) => {
-  const day = date.getDay();
-  if (day === 0 || day === 6)
-    return AVAILABLE_TIMES.slice(0, 5); // Weekends
-  return AVAILABLE_TIMES;
+// Helper to check if a date is unavailable
+const isDateUnavailable = (date: Date | null, unavailableDates: Date[] = []) => {
+  if (!date) return false;
+  return unavailableDates.some(unavailable => 
+    unavailable.getDate() === date.getDate() &&
+    unavailable.getMonth() === date.getMonth() &&
+    unavailable.getFullYear() === date.getFullYear()
+  );
 };
 
 export function EnhancedCalendar({
@@ -48,9 +28,12 @@ export function EnhancedCalendar({
   onSelectDate,
   selectedTime,
   onSelectTime,
+  timezone,
+  unavailableDates = [],
+  timeSlots = [],
+  isLoadingSlots = false,
 }: EnhancedCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [timezone, setTimezone] = useState(TIMEZONES[0]);
   const [direction, setDirection] = useState(0);
 
   const getDaysInMonth = (date: Date) => {
@@ -99,9 +82,7 @@ export function EnhancedCalendar({
     return date < today;
   };
 
-  const availableTimes = selectedDate
-    ? getAvailabilityForDate(selectedDate)
-    : [];
+
 
   const slideVariants = {
     enter: (direction: number) => ({
@@ -185,7 +166,8 @@ export function EnhancedCalendar({
                   selectedDate,
                 );
                 const isPast = isPastDate(date);
-                const isDisabled = !date || isPast;
+                const isUnavailable = isDateUnavailable(date, unavailableDates);
+                const isDisabled = !date || isPast || isUnavailable;
 
                 return (
                   <div
@@ -216,24 +198,14 @@ export function EnhancedCalendar({
               })}
             </div>
 
-            {/* Timezone Selector (Bottom Left) */}
+            {/* Timezone (Bottom Left) */}
             <div className="mt-8 pt-4">
               <label className="text-sm font-semibold text-gray-900 mb-2 block">
                 Time zone
               </label>
-              <div className="flex items-center gap-2 text-gray-600 hover:bg-gray-50 p-2 -ml-2 rounded cursor-pointer group">
+              <div className="flex items-center gap-2 text-gray-600 p-2 -ml-2 rounded">
                 <Globe className="w-4 h-4" />
-                <select
-                  value={timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
-                  className="text-sm bg-transparent border border-gray-300 focus:ring-0 cursor-pointer w-full text-gray-600 group-hover:text-gray-900"
-                >
-                  {TIMEZONES.map((tz) => (
-                    <option key={tz} value={tz}>
-                      {tz}
-                    </option>
-                  ))}
-                </select>
+                <span className="text-sm">{timezone}</span>
               </div>
             </div>
           </div>
@@ -257,28 +229,38 @@ export function EnhancedCalendar({
               </h3>
 
               <div className="space-y-3 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
-                {availableTimes.map((time, index) => {
-                  const isSelected = selectedTime === time;
-                  return (
-                    <motion.button
-                      key={time}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                      onClick={() => onSelectTime(time)}
-                      className={`
-                        w-full py-3 px-4 rounded-md border text-base font-bold transition-all
-                        ${
-                          isSelected
-                            ? "bg-gray-600 text-white border-gray-600"
-                            : "bg-white text-blue-600 border-blue-200 hover:border-blue-600 hover:ring-1 hover:ring-blue-600"
-                        }
-                      `}
-                    >
-                      {time}
-                    </motion.button>
-                  );
-                })}
+                {isLoadingSlots ? (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                  </div>
+                ) : timeSlots.length === 0 ? (
+                   <div className="text-center text-gray-500 py-8">
+                     No available slots for this date.
+                   </div>
+                ) : (
+                  timeSlots.map((time, index) => {
+                    const isSelected = selectedTime === time;
+                    return (
+                      <motion.button
+                        key={time}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        onClick={() => onSelectTime(time)}
+                        className={`
+                          w-full py-3 px-4 rounded-md border text-base font-bold transition-all
+                          ${
+                            isSelected
+                              ? "bg-gray-600 text-white border-gray-600"
+                              : "bg-white text-blue-600 border-blue-200 hover:border-blue-600 hover:ring-1 hover:ring-blue-600"
+                          }
+                        `}
+                      >
+                        {time}
+                      </motion.button>
+                    );
+                  })
+                )}
               </div>
             </motion.div>
           ) : (

@@ -1,7 +1,10 @@
+using Appointmentbookingsystem.Backend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using System.IO;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace Appointmentbookingsystem.Backend.Controllers
@@ -12,11 +15,13 @@ namespace Appointmentbookingsystem.Backend.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly IWebHostEnvironment _environment;
+        private readonly AppDbContext _context;
 
-        public SettingsController(IConfiguration configuration, IWebHostEnvironment environment)
+        public SettingsController(IConfiguration configuration, IWebHostEnvironment environment, AppDbContext context)
         {
             _configuration = configuration;
             _environment = environment;
+            _context = context;
         }
 
         /// <summary>
@@ -107,5 +112,52 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 return StatusCode(500, $"Failed to update currency: {ex.Message}");
             }
         }
+
+        // --- Timezone Methods ---
+
+        [HttpGet("timezone")]
+        public async Task<IActionResult> GetTimezone([FromQuery] int? companyId)
+        {
+            // If companyId not provided, try to get from token (if logged in)
+            if (!companyId.HasValue)
+            {
+               var claimId = User.FindFirst("CompanyId")?.Value;
+               if (!string.IsNullOrEmpty(claimId))
+                   companyId = int.Parse(claimId);
+            }
+
+            // Fallback for public booking if no ID (though booking usually knows companyId)
+            // If literally nothing, return UTC
+            if (!companyId.HasValue) 
+                return Ok(new { timezone = "UTC" });
+
+            var company = await _context.Companies.FindAsync(companyId.Value);
+            if (company == null) return NotFound("Company not found");
+
+            return Ok(new { timezone = company.Timezone });
+        }
+
+        [HttpPut("timezone")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UpdateTimezone([FromBody] UpdateTimezoneDto dto)
+        {
+           var claimId = User.FindFirst("CompanyId")?.Value;
+           if (string.IsNullOrEmpty(claimId)) return Unauthorized();
+
+           var companyId = int.Parse(claimId);
+           var company = await _context.Companies.FindAsync(companyId);
+
+           if (company == null) return NotFound("Company not found");
+
+           company.Timezone = dto.Timezone;
+           await _context.SaveChangesAsync();
+
+           return Ok(new { message = "Timezone updated", timezone = company.Timezone });
+        }
+    }
+
+    public class UpdateTimezoneDto
+    {
+        public string Timezone { get; set; } = "UTC";
     }
 }

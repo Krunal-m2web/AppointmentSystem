@@ -18,6 +18,20 @@ export interface CreateAppointmentRequest {
   notes?: string;
 }
 
+export interface UpdateAppointmentRequest {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  serviceId?: number;
+  staffId?: number | null;
+  startTime?: string;
+  meetingType?: string;
+  paymentMethod?: string;
+  status?: string;
+  notes?: string;
+}
+
 export interface AppointmentResponse {
   id: number;
   companyId: number;
@@ -102,6 +116,40 @@ export async function createAppointment(
 }
 
 /**
+ * Update an existing appointment
+ * Requires authentication token
+ */
+export async function updateAppointment(
+  id: number,
+  data: UpdateAppointmentRequest,
+  token: string
+): Promise<AppointmentResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/appointments/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    let errorMessage = errorData.message || errorData.title;
+    if (errorData.errors) {
+      errorMessage = Object.entries(errorData.errors)
+        .map(([key, val]) => `${(val as string[]).join(", ")}`)
+        .join("; ");
+    }
+    throw new Error(
+      errorMessage || `Failed to update appointment: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
  * Get appointments (admin/staff only)
  * Requires authentication token
  */
@@ -143,4 +191,27 @@ export async function getAppointments(
   }
 
   return response.json();
+}
+
+/**
+ * Delete an appointment
+ * Requires authentication token
+ */
+export async function deleteAppointment(
+  id: number,
+  token: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/appointments/${id}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      errorData.message || `Failed to delete appointment: ${response.status}`
+    );
+  }
 }

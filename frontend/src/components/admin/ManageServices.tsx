@@ -12,6 +12,36 @@ export function ManageServices() {
   const [editingService, setEditingService] = useState<Partial<Service>>({});
   const [loading, setLoading] = useState(false);
   const [defaultCurrency, setDefaultCurrency] = useState('USD');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    
+    if (!editingService.name?.trim()) {
+      errors.name = 'Service name is required';
+    } else if (editingService.name.trim().length < 3) {
+      errors.name = 'Service name must be at least 3 characters';
+    }
+
+    if (editingService.price === undefined || editingService.price === null) {
+      errors.price = 'Price is required';
+    } else if (editingService.price < 0) {
+      errors.price = 'Price cannot be negative';
+    }
+
+    if (!editingService.serviceDuration) {
+      errors.serviceDuration = 'Duration is required';
+    } else if (editingService.serviceDuration < 5) {
+      errors.serviceDuration = 'Minimum duration is 5 minutes';
+    }
+
+    if (editingService.description && editingService.description.length > 500) {
+      errors.description = 'Description cannot exceed 500 characters';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   useEffect(() => {
     loadInitialData();
@@ -47,11 +77,15 @@ export function ManageServices() {
       isActive: true,
       currency: defaultCurrency // Use the default currency
     });
+    setFormErrors({});
     setIsEditing(true);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateForm()) return;
+
     try {
       const companyId = getCompanyIdFromToken(getToken() || "");
       if (!companyId) throw new Error("Company ID not found");
@@ -69,10 +103,15 @@ export function ManageServices() {
       }
       setIsEditing(false);
       setEditingService({});
+      setFormErrors({});
       loadInitialData();
-    } catch (err) {
-      alert("Failed to save service");
-      console.error(err);
+    } catch (err: any) {
+      if (err.message?.includes("Service name already exists")) {
+        setFormErrors({ name: "Service name already exists in this company" });
+      } else {
+        alert(err.message || "Failed to save service");
+        console.error(err);
+      }
     }
   };
 
@@ -125,18 +164,42 @@ export function ManageServices() {
                 type="text"
                 required
                 value={editingService.name || ''}
-                onChange={e => setEditingService({...editingService, name: e.target.value})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                onChange={e => {
+                  setEditingService({...editingService, name: e.target.value});
+                  if (formErrors.name) {
+                    const newErrors = { ...formErrors };
+                    delete newErrors.name;
+                    setFormErrors(newErrors);
+                  }
+                }}
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${
+                  formErrors.name ? 'border-red-500' : 'border-gray-300'
+                }`}
               />
+              {formErrors.name && (
+                <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>
+              )}
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea
                 value={editingService.description || ''}
-                onChange={e => setEditingService({...editingService, description: e.target.value})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 h-24"
+                onChange={e => {
+                  setEditingService({...editingService, description: e.target.value});
+                  if (formErrors.description) {
+                    const newErrors = { ...formErrors };
+                    delete newErrors.description;
+                    setFormErrors(newErrors);
+                  }
+                }}
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 h-24 ${
+                  formErrors.description ? 'border-red-500' : 'border-gray-300'
+                }`}
               />
+              {formErrors.description && (
+                <p className="text-red-500 text-xs mt-1">{formErrors.description}</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -150,10 +213,22 @@ export function ManageServices() {
                      min="0"
                      step="1"
                      value={editingService.price ?? ''}
-                     onChange={e => setEditingService({...editingService, price: e.target.value === '' ? undefined : parseFloat(e.target.value)})}
-                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                     onChange={e => {
+                       setEditingService({...editingService, price: e.target.value === '' ? undefined : parseFloat(e.target.value)});
+                       if (formErrors.price) {
+                         const newErrors = { ...formErrors };
+                         delete newErrors.price;
+                         setFormErrors(newErrors);
+                       }
+                     }}
+                     className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${
+                       formErrors.price ? 'border-red-500' : 'border-gray-300'
+                     }`}
                    />
                  </div>
+                 {formErrors.price && (
+                   <p className="text-red-500 text-xs mt-1">{formErrors.price}</p>
+                 )}
                </div>
 
                <div>
@@ -166,10 +241,22 @@ export function ManageServices() {
                      min="5"
                      step="5"
                      value={editingService.serviceDuration ?? ''}
-                     onChange={e => setEditingService({...editingService, serviceDuration: e.target.value === '' ? undefined : parseInt(e.target.value)})}
-                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                     onChange={e => {
+                       setEditingService({...editingService, serviceDuration: e.target.value === '' ? undefined : parseInt(e.target.value)});
+                       if (formErrors.serviceDuration) {
+                         const newErrors = { ...formErrors };
+                         delete newErrors.serviceDuration;
+                         setFormErrors(newErrors);
+                       }
+                     }}
+                     className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${
+                       formErrors.serviceDuration ? 'border-red-500' : 'border-gray-300'
+                     }`}
                    />
                  </div>
+                 {formErrors.serviceDuration && (
+                   <p className="text-red-500 text-xs mt-1">{formErrors.serviceDuration}</p>
+                 )}
                </div>
             </div>
             

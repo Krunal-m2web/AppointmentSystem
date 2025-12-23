@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
         "target": "ESNext",
+        "types": ["vitest/globals"],
         "useDefineForClassFields": true,
         "lib": [
             "DOM",

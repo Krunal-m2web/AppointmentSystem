@@ -20,6 +20,11 @@ import { fetchStaffByService, StaffMemberDto } from '../services/staffService';
 import { getCurrencySymbol } from '../utils/currency';
 import { createAppointment, CreateAppointmentRequest } from '../services/appointmentApi';
 import '../styles/globals.css';
+import { combineDateTimeToUTC, formatDate, formatTime, getDateString, getTimeString } from "../utils/datetime";
+import { fetchAvailableSlots, fetchStaffTimeOffs, TimeSlotDto, TimeOffResponseDto } from '../services/availabilityService';
+
+
+
 
 interface BookingFormProps {
   onComplete: (details: any) => void;
@@ -93,6 +98,58 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   // Booking submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [companyTimezone, setCompanyTimezone] = useState("UTC");
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Availability state
+  const [unavailableDates, setUnavailableDates] = useState<Date[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+
+  const validateStep = () => {
+    const errors: Record<string, string> = {};
+    
+    switch (step) {
+      case 4: // Personal Details
+        if (!firstName.trim()) {
+          errors.firstName = 'First name is required';
+        } else if (firstName.trim().length < 2) {
+          errors.firstName = 'First name must be at least 2 characters';
+        }
+        
+        if (!lastName.trim()) {
+          errors.lastName = 'Last name is required';
+        } else if (lastName.trim().length < 2) {
+          errors.lastName = 'Last name must be at least 2 characters';
+        }
+        
+        if (!email.trim()) {
+          errors.email = 'Email is required';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          errors.email = 'Invalid email format';
+        }
+        
+        if (!phone.trim()) {
+          errors.phone = 'Phone number is required';
+        } else if (!/^[\d\s\-()+]{7,20}$/.test(phone.trim())) {
+          errors.phone = 'Invalid phone format';
+        }
+        break;
+      
+      case 2: // Details
+        if (!meetingType) {
+          errors.meetingType = 'Please select a meeting location';
+        }
+        
+        if (description && description.length > 500) {
+          errors.description = 'Description cannot exceed 500 characters';
+        }
+        break;
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   // Fetch services when component loads
   useEffect(() => {
@@ -115,6 +172,15 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         // Fetch services with dynamic currency from backend settings
         const data = await fetchServices(companyId);
         setServices(data);
+
+        // Fetch timezone
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
+        const tzRes = await fetch(`${API_BASE_URL}/api/settings/timezone?companyId=${companyId}`);
+        if(tzRes.ok) {
+            const tzData = await tzRes.json();
+            if(tzData.timezone) setCompanyTimezone(tzData.timezone);
+        }
+
       } catch (err) {
         console.error('Error loading services:', err);
         setServicesError('Failed to load services. Please refresh the page.');
@@ -157,6 +223,90 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     loadStaff();
   }, [selectedServiceId]); // Run when selected service changes
 
+  // Fetch Time Offs when staff changes
+  useEffect(() => {
+    const loadTimeOffs = async () => {
+      if (!selectedStaffId || selectedStaffId === -1) {
+        setUnavailableDates([]);
+        return;
+      }
+
+      try {
+        const timeOffs = await fetchStaffTimeOffs(selectedStaffId);
+        // Convert timeOffs to disabled dates
+        // Note: This logic disables the entire day if there's any time off. 
+        // For partial days, we should rely on slot availability, but visually blocking full days is good.
+        // If the backend returns start/end UTC, we ideally check if it covers the whole business day.
+        // For simplicity, if a timeOff spans a full day, we disable it.
+        const disabledDates: Date[] = [];
+        timeOffs.forEach((t) => {
+           const start = new Date(t.startDateTimeUtc);
+           const end = new Date(t.endDateTimeUtc);
+           
+           // Simple loop to add all days in range
+           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+              disabledDates.push(new Date(d));
+           }
+        });
+        setUnavailableDates(disabledDates);
+      } catch (err) {
+        console.error("Error loading time offs:", err);
+      }
+    };
+
+    loadTimeOffs();
+  }, [selectedStaffId]);
+
+  // Fetch Available Slots when date changes
+  useEffect(() => {
+    const loadSlots = async () => {
+      if (!selectedDate || !selectedServiceId || !selectedStaffId || selectedStaffId === -1) {
+        setAvailableSlots([]);
+        return;
+      }
+
+      try {
+        setSlotsLoading(true);
+        // Format date as YYYY-MM-DD
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        
+        const slots = await fetchAvailableSlots(selectedStaffId, selectedServiceId, dateStr);
+        
+        // Filter only available slots and extract times
+        // The backend returns TimeSlotDto { startTime: ISO, endTime: ISO, isAvailable: boolean }
+        // We need to display the time in HH:mm format (e.g., "9:00am")
+        // Since the backend returns UTC, we should convert to company timezone or local?
+        // Usually, the display "9:00am" implies the company's local time.
+        // Our formatTime util helps here if we pass the timezone.
+        
+        const formattedSlots = slots
+          .filter(s => s.isAvailable)
+          .map(s => {
+             // Convert ISO UTC string to formatted time string in company timezone
+             const date = new Date(s.startTime);
+             // Use our helper or built-in, but we need strictly "h:mm a" format to match existing UI style or similar
+             // formatTime(s.startTime, companyTimezone) returns something like "9:00 AM" if configured.
+             // Let's use standard JS for cleaner control if needed, or formatTime
+             return new Date(s.startTime).toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                timeZone: companyTimezone,
+                hour12: true
+             }).toLowerCase().replace(' ', ''); // "9:00am"
+          });
+          
+        setAvailableSlots(formattedSlots);
+      } catch (err) {
+        console.error("Error loading slots:", err);
+        setAvailableSlots([]);
+      } finally {
+        setSlotsLoading(false);
+      }
+    };
+
+    loadSlots();
+  }, [selectedDate, selectedServiceId, selectedStaffId, companyTimezone]);
+
   // Helper function to get the selected service object
   const getSelectedService = (): CustomerServiceDto | null => {
     if (selectedServiceId === null) return null;
@@ -182,8 +332,9 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   };
 
   const handleNext = () => {
-    if (canProceed()) {
+    if (canProceed() && validateStep()) {
       setStep(step + 1);
+      setFormErrors({}); // Clear errors when moving to next step
     }
   };
 
@@ -210,7 +361,7 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   
 
   const handleConfirm = async () => {
-    if (!canProceed()) return;
+    if (!canProceed() || !validateStep()) return;
     
     setIsSubmitting(true);
     setSubmitError(null);
@@ -230,22 +381,20 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         throw new Error('Please select a date');
       }
       
-      // Parse selected time (e.g., "10:00 AM" or "14:00")
-      const timeParts = selectedTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
-      if (!timeParts) {
-        throw new Error('Invalid time format');
-      }
-      
-      let hours = parseInt(timeParts[1], 10);
-      const minutes = parseInt(timeParts[2], 10);
-      const period = timeParts[3]?.toUpperCase();
-      
-      if (period === 'PM' && hours !== 12) hours += 12;
-      if (period === 'AM' && hours === 12) hours = 0;
-      
-      const startDateTime = new Date(selectedDate);
-      startDateTime.setHours(hours, minutes, 0, 0);
-      
+      if (!selectedDate || !selectedTime) {
+  throw new Error("Please select date and time");
+}
+
+// Convert Date → YYYY-MM-DD in company timezone
+const dateStr = getDateString(selectedDate, companyTimezone);
+
+// selectedTime already comes from calendar in HH:mm
+const startTimeUtc = combineDateTimeToUTC(
+  dateStr,
+  selectedTime,
+  companyTimezone // 🔥 critical
+);
+
       // Map payment method to backend enum
       const mapPaymentMethod = (method: string): 'Card' | 'Cash' | 'PayPal' => {
         if (method === 'Credit Card' || method === 'Debit Card') return 'Card';
@@ -262,19 +411,20 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         return 'InPerson';
       };
       
-      const request: CreateAppointmentRequest = {
-        companyId,
-        firstName,
-        lastName,
-        email,
-        phone,
-        serviceId: selectedServiceId!,
-        staffId: selectedStaffId === -1 ? null : selectedStaffId,
-        startTime: startDateTime.toISOString(),
-        meetingType: mapMeetingType(meetingType),
-        paymentMethod: mapPaymentMethod(paymentMethod),
-        notes: description || undefined,
-      };
+    const request: CreateAppointmentRequest = {
+  companyId,
+  firstName,
+  lastName,
+  email,
+  phone,
+  serviceId: selectedServiceId!,
+  staffId: selectedStaffId === -1 ? null : selectedStaffId,
+  startTime: startTimeUtc, // ✅ UTC only
+  meetingType: mapMeetingType(meetingType),
+  paymentMethod: mapPaymentMethod(paymentMethod),
+  notes: description || undefined,
+};
+
       
       const response = await createAppointment(request);
       
@@ -284,27 +434,32 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         ? { id: -1, fullName: 'Any Staff' } 
         : staffMembers.find(s => s.id === selectedStaffId);
       
-      const details = {
-        id: response.id,
-        serviceId: selectedServiceId,
-        serviceName: selectedService?.name || response.serviceName,
-        staffId: selectedStaffId,
-        staffName: response.staffName || selectedStaff?.fullName || 'To be assigned',
-        description,
-        location: meetingType,
-        meetingType,
-        date: selectedDate?.toLocaleDateString('en-US', { 
-          weekday: 'long', 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
-        }),
-        time: selectedTime,
-        price: `${getCurrencySymbolForService()}${response.price}`,
-        paymentMethod: paymentTiming === 'later' ? 'Pay Later' : paymentMethod,
-        paymentTiming,
-        status: response.status,
-      };
+     const details = {
+  id: response.id,
+  serviceId: selectedServiceId,
+  serviceName: selectedService?.name || response.serviceName,
+  staffId: selectedStaffId,
+  staffName:
+    response.staffName || selectedStaff?.fullName || "To be assigned",
+  description,
+  location: meetingType,
+  meetingType,
+
+  // ✅ ALWAYS format from UTC using company timezone
+  date: formatDate(startTimeUtc, companyTimezone, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }),
+  time: formatTime(startTimeUtc, companyTimezone),
+
+  price: `${getCurrencySymbolForService()}${response.price}`,
+  paymentMethod: paymentTiming === "later" ? "Pay Later" : paymentMethod,
+  paymentTiming,
+  status: response.status,
+};
+
       
       onComplete(details);
     } catch (error) {
@@ -456,11 +611,25 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                 </label>
                 <textarea
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    if (formErrors.description) {
+                      const newErrors = { ...formErrors };
+                      delete newErrors.description;
+                      setFormErrors(newErrors);
+                    }
+                  }}
                   placeholder="Tell us more about your requirements..."
                   rows={3}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                  maxLength={500}
+                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none ${
+                    formErrors.description ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
+                {formErrors.description && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.description}</p>
+                )}
+                <p className="text-gray-500 text-xs mt-1">{description.length}/500 characters</p>
               </div>
 
               <div>
@@ -472,11 +641,20 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                   {LOCATIONS.map((loc) => (
                     <button
                       key={loc.value}
-                      onClick={() => setMeetingType(loc.value)}
+                      onClick={() => {
+                        setMeetingType(loc.value);
+                        if (formErrors.meetingType) {
+                          const newErrors = { ...formErrors };
+                          delete newErrors.meetingType;
+                          setFormErrors(newErrors);
+                        }
+                      }}
                       className={`
                         p-3 rounded-lg border-2 transition-all text-center
                         ${meetingType === loc.value
                           ? 'border-indigo-600 bg-indigo-50'
+                          : formErrors.meetingType
+                          ? 'border-red-500 hover:border-red-400'
                           : 'border-gray-300 hover:border-indigo-300 bg-white'
                         }
                       `}
@@ -486,6 +664,9 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                     </button>
                   ))}
                 </div>
+                {formErrors.meetingType && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.meetingType}</p>
+                )}
               </div>
 
               {/* <div>
@@ -532,6 +713,10 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                 onSelectDate={setSelectedDate}
                 selectedTime={selectedTime}
                 onSelectTime={setSelectedTime}
+                timezone={companyTimezone}
+                unavailableDates={unavailableDates}
+                timeSlots={availableSlots}
+                isLoadingSlots={slotsLoading}
               />
             </div>
           )}
@@ -574,10 +759,22 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                     <input
                       type="text"
                       value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
+                      onChange={(e) => {
+                        setFirstName(e.target.value);
+                        if (formErrors.firstName) {
+                          const newErrors = { ...formErrors };
+                          delete newErrors.firstName;
+                          setFormErrors(newErrors);
+                        }
+                      }}
                       placeholder="John"
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                        formErrors.firstName ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     />
+                    {formErrors.firstName && (
+                      <p className="text-red-500 text-xs mt-1">{formErrors.firstName}</p>
+                    )}
                   </div>
                   <div>
                     <label className="block mb-2 text-gray-700">
@@ -586,10 +783,22 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                     <input
                       type="text"
                       value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
+                      onChange={(e) => {
+                        setLastName(e.target.value);
+                        if (formErrors.lastName) {
+                          const newErrors = { ...formErrors };
+                          delete newErrors.lastName;
+                          setFormErrors(newErrors);
+                        }
+                      }}
                       placeholder="Doe"
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                        formErrors.lastName ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     />
+                    {formErrors.lastName && (
+                      <p className="text-red-500 text-xs mt-1">{formErrors.lastName}</p>
+                    )}
                   </div>
                 </div>
 
@@ -600,10 +809,22 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                   <input
                     type="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/[^\d+]/g, ''))}
+                    onChange={(e) => {
+                      setPhone(e.target.value.replace(/[^\d+\s\-()]/g, ''));
+                      if (formErrors.phone) {
+                        const newErrors = { ...formErrors };
+                        delete newErrors.phone;
+                        setFormErrors(newErrors);
+                      }
+                    }}
                     placeholder="+1 (555) 123-4567"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formErrors.phone ? 'border-red-500' : 'border-gray-300'
+                    }`}
                   />
+                  {formErrors.phone && (
+                    <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>
+                  )}
                 </div>
 
                 <div>
@@ -613,10 +834,22 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                   <input
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (formErrors.email) {
+                        const newErrors = { ...formErrors };
+                        delete newErrors.email;
+                        setFormErrors(newErrors);
+                      }
+                    }}
                     placeholder="john.doe@example.com"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formErrors.email ? 'border-red-500' : 'border-gray-300'
+                    }`}
                   />
+                  {formErrors.email && (
+                    <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
+                  )}
                 </div>
               </div>
             </div>
