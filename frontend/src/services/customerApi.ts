@@ -43,11 +43,36 @@ const getAuthHeaders = () => {
   };
 };
 
+export interface CustomerQueryParams {
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortDirection?: string;
+  searchTerm?: string;
+}
+
+export interface PaginatedCustomerResponse {
+  customers: CustomerResponse[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
 export async function fetchCustomers(
-  search?: string
-): Promise<CustomerResponse[]> {
+  queryParams: CustomerQueryParams = {}
+): Promise<PaginatedCustomerResponse> {
   const params = new URLSearchParams();
-  if (search) params.append("search", search);
+  if (queryParams.page) params.append("page", queryParams.page.toString());
+  if (queryParams.pageSize)
+    params.append("pageSize", queryParams.pageSize.toString());
+  if (queryParams.sortBy) params.append("sortBy", queryParams.sortBy);
+  if (queryParams.sortDirection)
+    params.append("sortDirection", queryParams.sortDirection);
+  if (queryParams.searchTerm)
+    params.append("searchTerm", queryParams.searchTerm);
 
   const url = `${API_BASE_URL}/api/customer${
     params.toString() ? `?${params.toString()}` : ""

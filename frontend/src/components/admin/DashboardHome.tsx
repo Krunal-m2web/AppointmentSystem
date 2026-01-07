@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, User, TrendingUp, DollarSign, Filter, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
+import { Calendar, Clock, User, TrendingUp, DollarSign, Filter, ChevronDown, ExternalLink, Loader2, RefreshCw, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { AnalyticsChart } from './AnalyticsChart';
 import { MiniCalendar } from './MiniCalendar';
-import { getToken, getCompanyIdFromToken } from '../../utils/auth';
+import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
 import { AppointmentResponse, getAppointments } from '../../services/appointmentApi';
 import { fetchStaff } from '../../services/staffApi';
 import { fetchServices } from '../../services/serviceApi';
+import { getMyCompany } from '../../services/CompanyService';
+import { useTimezone } from '../../context/TimezoneContext';
+import { formatTime as centralFormatTime, getDateString, combineDateTimeToUTC } from '../../utils/datetime';
 
 // Types
 interface DashboardStats {
@@ -26,11 +29,22 @@ interface ServiceOption {
 }
 
 export function DashboardHome() {
+  const { timezone, refreshTimezone } = useTimezone();
   const [showStaffFilter, setShowStaffFilter] = useState(false);
   const [showServiceFilter, setShowServiceFilter] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<number[]>([]);
   const [selectedServices, setSelectedServices] = useState<number[]>([]);
-  const [dateRange, setDateRange] = useState('7days');
+  // Date & Pagination State
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(7);
+  const [listTotalCount, setListTotalCount] = useState(0);
+
+  const [dateRange, setDateRange] = useState('this_week');
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [companySlug, setCompanySlug] = useState<string | null>(null);
   
   // Data State
   const [stats, setStats] = useState<DashboardStats>({
@@ -43,6 +57,8 @@ export function DashboardHome() {
   const [upcomingAppointments, setUpcomingAppointments] = useState<AppointmentResponse[]>([]);
   const [chartData, setChartData] = useState<{ date: string; appointments: number; revenue: number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingList, setIsLoadingList] = useState(false); // Specific loader for the list
+  const [isLoadingChart, setIsLoadingChart] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   // Dynamic staff and services from API
@@ -62,7 +78,7 @@ export function DashboardHome() {
   };
 
   const formatTime = (isoString: string) => {
-    return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return centralFormatTime(isoString, timezone);
   };
 
   const getDuration = (start: string, end: string) => {
@@ -73,119 +89,95 @@ export function DashboardHome() {
     return `${minutes} min`;
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const token = getToken();
-        if (!token) {
-          throw new Error("Not authenticated");
-        }
+  const getRangeDates = (range: string, now: Date) => {
+    const start = new Date(now);
+    const end = new Date(now);
+    
+    // Normalize to start of day for calculations to avoid offsets
+    start.setHours(0,0,0,0);
+    end.setHours(23,59,59,999);
 
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+    if (range === 'this_week') {
+      const day = start.getDay(); // 0 is Sunday
+      const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday start
+      start.setDate(diff);
+      end.setDate(diff + 6); 
+    } else if (range === 'this_month') {
+      start.setDate(1);
+      end.setMonth(end.getMonth() + 1, 0); // Last day of month
+    } else if (range === 'this_year') {
+      start.setMonth(0, 1);
+      end.setMonth(11, 31);
+    } else if (range === 'custom' && customStartDate && customEndDate) {
+      const customStart = new Date(customStartDate);
+      const customEnd = new Date(customEndDate);
+      customStart.setHours(0,0,0,0);
+      customEnd.setHours(23,59,59,999);
+      return { start: customStart, end: customEnd };
+    }
+    
+    return { start, end };
+  };
 
-        // Fetch staff and services in parallel
-        const [staffData, servicesData] = await Promise.all([
-          fetchStaff().catch(() => []),
-          fetchServices().catch(() => [])
-        ]);
-        
-        setStaffList(staffData.map((s: any) => ({
-          id: s.id,
-          name: `${s.firstName} ${s.lastName}`
-        })));
-        
-        setServicesList(servicesData.map((s: any) => ({
-          id: s.id,
-          name: s.name
-        })));
+  // Helper for client-side filtering
+  const filterAppointments = (apts: AppointmentResponse[]) => {
+    return apts.filter(a => {
+        const staffMatch = selectedStaff.length === 0 || (a.staffId && selectedStaff.includes(a.staffId));
+        const serviceMatch = selectedServices.length === 0 || selectedServices.includes(a.serviceId);
+        return staffMatch && serviceMatch;
+    });
+  };
 
-        // 1. Fetch Today's Appointments
-        const todayRes = await getAppointments({
-          startDate: todayStart.toISOString(),
-          endDate: todayEnd.toISOString(),
-          pageSize: 30 
-        }, token);
-
-        // 2. Fetch Upcoming Appointments (Tomorrow onwards)
-        const tomorrow = new Date(todayEnd);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(0,0,0,0);
-        
-        const upcomingRes = await getAppointments({
-          startDate: tomorrow.toISOString(),
-          sortBy: 'date',
-          sortDirection: 'asc',
-          pageSize: 5
-        }, token);
-
-        // 3. Fetch specific counts (Total & Pending)
-        const totalRes = await getAppointments({ pageSize: 1 }, token);
-        const pendingRes = await getAppointments({ status: 'Pending', pageSize: 1 }, token);
-
-        // 4. Fetch Chart Data (Last 7 Days) for Revenue/History
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        sevenDaysAgo.setHours(0,0,0,0);
-        
-        const historyRes = await getAppointments({
-            startDate: sevenDaysAgo.toISOString(),
-            endDate: todayEnd.toISOString(),
-            pageSize: 30 
-        }, token);
-
-        // Process Chart Data & Revenue
-        const processedChart = processChartData(historyRes.appointments);
-        const totalRevenue = historyRes.appointments.reduce((sum, appt) => {
-          // Only count revenue for confirmed/completed appointments
-          if (appt.status === 'Confirmed' || appt.status === 'Completed') {
-            return sum + appt.price;
-          }
-          return sum;
-        }, 0);
-
-        setTodayAppointments(todayRes.appointments);
-        setUpcomingAppointments(upcomingRes.appointments);
-        setChartData(processedChart);
-        setStats({
-          totalAppointments: totalRes.totalCount,
-          pendingAppointments: pendingRes.totalCount,
-          todayCount: todayRes.totalCount,
-          revenue: totalRevenue
-        });
-
-      } catch (err: any) {
-        console.error("Dashboard fetch error:", err);
-        setError(err.message || "Failed to load dashboard data");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  const processChartData = (appointments: AppointmentResponse[]) => {
+  // Separated Fetch for List to handle pagination & selection independently if needed
+  // Merged into verify logic to ensure updates sync
+  
+  // FIX: Helper function defined BEFORE usage
+  const processChartData = (appointments: AppointmentResponse[], start: Date, end: Date) => {
     const dailyMap = new Map<string, { appointments: number; revenue: number }>();
     
-    // Initialize last 7 days with 0
-    for(let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        dailyMap.set(dateStr, { appointments: 0, revenue: 0 });
+    // Fill all dates in range
+    const curr = new Date(start);
+    const endCalc = new Date(end);
+    
+    while (curr <= endCalc) {
+        const dateStr = curr.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: timezone === 'UTC' ? 'UTC' : undefined });
+        
+        if (dateRange === 'this_year') {
+             // Group by Month for Year view
+             const monthStr = curr.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: timezone === 'UTC' ? 'UTC' : undefined });
+             if (!dailyMap.has(monthStr)) {
+                 dailyMap.set(monthStr, { appointments: 0, revenue: 0 });
+             }
+             // Increment day
+             curr.setDate(curr.getDate() + 1);
+        } else {
+             // Daily grouping
+             dailyMap.set(dateStr, { appointments: 0, revenue: 0 });
+             curr.setDate(curr.getDate() + 1);
+        }
     }
 
     appointments.forEach(appt => {
-        const dateStr = new Date(appt.startDateTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        if (dailyMap.has(dateStr)) {
-            const entry = dailyMap.get(dateStr)!;
+        const apptDate = new Date(appt.startDateTime);
+        let key = '';
+        
+        if (dateRange === 'this_year') {
+            key = apptDate.toLocaleDateString('en-US', { 
+                month: 'short', 
+                year: 'numeric',
+                timeZone: timezone === 'UTC' ? 'UTC' : undefined 
+            });
+        } else {
+            key = apptDate.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                timeZone: timezone === 'UTC' ? 'UTC' : undefined 
+            });
+        }
+
+        if (dailyMap.has(key)) {
+            const entry = dailyMap.get(key)!;
             entry.appointments += 1;
-            // Add revenue for non-cancelled appointments
             if (appt.status !== 'Cancelled') {
                 entry.revenue += appt.price;
             }
@@ -198,6 +190,177 @@ export function DashboardHome() {
         revenue: data.revenue
     }));
   };
+
+  const fetchData = async () => {
+    // Only set full loading on initial load
+    if (stats.totalAppointments === 0) setIsLoading(true);
+    
+    try {
+      const token = getToken();
+      if (!token) throw new Error("Not authenticated");
+
+      // Initialize timezone
+      await refreshTimezone();
+
+      const role = getRoleFromToken(token);
+      const userId = getUserIdFromToken(token);
+      
+      let apiStaffIds: number[] | undefined = undefined;
+      // If Staff, restrict to their ID. If Admin, use selected filters.
+      if (role === 'Staff' && userId) {
+          apiStaffIds = [userId];
+      } else if (selectedStaff.length > 0) {
+          apiStaffIds = selectedStaff;
+      }
+
+      const nowInCompanyTz = new Date(); 
+      
+      // Fetch metadata if needed
+      if (staffList.length === 0) {
+        const [staffData, servicesRaw, companyData] = await Promise.all([
+            fetchStaff().catch(() => []),
+            fetchServices().catch(() => []),
+            getMyCompany().catch(() => null)
+        ]);
+        
+        const servicesData = Array.isArray(servicesRaw) ? servicesRaw : (servicesRaw.items || []);
+
+        if (companyData?.slug) setCompanySlug(companyData.slug);
+        setStaffList(staffData.map((s: any) => ({ id: s.id, name: `${s.firstName} ${s.lastName}` })));
+        setServicesList(servicesData.map((s: any) => ({ id: s.id, name: s.name })));
+      }
+        // 1. Fetch Selected Date Appointments with BUFFER
+      // We fetch -1 day and +1 day to ensure we catch all appointments regardless of timezone usage
+      // and then strictly filter client-side for the "Formatted Date" matching "Selected Date"
+      
+      // FIX: Use naive local date string to preserve user's intended date selection
+      // (Browser Date -> "YYYY-MM-DD" regardless of timezone shift)
+      const selectedDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
+      
+      // Calculate buffer strings naively as well to ensure consistent range
+      const prevDate = new Date(selectedDate);
+      prevDate.setDate(prevDate.getDate() - 1);
+      const prevDateStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
+
+      const nextDate = new Date(selectedDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+      const nextDateStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-${String(nextDate.getDate()).padStart(2, '0')}`;
+
+      const bufferStartUtc = combineDateTimeToUTC(prevDateStr, "00:00", timezone);
+      const bufferEndUtc = combineDateTimeToUTC(nextDateStr, "23:59", timezone);
+
+      const dailyRes = await getAppointments({
+        startDate: bufferStartUtc,
+        endDate: bufferEndUtc,
+        pageSize: 100, // Increase page size to accommodate buffer
+        sortBy: 'date',
+        sortDirection: 'asc',
+        staffIds: apiStaffIds
+      }, token);
+
+      // STRICT CLIENT-SIDE FILTER & SORT
+      const filteredDaily = filterAppointments(dailyRes.appointments)
+        .filter(apt => {
+            // Only keep appointments where the formatted date (in current timezone) matches the selected date
+            const aptDateStr = getDateString(new Date(apt.startDateTime), timezone);
+            return aptDateStr === selectedDateStr;
+        })
+        .sort((a, b) => {
+             // Explicit chronological sort
+             return new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime();
+        });
+
+      const totalFiltered = filteredDaily.length;
+      
+      // Calculate pagination slice
+      const startIndex = (listPage - 1) * listPageSize;
+      const paginatedDaily = filteredDaily.slice(startIndex, startIndex + listPageSize);
+
+      setTodayAppointments(paginatedDaily);
+      setListTotalCount(totalFiltered);
+      setIsLoadingList(false);
+
+
+      // 2. Fetch Upcoming (Tomorrow onwards)
+      const tomorrowDate = new Date(nowInCompanyTz);
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrowStr = getDateString(tomorrowDate, timezone);
+      const tomorrowStartUtc = combineDateTimeToUTC(tomorrowStr, "00:00", timezone);
+      
+      const upcomingRes = await getAppointments({
+        startDate: tomorrowStartUtc,
+        sortBy: 'date',
+        sortDirection: 'asc',
+        pageSize: 50,
+        staffIds: apiStaffIds
+      }, token);
+
+      const filteredUpcoming = filterAppointments(upcomingRes.appointments).slice(0, 5);
+
+      // 3. Counts (Global)
+      const totalRes = await getAppointments({ pageSize: 1, staffIds: apiStaffIds }, token);
+      const pendingRes = await getAppointments({ status: 'Pending', pageSize: 1, staffIds: apiStaffIds }, token);
+
+      // 4. Chart Data
+      setIsLoadingChart(true);
+      const { start: rangeStart, end: rangeEnd } = getRangeDates(dateRange, nowInCompanyTz);
+      
+      const startStr = getDateString(rangeStart, timezone);
+      const endStr = getDateString(rangeEnd, timezone); 
+      
+      const historyStartUtc = combineDateTimeToUTC(startStr, "00:00", timezone);
+      const historyEndUtc = combineDateTimeToUTC(endStr, "23:59", timezone);
+
+      const historyRes = await getAppointments({
+          startDate: historyStartUtc,
+          endDate: historyEndUtc,
+          pageSize: 1000,
+          staffIds: apiStaffIds
+      }, token);
+
+      const filteredHistory = filterAppointments(historyRes.appointments);
+      const processedChart = processChartData(filteredHistory, rangeStart, rangeEnd);
+      
+      const totalRevenue = filteredHistory.reduce((sum, appt) => {
+        if (appt.status === 'Confirmed' || appt.status === 'Completed') {
+          return sum + appt.price;
+        }
+        return sum;
+      }, 0);
+
+      setUpcomingAppointments(filteredUpcoming);
+      setChartData(processedChart);
+      setStats({
+        totalAppointments: totalRes.totalCount,
+        pendingAppointments: pendingRes.totalCount,
+        todayCount: filteredDaily.length, // Show count for the SELECTED day
+        revenue: totalRevenue 
+      });
+
+    } catch (err: any) {
+      console.error("Dashboard fetch error:", err);
+      setError(err.message || "Failed to load dashboard data");
+    } finally {
+      setIsLoading(false);
+      setIsLoadingList(false);
+      setIsLoadingChart(false);
+    }
+  };
+
+  // Reset page when date changes
+  useEffect(() => {
+     setListPage(1);
+  }, [selectedDate]);
+
+  useEffect(() => {
+    fetchData();
+  }, [timezone, dateRange, selectedStaff, selectedServices, selectedDate, listPage, listPageSize, customStartDate, customEndDate]);
+
+  const handleRefresh = () => {
+    fetchData();
+  };
+
+
 
   if (isLoading) {
     return (
@@ -233,8 +396,15 @@ export function DashboardHome() {
            <p className="text-gray-600 mt-1">Welcome back! Here's what's happening today.</p>
         </div>
         <div className="flex gap-3">
+            <button
+              onClick={handleRefresh}
+              className="p-2 bg-white text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+              title="Refresh Dashboard"
+            >
+              <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
             <a 
-              href={`/?companyId=${getCompanyIdFromToken(getToken() || '')}`} 
+              href={companySlug ? `/book/${companySlug}` : `/?companyId=${getCompanyIdFromToken(getToken() || '')}`} 
               target="_blank" 
               rel="noopener noreferrer"
               className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
@@ -242,10 +412,10 @@ export function DashboardHome() {
               <ExternalLink className="w-4 h-4" />
               View Booking Page
             </a>
-            <div className="bg-indigo-50 px-4 py-2 rounded-lg border border-indigo-100">
+            {/* <div className="bg-indigo-50 px-4 py-2 rounded-lg border border-indigo-100">
               <p className="text-xs text-indigo-600 font-semibold uppercase tracking-wider">Company ID</p>
               <p className="text-xl font-bold text-indigo-700">{getCompanyIdFromToken(getToken() || '')}</p>
-            </div>
+            </div> */}
         </div>
       </div>
 
@@ -290,7 +460,7 @@ export function DashboardHome() {
         <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Revenue (7 Days)</p>
+              <p className="text-sm text-gray-600">Revenue ({dateRange === 'this_week' ? 'Week' : dateRange === 'this_month' ? 'Month' : dateRange === 'this_year' ? 'Year' : 'Custom'})</p>
               <p className="text-2xl font-bold mt-2">${stats.revenue.toLocaleString()}</p>
             </div>
             <div className="bg-purple-100 p-3 rounded-lg">
@@ -306,16 +476,80 @@ export function DashboardHome() {
           <h2 className="text-lg md:text-xl font-semibold">Analytics</h2>
           <div className="flex flex-wrap items-center gap-3">
             {/* Date Range */}
-            <select
-              value={dateRange}
-              onChange={(e) => setDateRange(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="7days">Last 7 Days</option>
-            </select>
+            <div className="relative">
+              <select
+                value={dateRange}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDateRange(val);
+                  if (val === 'custom') {
+                    setShowCustomDatePicker(true);
+                  } else {
+                    setShowCustomDatePicker(false);
+                  }
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="this_week">This Week</option>
+                <option value="this_month">This Month</option>
+                <option value="this_year">This Year</option>
+                <option value="custom">Custom</option>
+              </select>
+              
+              {/* Custom Date Range Picker */}
+              {showCustomDatePicker && dateRange === 'custom' && (
+                <div className="absolute right-0 mt-2 bg-white border border-gray-300 rounded-lg shadow-lg z-20 p-4 min-w-[300px]">
+                  <div className="flex items-center gap-2 mb-3">
+                    <CalendarDays className="w-5 h-5 text-indigo-600" />
+                    <span className="font-medium text-gray-700">Custom Date Range</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Start Date</label>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">End Date</label>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        onClick={() => setShowCustomDatePicker(false)}
+                        className="flex-1 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (customStartDate && customEndDate) {
+                            setShowCustomDatePicker(false);
+                            // Trigger refetch by changing state
+                          } else {
+                            alert('Please select both start and end dates');
+                          }
+                        }}
+                        className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Staff Filter - Dynamic */}
-            {staffList.length > 0 && (
+            {staffList.length > 0 && !(getRoleFromToken(getToken() || '') === 'Staff') && (
               <div className="relative">
                 <button
                   onClick={() => setShowStaffFilter(!showStaffFilter)}
@@ -386,29 +620,67 @@ export function DashboardHome() {
 
         {/* Appointments & Revenue Chart */}
         <div>
-          <h3 className="text-md font-medium text-gray-700 mb-4">Appointments & Revenue (Last 7 Days)</h3>
-          <AnalyticsChart data={chartData} />
+          <h3 className="text-md font-medium text-gray-700 mb-4">
+            Appointments & Revenue 
+            <span className="text-gray-400 font-normal ml-2 text-sm">
+                ({dateRange === 'this_week' ? 'This Week' : dateRange === 'this_month' ? 'This Month' : dateRange === 'this_year' ? 'This Year' : `${customStartDate} to ${customEndDate}`})
+            </span>
+          </h3>
+          {isLoadingChart ? (
+             <div className="h-[300px] flex items-center justify-center bg-gray-50 rounded-lg">
+                 <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+             </div>
+          ) : (
+            <AnalyticsChart data={chartData} />
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
         {/* Today's Appointments */}
-        <div className="lg:col-span-2">
+        <div  style={{height: '888px'}}  className="lg:col-span-2">
           <div className="bg-white rounded-lg shadow">
-            <div className="p-4 md:p-6 border-b border-gray-200">
-              <h2 className="text-lg md:text-xl font-semibold">Today's Appointments</h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {new Date().toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </p>
+            <div className="p-4 md:p-6 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                  <h2 className="text-lg md:text-xl font-semibold">
+                    Appointments for {String(selectedDate.getMonth() + 1).padStart(2, '0')}/{String(selectedDate.getDate()).padStart(2, '0')}/{selectedDate.getFullYear()}
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                      {listTotalCount} appointment{listTotalCount !== 1 ? 's' : ''} found
+                  </p>
+              </div>
+              
+              {/* Pagination Controls */}
+              {listTotalCount > listPageSize && (
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setListPage(p => Math.max(1, p - 1))}
+                        disabled={listPage === 1 || isLoadingList}
+                        className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+                    >
+                        <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <span className="text-sm text-gray-600">
+                        {listPage} / {Math.ceil(listTotalCount / listPageSize)}
+                    </span>
+                    <button
+                        onClick={() => setListPage(p => Math.min(Math.ceil(listTotalCount / listPageSize), p + 1))}
+                        disabled={listPage >= Math.ceil(listTotalCount / listPageSize) || isLoadingList}
+                        className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+                    >
+                        <ChevronRight className="w-5 h-5" />
+                    </button>
+                </div>
+              )}
             </div>
+            
             <div className="p-4 md:p-6 space-y-4">
-              {todayAppointments.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No appointments scheduled for today.</p>
+              {isLoadingList ? (
+                 <div className="flex justify-center py-8">
+                     <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                 </div>
+              ) : todayAppointments.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No appointments scheduled for this date.</p>
               ) : (
                 todayAppointments.map((appointment) => (
                 <div
@@ -461,11 +733,11 @@ export function DashboardHome() {
           {/* Mini Calendar */}
           <div className="bg-white rounded-lg shadow p-4 md:p-6">
             <h3 className="text-lg font-semibold mb-4">Calendar</h3>
-            <MiniCalendar />
+            <MiniCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
           </div>
 
           {/* Upcoming Appointments */}
-          <div className="bg-white rounded-lg shadow">
+          {/* <div className="bg-white rounded-lg shadow">
             <div className="p-4 md:p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold">Upcoming Appointments</h3>
             </div>
@@ -484,7 +756,7 @@ export function DashboardHome() {
                 </div>
               )))}
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>

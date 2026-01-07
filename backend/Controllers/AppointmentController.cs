@@ -4,19 +4,24 @@ using Appointmentbookingsystem.Backend.Models.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Appointmentbookingsystem.Backend.Services; // Added for IEmailService
+using Appointmentbookingsystem.Backend.DTOs; // Assuming AppointmentDto is here
+using System.Text; // Added for StringBuilder
 
 namespace Appointmentbookingsystem.Backend.Controllers
 {
-    [Route("api/appointments")]
+    [Route("api/appointments")] // Changed route
     [ApiController]
     public class AppointmentController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
 
-        public AppointmentController(AppDbContext context, IConfiguration configuration)
+        public AppointmentController(AppDbContext context, IEmailService emailService, IConfiguration configuration)
         {
             _context = context;
+            _emailService = emailService;
             _configuration = configuration;
         }
 
@@ -56,9 +61,25 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             }
 
             // Filter by staff if provided
-            if (query.StaffId.HasValue)
+            if (query.StaffIds != null && query.StaffIds.Any())
+            {
+                 appointmentsQuery = appointmentsQuery.Where(a => a.StaffId.HasValue && query.StaffIds.Contains(a.StaffId.Value));
+            }
+            else if (query.StaffId.HasValue)
             {
                 appointmentsQuery = appointmentsQuery.Where(a => a.StaffId == query.StaffId.Value);
+            }
+
+            // Filter by SearchTerm
+            if (!string.IsNullOrEmpty(query.SearchTerm))
+            {
+                var lowerTerm = query.SearchTerm.ToLower();
+                appointmentsQuery = appointmentsQuery.Where(a => 
+                    a.Customer.FirstName.ToLower().Contains(lowerTerm) || 
+                    a.Customer.LastName.ToLower().Contains(lowerTerm) || 
+                    a.Customer.Email.ToLower().Contains(lowerTerm) ||
+                    a.Service.Name.ToLower().Contains(lowerTerm)
+                );
             }
 
             // Filter by customer if provided
@@ -103,9 +124,17 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                     ? appointmentsQuery.OrderBy(a => a.Service.Name)
                     : appointmentsQuery.OrderByDescending(a => a.Service.Name),
 
+                "staff" => query.SortDirection.ToLower() == "asc"
+                    ? appointmentsQuery.OrderBy(a => a.Staff.FirstName)
+                    : appointmentsQuery.OrderByDescending(a => a.Staff.FirstName),
+
                 "status" => query.SortDirection.ToLower() == "asc"
                     ? appointmentsQuery.OrderBy(a => a.Status)
                     : appointmentsQuery.OrderByDescending(a => a.Status),
+
+                "id" => query.SortDirection.ToLower() == "asc"
+                    ? appointmentsQuery.OrderBy(a => a.Id)
+                    : appointmentsQuery.OrderByDescending(a => a.Id),
 
                 _ => query.SortDirection.ToLower() == "asc"
                     ? appointmentsQuery.OrderBy(a => a.StartDateTimeUtc)
@@ -250,13 +279,62 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             }
             else
             {
-                // Auto-assign: Find any available staff for this service
-                assignedStaff = await _context.Staff
+                // Auto-assign: Find available staff using LOAD BALANCING strategy
+                // 1. Get all staff who can provide this service
+                var candidates = await _context.Staff
                     .Include(s => s.StaffServices)
                     .Where(s => s.CompanyId == companyId && 
                                 s.IsActive && 
                                 s.StaffServices.Any(ss => ss.ServiceId == dto.ServiceId && ss.IsActive))
-                    .FirstOrDefaultAsync();
+                    .ToListAsync();
+
+                if (!candidates.Any())
+                    return Conflict(new { message = "No staff members are available for this service." });
+
+                // 2. Filter candidates who are actually available at this time
+                var availableCandidates = new List<Staff>();
+                DateTime appointmentEnd = dto.StartTime.AddMinutes(service.ServiceDuration);
+
+                foreach (var candidate in candidates)
+                {
+                    if (await IsSlotAvailableForBooking(candidate.Id, dto.StartTime, appointmentEnd))
+                    {
+                        availableCandidates.Add(candidate);
+                    }
+                }
+
+                if (!availableCandidates.Any())
+                {
+                    return Conflict(new
+                    {
+                        message = "No staff members are available at this time.",
+                        suggestion = "Please select a different time slot."
+                    });
+                }
+
+                // 3. LOAD BALANCING: Pick the candidate with the FEWEST appointments on this day
+                var candidateIds = availableCandidates.Select(s => s.Id).ToList();
+                
+                var appointmentCounts = await _context.Appointments
+                    .Where(a => candidateIds.Contains(a.StaffId.Value) && // StaffId is nullable in Appointment
+                                a.StartDateTimeUtc.Date == dto.StartTime.Date &&
+                                a.Status != AppointmentStatus.Cancelled)
+                    .GroupBy(a => a.StaffId)
+                    .Select(g => new { StaffId = g.Key, Count = g.Count() })
+                    .ToListAsync();
+
+                // Join counts with candidates
+                var candidatesWithCounts = availableCandidates.Select(staff => new 
+                { 
+                    Staff = staff, 
+                    Count = appointmentCounts.FirstOrDefault(ac => ac.StaffId == staff.Id)?.Count ?? 0 
+                })
+                .OrderBy(x => x.Count) // Prioritize fewest appointments
+                .ThenBy(x => Guid.NewGuid()) // Random tie-breaker
+                .ToList();
+
+                // Pick the winner
+                assignedStaff = candidatesWithCounts.First().Staff;
             }
 
             // STEP 5: CALCULATE END TIME
@@ -338,6 +416,50 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 await _context.Entry(appointment).Reference(a => a.Staff).LoadAsync();
             }
 
+            // STEP 9: SEND EMAIL NOTIFICATIONS
+            try 
+            {
+                var company = await _context.Companies.FindAsync(companyId);
+                
+                // Only send if email service is enabled
+                if (company != null && company.IsEmailServiceEnabled) {
+                     Console.WriteLine($"[Email Debug] Attempting to send email to {customer.Email}");
+                     var emailSubject = $"Appointment Confirmation - {service.Name}";
+                     // ... (rest of body construction)
+                     var emailBody = $@"
+                        <h2>Appointment Confirmed</h2>
+                        <p>Dear {customer.FirstName},</p>
+                        <p>Your appointment for <strong>{service.Name}</strong> has been confirmed.</p>
+                        <ul>
+                            <li><strong>Date:</strong> {appointment.StartDateTimeUtc:D}</li>
+                            <li><strong>Time:</strong> {appointment.StartDateTimeUtc:t} UTC</li>
+                            <li><strong>Staff:</strong> {(assignedStaff != null ? assignedStaff.FirstName + " " + assignedStaff.LastName : "Unassigned")}</li>
+                        </ul>
+                        <p>Thank you,<br/>{company.CompanyName}</p>
+                     ";
+
+                     // Send to Customer
+                     await _emailService.SendEmailAsync(
+                         customer.Email, 
+                         emailSubject, 
+                         emailBody, 
+                         company.DefaultSenderName ?? company.CompanyName,
+                         company.DefaultReplyToEmail,
+                         companyId
+                     );
+                     Console.WriteLine($"[Email Debug] Email log created for {customer.Email}");
+                }
+                else
+                {
+                    Console.WriteLine($"[Email Debug] Skipped sending email. CompanyFound: {company != null}, IsEnabled: {company?.IsEmailServiceEnabled}");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't fail the request
+                Console.WriteLine($"Failed to send email: {ex.Message}");
+            }
+
             // STEP 9: BUILD AND RETURN RESPONSE
             var response = new AppointmentResponseDto
             {
@@ -396,7 +518,35 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             {
                  if (Enum.TryParse<AppointmentStatus>(dto.Status, true, out var status))
                  {
-                     appointment.Status = status;
+                      // Detect Cancellation
+                      if (status == AppointmentStatus.Cancelled && appointment.Status != AppointmentStatus.Cancelled)
+                      {
+                        // Check if cancellation notification is enabled
+                        var config = await _context.NotificationConfigs
+                            .FirstOrDefaultAsync(c => c.CompanyId == companyId && c.Type == "appointmentCancellation" && c.IsEnabled);
+                            
+                        if (config != null)
+                        {
+                             var company = await _context.Companies.FindAsync(companyId);
+                             string subject = config.Subject ?? "Appointment Cancelled";
+                             string body = config.Body ?? "Your appointment has been cancelled.";
+                             
+                             // Simple template replacement
+                             body = body.Replace("{{customerName}}", appointment.Customer.FirstName + " " + appointment.Customer.LastName)
+                                        .Replace("{{serviceName}}", appointment.Service.Name)
+                                        .Replace("{{dateTime}}", appointment.StartDateTimeUtc.ToString("g"));
+
+                             await _emailService.SendEmailAsync(
+                                 appointment.Customer.Email,
+                                 subject,
+                                 body,
+                                 company?.CompanyName ?? "System",
+                                 company?.DefaultReplyToEmail,
+                                 companyId
+                             );
+                        }
+                      }
+                      appointment.Status = status;
                  }
                  else
                  {

@@ -59,6 +59,12 @@ export async function createStaff(data: {
 }
 
 export async function updateStaff(staff: Staff): Promise<Staff> {
+  const password =
+    typeof (staff as any).password === "string" &&
+    (staff as any).password.trim().length >= 6
+      ? (staff as any).password.trim()
+      : undefined;
+
   const payload = {
     firstName: staff.firstName,
     lastName: staff.lastName,
@@ -72,6 +78,7 @@ export async function updateStaff(staff: Staff): Promise<Staff> {
           typeof s === "object" ? s.serviceId : s
         )
       : [],
+    ...(password ? { password } : {}), // ✅ only send when valid
   };
 
   const response = await fetch(`${API_BASE_URL}/api/staff/${staff.id}`, {

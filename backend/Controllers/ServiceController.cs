@@ -19,27 +19,56 @@ namespace Appointmentbookingsystem.Backend.Controllers
         }
 
         /// <summary>
-        /// GET /api/services - Get all services (optionally filtered by company and currency)
+        /// GET /api/services - Get all services (paginated)
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll(
-            [FromQuery] int? companyId,
-            [FromQuery] string currency = "USD")
+        public async Task<ActionResult<PaginatedServiceResponseDto>> GetAll([FromQuery] GetServiceQueryDto queryDto)
         {
-            currency = currency.ToUpperInvariant();
+            var currency = (queryDto.Currency ?? "USD").ToUpperInvariant();
 
             var query = _context.Services
                 .Include(s => s.Prices)
                 .Where(s => s.IsActive);
 
-            if (companyId.HasValue)
+            if (queryDto.CompanyId.HasValue)
             {
-                query = query.Where(s => s.CompanyId == companyId.Value);
+                query = query.Where(s => s.CompanyId == queryDto.CompanyId.Value);
             }
 
-            var services = await query.ToListAsync();
+            // Search
+            if (!string.IsNullOrWhiteSpace(queryDto.SearchTerm))
+            {
+                var term = queryDto.SearchTerm.ToLower();
+                query = query.Where(s => 
+                    s.Name.ToLower().Contains(term) || 
+                    (s.Description != null && s.Description.ToLower().Contains(term)));
+            }
 
-            var result = services.Select(s =>
+            // Sort
+            query = queryDto.SortBy.ToLower() switch
+            {
+                "price" => queryDto.SortDirection.ToLower() == "asc"
+                    ? query.OrderBy(s => s.Prices.FirstOrDefault(p => p.Currency == currency)!.Amount) // Simple sort, improves needed for robust null handling
+                    : query.OrderByDescending(s => s.Prices.FirstOrDefault(p => p.Currency == currency)!.Amount),
+                "duration" => queryDto.SortDirection.ToLower() == "asc"
+                    ? query.OrderBy(s => s.ServiceDuration)
+                    : query.OrderByDescending(s => s.ServiceDuration),
+                _ => queryDto.SortDirection.ToLower() == "asc"
+                    ? query.OrderBy(s => s.Name)
+                    : query.OrderByDescending(s => s.Name)
+            };
+
+            // Pagination
+            var totalCount = await query.CountAsync();
+            var totalPages = (int)Math.Ceiling(totalCount / (double)queryDto.PageSize);
+            var skip = (queryDto.Page - 1) * queryDto.PageSize;
+
+            var services = await query
+                .Skip(skip)
+                .Take(queryDto.PageSize)
+                .ToListAsync();
+
+            var serviceDtos = services.Select(s =>
             {
                 var price = s.Prices.FirstOrDefault(p => p.Currency == currency);
 
@@ -52,7 +81,18 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     Price = price?.Amount ?? s.Price,
                     ServiceDuration = s.ServiceDuration
                 };
-            });
+            }).ToList();
+
+            var result = new PaginatedServiceResponseDto
+            {
+                Items = serviceDtos,
+                TotalCount = totalCount,
+                Page = queryDto.Page,
+                PageSize = queryDto.PageSize,
+                TotalPages = totalPages,
+                HasNextPage = queryDto.Page < totalPages,
+                HasPreviousPage = queryDto.Page > 1
+            };
 
             return Ok(result);
         }

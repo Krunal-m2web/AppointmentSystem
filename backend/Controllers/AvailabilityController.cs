@@ -363,6 +363,124 @@ namespace Appointmentbookingsystem.Backend.Controllers
         }
 
         /// <summary>
+        /// GET /api/availability/service/{serviceId}/slots?date=2025-12-15
+        /// Returns valid time slots where AT LEAST ONE staff member is available
+        /// </summary>
+        [HttpGet("service/{serviceId}/slots")]
+        public async Task<ActionResult<List<TimeSlotDto>>> GetAnyStaffSlots(
+            int serviceId,
+            [FromQuery] DateTime date,
+            [FromQuery] int? companyId = null)
+        {
+            // Don't allow booking in the past
+            if (date.Date < DateTime.UtcNow.Date)
+                return BadRequest("Cannot book appointments in the past.");
+
+            // Get Service to find CompanyId if not provided
+            var service = await _context.Services.FindAsync(serviceId);
+            if (service == null || !service.IsActive)
+                return NotFound("Service not found or inactive.");
+
+            int cid = companyId ?? service.CompanyId;
+
+            // 1. Find all active staff who provide this service
+            var eligibleStaffIds = await _context.StaffServices
+                .Include(ss => ss.Staff)
+                .Where(ss => 
+                    ss.ServiceId == serviceId && 
+                    ss.IsActive && 
+                    ss.Staff.IsActive && 
+                    ss.Staff.CompanyId == cid)
+                .Select(ss => ss.StaffId)
+                .ToListAsync();
+
+            if (!eligibleStaffIds.Any())
+                return Ok(new List<TimeSlotDto>());
+
+            // 2. Collect all slots from all staff
+            var allSlots = new List<TimeSlotDto>();
+
+            // We can reuse the logic from GetAvailableSlots by calling it for each staff
+            // But for performance, we should probably refactor the logic.
+            // For now, let's just loop locally since we have the DB context.
+            
+            // Shared data for efficiency
+            var dayOfWeek = date.DayOfWeek;
+
+            foreach (var staffId in eligibleStaffIds)
+            {
+                // A. Check Staff Availability Rule
+                var availability = await _context.Availabilities
+                    .FirstOrDefaultAsync(a => 
+                        a.StaffId == staffId && 
+                        a.DayOfWeek == dayOfWeek &&
+                        a.IsAvailable);
+
+                if (availability == null) continue; // Staff doesn't work today
+
+                // Get Staff Timezone
+                var staff = await _context.Staff.Include(s => s.Company).FirstOrDefaultAsync(s => s.Id == staffId);
+                string timezoneId = staff?.Company?.Timezone ?? "UTC";
+                TimeZoneInfo tzInfo;
+                try { tzInfo = TimeZoneInfo.FindSystemTimeZoneById(timezoneId); }
+                catch { tzInfo = TimeZoneInfo.Utc; }
+
+                // B. Convert Work Hours to UTC
+                DateTime localWorkStart = date.Date.Add(availability.StartTime);
+                DateTime localWorkEnd = date.Date.Add(availability.EndTime);
+                DateTime utcWorkStart = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localWorkStart, DateTimeKind.Unspecified), tzInfo);
+                DateTime utcWorkEnd = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localWorkEnd, DateTimeKind.Unspecified), tzInfo);
+
+                // C. Get Blocking Factors
+                var timeOffs = await _context.TimeOffs
+                    .Where(t => t.StaffId == staffId && t.Status == TimeOffStatus.Approved && t.StartDateTimeUtc.Date <= date.Date && t.EndDateTimeUtc.Date >= date.Date)
+                    .ToListAsync();
+
+                var existingAppointments = await _context.Appointments
+                    .Where(a => a.StaffId == staffId && a.StartDateTimeUtc.Date == date.Date && a.Status != AppointmentStatus.Cancelled)
+                    .Select(a => new BookedSlot(a.StartDateTimeUtc, a.EndDateTimeUtc))
+                    .ToListAsync();
+
+                var activeReservations = await _context.AppointmentReservations
+                    .Where(r => r.StaffId == staffId && r.StartDateTime.Date == date.Date && r.ExpiresAt > DateTime.UtcNow)
+                    .Select(r => new BookedSlot(r.StartDateTime, r.EndDateTime))
+                    .ToListAsync();
+
+                // D. Generate Slots
+                int slotIntervalMinutes = 30; 
+                DateTime currentSlotStart = utcWorkStart;
+
+                while (currentSlotStart.AddMinutes(service.ServiceDuration) <= utcWorkEnd)
+                {
+                    DateTime currentSlotEnd = currentSlotStart.AddMinutes(service.ServiceDuration);
+
+                    bool isAvailable = IsSlotAvailable(currentSlotStart, currentSlotEnd, timeOffs, existingAppointments, activeReservations, date);
+
+                    if (isAvailable)
+                    {
+                        allSlots.Add(new TimeSlotDto
+                        {
+                            StartTime = currentSlotStart,
+                            EndTime = currentSlotEnd,
+                            IsAvailable = true
+                        });
+                    }
+                    currentSlotStart = currentSlotStart.AddMinutes(slotIntervalMinutes);
+                }
+            }
+
+            // 3. Merge overlapping/duplicate slots
+            // We want distinct Start times.
+            var uniqueSlots = allSlots
+                .GroupBy(s => s.StartTime)
+                .Select(g => g.First())
+                .OrderBy(s => s.StartTime)
+                .ToList();
+
+            return Ok(uniqueSlots);
+        }
+
+        /// <summary>
         /// Helper method to check if a time slot is available
         /// Returns true if slot is free, false if there's a conflict
         /// </summary>

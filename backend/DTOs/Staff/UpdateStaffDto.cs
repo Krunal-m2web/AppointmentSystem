@@ -30,5 +30,8 @@ namespace Appointmentbookingsystem.Backend.DTOs.Staff
 
         // Update services (will replace existing assignments)
         public List<int>? ServiceIds { get; set; }
+
+        [MinLength(6)]
+        public string? Password { get; set; }
     }
 }

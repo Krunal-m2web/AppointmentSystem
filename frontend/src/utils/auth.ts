@@ -19,7 +19,8 @@ export function getRoleFromToken(token: string): string | undefined {
       decodedToken.role ||
       decodedToken[
         "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"
-      ]
+      ] ||
+      (decodedToken as any)["Role"]
     );
   } catch (error) {
     console.error("Error decoding token:", error);
@@ -27,10 +28,30 @@ export function getRoleFromToken(token: string): string | undefined {
   }
 }
 
+export function getUserIdFromToken(token: string): number | undefined {
+  try {
+    const decoded = jwtDecode<DecodedToken>(token);
+    // Standard 'sub' claim usually holds the user ID
+    const sub = decoded.sub;
+    return sub ? parseInt(sub, 10) : undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
 export function getCompanyIdFromToken(token: string): number | undefined {
   try {
     const decodedToken = jwtDecode<DecodedToken>(token);
-    const companyId = decodedToken.companyId || decodedToken["companyId"];
+    // Check both camelCase and PascalCase (ASP.NET often uses PascalCase)
+    const companyId =
+      decodedToken.companyId ||
+      decodedToken["companyId"] ||
+      decodedToken["CompanyId"] ||
+      (decodedToken as any).CompanyId;
+
+    console.log("getCompanyIdFromToken: Raw token payload:", decodedToken);
+    console.log("getCompanyIdFromToken: Extracted companyId:", companyId);
+
     return companyId ? parseInt(companyId, 10) : undefined;
   } catch (error) {
     console.error("Error decoding token:", error);

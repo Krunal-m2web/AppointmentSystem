@@ -42,7 +42,7 @@ export function EnhancedCalendar({
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
-    const startingDayOfWeek = firstDay.getDay();
+const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
 
     const days = [];
     for (let i = 0; i < startingDayOfWeek; i++) {
@@ -97,22 +97,22 @@ export function EnhancedCalendar({
   };
 
   return (
-    <div className="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-sm border border-gray-100 font-sans">
-      <div className="flex flex-col md:flex-row gap-8">
+    <div className="max-w-3xl mx-auto bg-white p-4 rounded-lg shadow-sm border border-gray-100 font-sans">
+      <div className="flex flex-col md:flex-row gap-6">
         {/* LEFT COLUMN: Calendar & Timezone */}
-        <div className="w-full md:w-[400px] flex-shrink-0">
-          <h2 className="text-xl font-semibold text-gray-800 mb-6">
+        <div className="w-full md:w-80 flex-shrink-0">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">
             Select a Date & Time
           </h2>
 
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             {/* Month Navigation */}
-            <div className="flex items-center justify-center gap-4 mb-2">
+            <div className="flex items-center justify-center gap-3 mb-1">
               <button
                 onClick={() => changeMonth(-1)}
-                className="p-2 hover:bg-blue-50 text-blue-600 rounded-full transition-colors"
+                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors"
               >
-                <ChevronLeft className="w-5 h-5" />
+                <ChevronLeft className="w-4 h-4" />
               </button>
               <AnimatePresence mode="wait" custom={direction}>
                 <motion.h3
@@ -122,7 +122,7 @@ export function EnhancedCalendar({
                   initial="enter"
                   animate="center"
                   exit="exit"
-                  className="text-base font-medium text-gray-700 min-w-[140px] text-center"
+                  className="text-sm font-medium text-gray-700 min-w-[120px] text-center"
                 >
                   {currentMonth.toLocaleDateString("en-US", {
                     month: "long",
@@ -132,14 +132,14 @@ export function EnhancedCalendar({
               </AnimatePresence>
               <button
                 onClick={() => changeMonth(1)}
-                className="p-2 hover:bg-blue-50 text-blue-600 rounded-full transition-colors"
+                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors"
               >
-                <ChevronRight className="w-5 h-5" />
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
 
             {/* Days Header */}
-            <div className="grid grid-cols-7 gap-1 text-center mb-2">
+            <div className="grid grid-cols-7 gap-0.5 text-center mb-1">
               {[
                 "MON",
                 "TUE",
@@ -151,7 +151,7 @@ export function EnhancedCalendar({
               ].map((day) => (
                 <div
                   key={day}
-                  className="text-[11px] font-medium text-gray-500 py-1"
+                  className="text-[9px] font-medium text-gray-500 py-0.5"
                 >
                   {day}
                 </div>
@@ -159,7 +159,7 @@ export function EnhancedCalendar({
             </div>
 
             {/* Calendar Grid */}
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-0.5">
               {days.map((date, index) => {
                 const isSelected = isSameDay(
                   date,
@@ -181,7 +181,7 @@ export function EnhancedCalendar({
                         }
                         disabled={isDisabled}
                         className={`
-                          w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all
+                          w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition-all
                           ${
                             isSelected
                               ? "bg-blue-600 text-white shadow-md"
@@ -199,7 +199,7 @@ export function EnhancedCalendar({
             </div>
 
             {/* Timezone (Bottom Left) */}
-            <div className="mt-8 pt-4">
+            {/* <div className="mt-8 pt-4">
               <label className="text-sm font-semibold text-gray-900 mb-2 block">
                 Time zone
               </label>
@@ -207,20 +207,21 @@ export function EnhancedCalendar({
                 <Globe className="w-4 h-4" />
                 <span className="text-sm">{timezone}</span>
               </div>
-            </div>
+            </div> */}
           </div>
         </div>
 
         {/* RIGHT COLUMN: Time Slots */}
-        <div className="flex-1 min-w-[250px] border-t md:border-t-0 md:border-l border-gray-100 pt-6 md:pt-0 md:pl-8">
+        <div className="flex-1 min-w-[220px] border-t md:border-t-0 md:border-l border-gray-100 pt-4 md:pt-0 md:pl-6"
+        style={{paddingLeft: "60px"}}>
           {selectedDate ? (
             <motion.div
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
               className="h-full"
-              style={{width: "min-content"}}
+              style={{width: "100%"}}
             >
-              <h3 className="text-gray-600 font-medium mb-6">
+              <h3 className="text-gray-600 font-medium mb-4 text-sm">
                 {selectedDate.toLocaleDateString("en-US", {
                   weekday: "long",
                   month: "long",
@@ -228,13 +229,13 @@ export function EnhancedCalendar({
                 })}
               </h3>
 
-              <div className="space-y-3 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="space-y-2 max-h-[380px] overflow-y-auto pr-2 custom-scrollbar">
                 {isLoadingSlots ? (
                   <div className="flex justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
                   </div>
                 ) : timeSlots.length === 0 ? (
-                   <div className="text-center text-gray-500 py-8">
+                   <div className="text-center text-gray-500 py-6 text-sm">
                      No available slots for this date.
                    </div>
                 ) : (
@@ -248,7 +249,7 @@ export function EnhancedCalendar({
                         transition={{ delay: index * 0.03 }}
                         onClick={() => onSelectTime(time)}
                         className={`
-                          w-full py-3 px-4 rounded-md border text-base font-bold transition-all
+                          w-full py-2 px-3 rounded-md border text-sm font-bold transition-all
                           ${
                             isSelected
                               ? "bg-gray-600 text-white border-gray-600"
@@ -264,7 +265,7 @@ export function EnhancedCalendar({
               </div>
             </motion.div>
           ) : (
-            <div className="h-full flex items-center justify-center text-gray-400 text-sm italic"
+            <div className="h-full flex items-center justify-center text-gray-400 text-xs italic"
             style={{paddingRight:"47px", marginLeft:"-10px"}}>
               Select a date to view available times
             </div>

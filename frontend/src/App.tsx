@@ -33,6 +33,18 @@ export default function App() {
             />
           } 
         />
+        <Route 
+          path="/book/:slug" 
+          element={
+            <UserBooking 
+              user={{ 
+                name: getToken() ? (jwtDecode(getToken()!) as any).name || 'User' : 'Guest', 
+                email: getToken() ? (jwtDecode(getToken()!) as any).email || '' : ''
+              }} 
+              onLogout={() => handleLogout('/auth/staff')} 
+            />
+          } 
+        />
         
         {/* Auth Routes */}
         <Route path="/auth/admin" element={<AdminLogin />} />

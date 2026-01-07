@@ -1,6 +1,7 @@
 using System.Text;
 using Appointmentbookingsystem.Backend.Data;
 using Appointmentbookingsystem.Backend.Services;
+using Appointmentbookingsystem.Backend.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -17,6 +18,8 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        // Add UTC DateTime converter to ensure all datetimes have Z suffix
+        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -71,6 +74,8 @@ var jwtSettings = builder.Configuration.GetSection("Jwt");
 var key = Encoding.UTF8.GetBytes(jwtSettings["Key"]!);
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IEmailService, DatabaseEmailService>();
+builder.Services.AddHostedService<NotificationBackgroundService>();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -104,6 +109,23 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+
+
+var wwwRootPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
+if (Directory.Exists(wwwRootPath))
+{
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(wwwRootPath),
+        RequestPath = ""
+    });
+}
+else
+{
+    app.UseStaticFiles();
+}
+
 
 app.UseCors("AllowFrontend");
 

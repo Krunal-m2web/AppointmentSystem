@@ -284,3 +284,4 @@ C:\Users\HP\Desktop\PratikProj\AppointmentSystem\backend\obj\Debug\net8.0\refint
 C:\Users\HP\Desktop\PratikProj\AppointmentSystem\backend\obj\Debug\net8.0\backend.pdb
 C:\Users\HP\Desktop\PratikProj\AppointmentSystem\backend\obj\Debug\net8.0\backend.genruntimeconfig.cache
 C:\Users\HP\Desktop\PratikProj\AppointmentSystem\backend\obj\Debug\net8.0\ref\backend.dll
+C:\Users\HP\Desktop\PratikProj\AppointmentSystem\backend\bin\Debug\net8.0\backend.staticwebassets.runtime.json

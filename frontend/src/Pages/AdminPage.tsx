@@ -3,7 +3,7 @@ import {
   LogOut,
   Calendar as CalendarIcon,
   Users,
-  Settings,
+  Settings as SettingsIcon,
   LayoutDashboard,
   DollarSign,
   Tag,
@@ -17,10 +17,10 @@ import { StaffMembers } from "../components/admin/StaffMembers";
 import { ManageServices } from "../components/admin/ManageServices";
 import { CustomersPage } from "../components/admin/Customers";
 import { ServicePricing } from "../components/admin/ServicePricing";
-import { PaymentSettings } from "../components/admin/PaymentSettings";
-import { SettingsPage } from "../components/admin/SettingsPage";
+import { Settings } from "../components/admin/Settings";
 import { useTimezone } from "../context/TimezoneContext";
 import { useEffect } from "react";
+import { getRoleFromToken } from "../utils/auth";
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -34,62 +34,84 @@ type Tab =
   | "services"
   | "customers"
   | "pricing"
-  | "payment"
   | "settings";
 
 export function AdminDashboard({
   onLogout,
 }: AdminDashboardProps) {
   const { refreshTimezone } = useTimezone();
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    return (localStorage.getItem("adminActiveTab") as Tab) || "dashboard";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("adminActiveTab", activeTab);
+  }, [activeTab]);
 
   useEffect(() => {
     refreshTimezone();
   }, [refreshTimezone]);
 
-  const tabs = [
+  const token = localStorage.getItem('auth_token');
+  const role = token ? getRoleFromToken(token) : undefined;
+
+  const allTabs = [
     {
       id: "dashboard" as Tab,
       label: "Dashboard",
       icon: LayoutDashboard,
+      roles: ['Admin', 'Staff']
     },
     {
       id: "calendar" as Tab,
       label: "Calendar",
       icon: CalendarDays,
+      roles: ['Admin', 'Staff']
     },
     {
       id: "appointments" as Tab,
       label: "Appointments",
       icon: CalendarIcon,
+      roles: ['Admin', 'Staff']
     },
     {
       id: "staff" as Tab,
-      label: "Staff Members",
+      label: role === 'Staff' ? "My Profile" : "Staff Members",
       icon: UserCheck,
+      roles: ['Admin', 'Staff']
     },
     {
       id: "services" as Tab,
       label: "Services",
-      icon: Settings,
+      icon: SettingsIcon,
+      roles: ['Admin', 'Staff']
     },
-    { id: "customers" as Tab, label: "Customers", icon: Users },
-    {
-      id: "pricing" as Tab,
-      label: "Service Pricing",
-      icon: Tag,
-    },
-    {
-      id: "payment" as Tab,
-      label: "Payment Settings",
-      icon: DollarSign,
-    },
+    { id: "customers" as Tab, label: "Customers", icon: Users, roles: ['Admin'] },
+    // {
+    //   id: "pricing" as Tab,
+    //   label: "Service Pricing",
+    //   icon: Tag,
+    //   roles: ['Admin']
+    // },
     {
       id: "settings" as Tab,
-      label: "Global Settings",
-      icon: Settings,
+      label: "Settings",
+      icon: SettingsIcon,
+      roles: ['Admin']
     },
   ];
+
+  let visibleTabs = allTabs.filter(t => !role || t.roles.includes(role));
+  
+  // Custom reordering for Staff: Move 'My Profile' to the bottom
+  if (role === 'Staff') {
+      visibleTabs = [
+          ...visibleTabs.filter(t => t.id !== 'staff'),
+          ...visibleTabs.filter(t => t.id === 'staff')
+      ];
+  }
+
+  const tabs = visibleTabs;
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -143,9 +165,8 @@ export function AdminDashboard({
         {activeTab === "staff" && <StaffMembers />}
         {activeTab === "services" && <ManageServices />}
         {activeTab === "customers" && <CustomersPage />}
-        {activeTab === "pricing" && <ServicePricing />}
-        {activeTab === "payment" && <PaymentSettings />}
-        {activeTab === "settings" && <SettingsPage />}
+        {/* {activeTab === "pricing" && <ServicePricing />} */}
+        {activeTab === "settings" && <Settings />}
       </main>
     </div>
   );

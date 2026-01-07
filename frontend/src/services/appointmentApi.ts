@@ -57,6 +57,8 @@ export interface AppointmentResponse {
 export interface GetAppointmentsQuery {
   status?: string;
   staffId?: number;
+  staffIds?: number[];
+  searchTerm?: string;
   customerId?: number;
   serviceId?: number;
   startDate?: string;
@@ -161,6 +163,10 @@ export async function getAppointments(
 
   if (query.status) params.append("Status", query.status);
   if (query.staffId) params.append("StaffId", query.staffId.toString());
+  if (query.staffIds && query.staffIds.length > 0) {
+    query.staffIds.forEach((id) => params.append("StaffIds", id.toString()));
+  }
+  if (query.searchTerm) params.append("SearchTerm", query.searchTerm);
   if (query.customerId)
     params.append("CustomerId", query.customerId.toString());
   if (query.serviceId) params.append("ServiceId", query.serviceId.toString());

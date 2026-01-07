@@ -13,12 +13,23 @@ export interface CustomerServiceDto {
   description: string | null;
   currency: string;
   price: number | null;
+  serviceDuration?: number;
+}
+
+export interface PaginatedCustomerServiceResponse {
+  items: CustomerServiceDto[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 export const fetchServices = async (
   companyId: number,
   currency?: string
-): Promise<CustomerServiceDto[]> => {
+): Promise<PaginatedCustomerServiceResponse> => {
   try {
     // If currency not provided, fetch default from backend
     if (!currency) {
@@ -42,8 +53,8 @@ export const fetchServices = async (
     }
 
     // Parse the JSON response and return it
-    const services: CustomerServiceDto[] = await response.json();
-    return services;
+    const data: PaginatedCustomerServiceResponse = await response.json();
+    return data;
   } catch (error) {
     console.error("Error fetching services:", error);
     throw error;

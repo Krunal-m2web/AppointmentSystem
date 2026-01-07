@@ -1,28 +1,21 @@
-import { useState, useEffect } from 'react';
-import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Edit2, Save, XCircle, ChevronDown, Phone, Mail, User, Loader2, Globe } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { MiniCalendar } from './MiniCalendar';
+import { AppointmentFormModal, NewAppointment, StaffOption, ServiceOption, CustomerOption } from './AppointmentFormModal ';
+import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Edit2, Save, XCircle, ChevronDown, Phone, Mail, User, Loader2, Globe, DollarSign, CalendarDays } from 'lucide-react';
 import { useTimezone } from '../../context/TimezoneContext';
 import { formatDate, formatTime, formatDateTime, combineDateTimeToUTC, getTimezoneOffset, getDateString, getTimeString } from '../../utils/datetime';
 import type { Appointment } from '../../types/types';
-import { getAppointments, AppointmentResponse } from '../../services/appointmentApi';
+import { getAppointments, AppointmentResponse, createAppointment, updateAppointment } from '../../services/appointmentApi';
 import { fetchServices } from '../../services/serviceApi';
 import { fetchStaff } from '../../services/staffApi';
-import { getToken } from '../../utils/auth';
+import { fetchCustomers, CustomerResponse } from '../../services/customerApi';
+import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
+
 
 type SortField = 'id' | 'date' | 'staff' | 'customer';
 type SortOrder = 'asc' | 'desc';
 
-// Types for staff and services dropdowns
-interface StaffOption {
-  id: number;
-  name: string;
-}
 
-interface ServiceOption {
-  id: number;
-  name: string;
-  price: number;
-  duration: number;
-}
 
 export function AppointmentsPage() {
   const { timezone, refreshTimezone } = useTimezone();
@@ -40,75 +33,224 @@ export function AppointmentsPage() {
   const [showStaffFilter, setShowStaffFilter] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<number[]>([]);
   const [sortField, setSortField] = useState<SortField>('date');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
+  
+  // Date Range Filter State
+  const [dateRangeFilter, setDateRangeFilter] = useState<string>('any_time');
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+
+  // Server-side Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
   
   // API state
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<StaffOption[]>([]);
   const [servicesList, setServicesList] = useState<ServiceOption[]>([]);
+  const [customersList, setCustomersList] = useState<CustomerResponse[]>([]);
   const [timezoneReady, setTimezoneReady] = useState(false);
 
-  // Fetch appointments on mount
+  // Client search state
+  const [searchClient, setSearchClient] = useState('');
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showRepeatDatePicker, setShowRepeatDatePicker] = useState(false);
+  const datePickerRef = useRef<HTMLDivElement>(null);
+  const repeatDatePickerRef = useRef<HTMLDivElement>(null);
+  
+  // Close date pickers when clicking outside
   useEffect(() => {
-    const loadData = async () => {
-      // Wait for timezone to be fetched FIRST before loading appointments
-      const fetchedTimezone = await refreshTimezone();
-      console.log('AppointmentsPage: Timezone fetched:', fetchedTimezone);
-      setTimezoneReady(true); // Mark timezone as ready
-      try {
-        setIsLoading(true);
-        setError(null);
-        
-        // Get token from auth utility
-        const token = getToken();
-        if (!token) {
-          setError('Authentication required. Please log in.');
-          setIsLoading(false);
-          return;
+    const handleClickOutside = (event: MouseEvent) => {
+        if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
+            setShowDatePicker(false);
         }
+        if (repeatDatePickerRef.current && !repeatDatePickerRef.current.contains(event.target as Node)) {
+            setShowRepeatDatePicker(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-        // Fetch appointments
-        const response = await getAppointments({}, token);
-        
-        // Map API response to Appointment type
-        const mappedAppointments: Appointment[] = response.appointments.map((apt: AppointmentResponse) => ({
-          id: apt.id,
-          companyId: apt.companyId,
-          customerId: apt.customerId,
-          customerName: apt.customerName,
-          customerEmail: apt.customerEmail,
-          customerPhone: apt.customerPhone,
-          staffId: apt.staffId,
-          staffName: apt.staffName || 'Unassigned',
-          serviceId: apt.serviceId,
-          serviceName: apt.serviceName,
-          startDateTime: apt.startDateTime,
-          endDateTime: apt.endDateTime,
-          meetingType: apt.meetingType,
-          status: apt.status,
-          price: apt.price,
-          currencyCode: apt.currencyCode,
-          paymentMethod: apt.paymentMethod,
-          paymentStatus: apt.paymentStatus,
-          createdAt: apt.createdAt,
-        }));
-        
-        setAppointments(mappedAppointments);
-        
-        // Also fetch staff and services for the add/edit modal
+  // Fetch appointments on mount
+
+  const loadData = async () => {
+    // Wait for timezone to be fetched FIRST before loading appointments (only on first load if not ready)
+    if (!timezoneReady) {
         try {
+            await refreshTimezone();
+        } catch (tzError) {
+            console.error('AppointmentsPage: Failed to fetch timezone:', tzError);
+        }
+        setTimezoneReady(true);
+    }
+    
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const token = getToken();
+      if (!token) {
+        setError('Authentication required. Please log in.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Calculate date range for filtering
+      const getDateRangeParams = () => {
+        const now = new Date();
+        let startDate: string | undefined;
+        let endDate: string | undefined;
+        
+        switch (dateRangeFilter) {
+          case 'yesterday': {
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            yesterday.setHours(0, 0, 0, 0);
+            const yesterdayEnd = new Date(yesterday);
+            yesterdayEnd.setHours(23, 59, 59, 999);
+            startDate = yesterday.toISOString();
+            endDate = yesterdayEnd.toISOString();
+            break;
+          }
+          case 'today': {
+            const todayStart = new Date(now);
+            todayStart.setHours(0, 0, 0, 0);
+            const todayEnd = new Date(now);
+            todayEnd.setHours(23, 59, 59, 999);
+            startDate = todayStart.toISOString();
+            endDate = todayEnd.toISOString();
+            break;
+          }
+          case 'this_week': {
+            const day = now.getDay();
+            const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+            const weekStart = new Date(now);
+            weekStart.setDate(diff);
+            weekStart.setHours(0, 0, 0, 0);
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekStart.getDate() + 6);
+            weekEnd.setHours(23, 59, 59, 999);
+            startDate = weekStart.toISOString();
+            endDate = weekEnd.toISOString();
+            break;
+          }
+          case 'this_month': {
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+            startDate = monthStart.toISOString();
+            endDate = monthEnd.toISOString();
+            break;
+          }
+          case 'this_year': {
+            const yearStart = new Date(now.getFullYear(), 0, 1);
+            const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+            startDate = yearStart.toISOString();
+            endDate = yearEnd.toISOString();
+            break;
+          }
+          case 'custom': {
+            if (customStartDate && customEndDate) {
+              const customStart = new Date(customStartDate);
+              customStart.setHours(0, 0, 0, 0);
+              const customEnd = new Date(customEndDate);
+              customEnd.setHours(23, 59, 59, 999);
+              startDate = customStart.toISOString();
+              endDate = customEnd.toISOString();
+            } else {
+              startDate = new Date('2020-01-01').toISOString();
+            }
+            break;
+          }
+          case 'any_time':
+          default: {
+            startDate = new Date('2020-01-01').toISOString();
+            break;
+          }
+        }
+        
+        return { startDate, endDate };
+      };
+      
+      const { startDate: rangeStart, endDate: rangeEnd } = getDateRangeParams();
+
+      const role = getRoleFromToken(token);
+      const userId = getUserIdFromToken(token);
+      
+      let apiStaffIds: number[] | undefined = undefined;
+      if (role === 'Staff' && userId) {
+          apiStaffIds = [userId];
+      } else if (selectedStaff.length > 0) {
+          apiStaffIds = selectedStaff;
+      }
+
+      // Fetch appointments with server-side pagination, sorting, and filtering
+      const response = await getAppointments({
+          startDate: rangeStart,
+          endDate: rangeEnd,
+          page: currentPage,
+          pageSize: itemsPerPage,
+          sortBy: sortField,
+          sortDirection: sortOrder,
+          searchTerm: searchTerm,
+          status: filterStatus === 'all' ? undefined : filterStatus,
+          staffIds: apiStaffIds,
+      }, token);
+      
+      const mappedAppointments: Appointment[] = response.appointments.map((apt: AppointmentResponse) => ({
+        id: apt.id,
+        companyId: apt.companyId,
+        customerId: apt.customerId,
+        customerName: apt.customerName,
+        customerEmail: apt.customerEmail,
+        customerPhone: apt.customerPhone,
+        staffId: apt.staffId,
+        staffName: apt.staffName || 'Unassigned',
+        serviceId: apt.serviceId,
+        serviceName: apt.serviceName,
+        startDateTime: apt.startDateTime,
+        endDateTime: apt.endDateTime,
+        meetingType: apt.meetingType,
+        status: apt.status,
+        price: apt.price,
+        currencyCode: apt.currencyCode,
+        paymentMethod: apt.paymentMethod,
+        paymentStatus: apt.paymentStatus,
+        createdAt: apt.createdAt,
+      }));
+      
+      setAppointments(mappedAppointments);
+      setTotalItems(response.totalCount);
+      
+    } catch (err) {
+      console.error('Error loading appointments:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load appointments');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Initial load for aux data (staff, services, customers)
+  useEffect(() => {
+    const fetchAuxData = async () => {
+         try {
           const staffData = await fetchStaff();
-          setStaffList(staffData.map((s: any) => ({ 
+          const activeStaff = staffData.filter((s: any) => s.isActive !== false);
+          setStaffList(activeStaff.map((s: any) => ({ 
             id: s.id, 
             name: `${s.firstName} ${s.lastName}` 
           })));
         } catch (e) {
-          console.error('Failed to load staff:', e);
+             console.error('Failed to load staff:', e);
         }
         
         try {
-          const servicesData = await fetchServices();
+          const servicesRaw = await fetchServices();
+          const servicesData = Array.isArray(servicesRaw) ? servicesRaw : (servicesRaw.items || []);
           setServicesList(servicesData.map((s: any) => ({
             id: s.id,
             name: s.name,
@@ -118,40 +260,38 @@ export function AppointmentsPage() {
         } catch (e) {
           console.error('Failed to load services:', e);
         }
-        
-      } catch (err) {
-        console.error('Error loading appointments:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load appointments');
-      } finally {
-        setIsLoading(false);
-      }
+
+        try {
+          // Fetch customers for dropdown (fetching a larger page to ensure we get most for now, ideally would be searchable)
+          const customersData = await fetchCustomers({ pageSize: 1000 });
+          setCustomersList(customersData.customers);
+        } catch (e) {
+          console.error('Failed to load customers:', e);
+        }
     };
+    fetchAuxData();
+    // refreshTimezone is called in loadData
+  }, []);
 
+  // Reload appointments when filter/sort/pagination changes
+  useEffect(() => {
     loadData();
-  }, [refreshTimezone]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, itemsPerPage, sortField, sortOrder, filterStatus, selectedStaff, dateRangeFilter, customStartDate, customEndDate]); 
+
+  // Debounced search effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        setCurrentPage(1); // Reset to page 1 on search
+        loadData();
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm]);
 
 
-  type RecurrenceType = 'none' | 'daily' | 'weekly' | 'monthly';
 
-  interface NewAppointment {
-    customerName: string;
-    customerEmail: string;
-    customerPhone: string;
-    serviceId: number;
-    staffId: number;
-    date: string;
-    time: string;
-    duration: number;
-    meetingType: 'InPerson' | 'Phone' | 'Zoom';
-    paymentMethod: 'Card' | 'Cash' | 'PayPal';
-    status: 'Pending' | 'Confirmed' | 'Cancelled' | 'Completed';
-    notes: string;
 
-    // 🔁 Recurrence (UI-only)
-    isRecurring: boolean;
-    recurrenceType: RecurrenceType;
-    repeatEndDate: string;
-  }
 
   const [newAppointment, setNewAppointment] = useState<NewAppointment>({
     customerName: '',
@@ -162,7 +302,7 @@ export function AppointmentsPage() {
     date: '',
     time: '',
     duration: 60,
-    meetingType: 'Zoom',
+    meetingType: 'InPerson',
     paymentMethod: 'Card',
     status: 'Pending',
     notes: '',
@@ -170,40 +310,49 @@ export function AppointmentsPage() {
     isRecurring: false,
     recurrenceType: 'none',
     repeatEndDate: '',
+    price: '',
   });
 
+  // Validation State
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
+    if (!newAppointment.customerName.trim()) errors.customerName = "Customer Name is required";
+    if (!newAppointment.customerEmail.trim()) {
+        errors.customerEmail = "Email is required";
+    } else if (!emailRegex.test(newAppointment.customerEmail)) {
+        errors.customerEmail = "Invalid email format";
+    }
+    if (!newAppointment.customerPhone.trim()) errors.customerPhone = "Phone number is required";
+    
+    if (newAppointment.serviceId === 0) errors.serviceId = "Please select a service";
+    if (newAppointment.staffId === 0) errors.staffId = "Please select a staff member";
+    if (!newAppointment.date) errors.date = "Date is required";
+    if (!newAppointment.time) errors.time = "Time is required";
+    if (!newAppointment.price.trim()) errors.price = "Price is required";
+
+    if (newAppointment.isRecurring) {
+        if (!newAppointment.recurrenceType || newAppointment.recurrenceType === 'none') {
+            errors.recurrenceType = 'Frequency is required';
+        }
+        if (!newAppointment.repeatEndDate) {
+            errors.repeatEndDate = 'End date is required';
+        }
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
 
-  const filteredAppointments = appointments
-    .filter((apt) => {
-      const matchesSearch =
-        apt.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        apt.customerEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        apt.serviceName.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesFilter = filterStatus === 'all' || apt.status === filterStatus;
-      const matchesStaff = selectedStaff.length === 0 || (apt.staffId && selectedStaff.includes(apt.staffId));
+  // REMOVED filteredAppointments - using server data directly
+  // But we might need totalPages for UI
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
-      return matchesSearch && matchesFilter && matchesStaff;
-    })
-    .sort((a, b) => {
-      let comparison = 0;
-      switch (sortField) {
-        case 'id':
-          comparison = a.id - b.id;
-          break;
-        case 'date':
-          comparison = new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime();
-          break;
-        case 'staff':
-          comparison = a.staffName.localeCompare(b.staffName);
-          break;
-        case 'customer':
-          comparison = a.customerName.localeCompare(b.customerName);
-          break;
-      }
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -265,7 +414,7 @@ export function AppointmentsPage() {
       date: '',
       time: '',
       duration: 60,
-      meetingType: 'Zoom',
+      meetingType: 'InPerson',
       paymentMethod: 'Card',
       status: 'Pending',
       notes: '',
@@ -273,9 +422,31 @@ export function AppointmentsPage() {
       isRecurring: false,
       recurrenceType: 'none',
       repeatEndDate: '',
+      price: '',
     });
+    setSearchClient('');
+    setShowClientDropdown(false);
+    setFormErrors({});
   };
 
+  // Handle selecting a client from the dropdown
+  const handleClientSelect = (client: CustomerResponse) => {
+    setNewAppointment({
+      ...newAppointment,
+      customerName: client.name,
+      customerEmail: client.email,
+      customerPhone: client.phone || '',
+    });
+    setSearchClient(client.name);
+    setShowClientDropdown(false);
+    setFormErrors(prev => ({ ...prev, customerName: '', customerEmail: '' }));
+  };
+
+  // Filter clients based on search term
+  const filteredClients = customersList.filter(client =>
+    client.name.toLowerCase().includes(searchClient.toLowerCase()) ||
+    client.email.toLowerCase().includes(searchClient.toLowerCase())
+  );
 
   const addDays = (date: Date, days: number) => {
     const d = new Date(date);
@@ -289,164 +460,137 @@ export function AppointmentsPage() {
     return d;
   };
 
-  const handleSaveAppointment = () => {
-    // Validation
-    if (
-      !newAppointment.customerName ||
-      !newAppointment.customerEmail ||
-      !newAppointment.serviceId ||
-      !newAppointment.staffId ||
-      !newAppointment.date ||
-      !newAppointment.time
-    ) {
-      alert('Please fill in all required fields');
-      return;
+  const handleModalSubmit = async (data: NewAppointment) => {
+    // 🛡️ Ensure we have the latest timezone before computing times
+    let activeTimezone = timezone;
+    try {
+        const freshTz = await refreshTimezone();
+        if (freshTz && freshTz !== "UTC") {
+            activeTimezone = freshTz;
+        }
+    } catch (e) {
+        console.warn("Could not refresh timezone before saving, using current:", timezone);
     }
 
-    if (newAppointment.isRecurring) {
-      if (!newAppointment.recurrenceType || newAppointment.recurrenceType === 'none') {
-        alert('Please select repeat frequency (daily, weekly, monthly).');
-        return;
-      }
-      if (!newAppointment.repeatEndDate) {
-        alert('Please select "Repeat Until" date.');
-        return;
-      }
+    const service = servicesList.find(s => s.id === data.serviceId);
+    const staff = staffList.find(s => s.id === data.staffId); // data.staffId is number, find by id
+
+    if (!service || (data.staffId && !staff)) {
+        // Note: staff might be 0/null if unassigned allowed? data.staffId is number.
+        // If data.staffId is required and > 0 check:
+         if (data.staffId > 0 && !staff) {
+             alert('Invalid staff selection');
+             return;
+         }
     }
-
-    const service = servicesList.find(s => s.id === newAppointment.serviceId);
-    const staff = staffList.find(s => s.id === newAppointment.staffId);
-
-    if (!service || !staff) {
-      alert('Invalid service or staff selection');
-      return;
-    }
-
+   
     // EDIT MODE - Update existing appointment
-    if (editingAppointmentId !== null) {
-      const existing = appointments.find(a => a.id === editingAppointmentId);
-      if (!existing) {
-        alert('Appointment not found');
-        return;
+    if (editingAppointmentId !== null && data.id) {
+       // ... existing update logic adapted ...
+      try {
+            const dateTime = combineDateTimeToUTC(
+            data.date,
+            data.time,
+            activeTimezone
+        );
+        
+        const nameParts = data.customerName.trim().split(/\s+/);
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(' ') || '.';
+        
+        await updateAppointment(data.id, {
+            firstName,
+            lastName,
+            email: data.customerEmail,
+            phone: data.customerPhone,
+            serviceId: data.serviceId,
+            staffId: data.staffId || null,
+            startTime: dateTime,
+            meetingType: data.meetingType,
+            paymentMethod: data.paymentMethod,
+            status: data.status,
+            notes: data.notes
+        }, getToken() || '');
+
+        // Refresh list
+        loadData(); // Re-use loadData or the existing logic
+        setShowAddModal(false);
+        setEditingAppointmentId(null);
+        resetNewAppointmentForm();
+      } catch (err: any) {
+        alert(`Failed to update appointment: ${err.message}`);
       }
-
-      const dateTime = combineDateTimeToUTC(
-        newAppointment.date,
-        newAppointment.time,
-        timezone
-      );
-
-      const updatedAppointment: Appointment = {
-        ...existing,
-        customerName: newAppointment.customerName,
-        customerEmail: newAppointment.customerEmail,
-        customerPhone: newAppointment.customerPhone,
-        staffId: newAppointment.staffId,
-        staffName: staff.name,
-        serviceId: newAppointment.serviceId,
-        serviceName: service.name,
-        startDateTime: dateTime,
-        endDateTime: dateTime, // Will be computed by service duration
-        meetingType: newAppointment.meetingType,
-        status: newAppointment.status,
-        paymentMethod: newAppointment.paymentMethod,
-        price: service.price,
-        updatedAt: new Date().toISOString(),
-      };
-
-      setAppointments(prev =>
-        prev.map(a => (a.id === editingAppointmentId ? updatedAppointment : a))
-      );
-
-      setShowAddModal(false);
-      setEditingAppointmentId(null);
-      resetNewAppointmentForm();
       return;
     }
 
     // ADD MODE - Create new appointment(s)
-    const currentMaxId = appointments.length > 0
-      ? Math.max(...appointments.map(a => a.id))
-      : 0;
+    try {
+        const [y, m, d_part] = data.date.split('-').map(Number);
+        const baseDate = new Date(Date.UTC(y, m - 1, d_part));
+        
+        const createSingleAppointment = async (occurrenceDate: Date) => {
+          const datePart = occurrenceDate.toISOString().split('T')[0];
+          const dateTime = combineDateTimeToUTC(
+            datePart,
+            data.time,
+            activeTimezone
+          );
+          
+          const companyId = getCompanyIdFromToken(getToken() || '') || 0;
 
-    const [y, m, d_part] = newAppointment.date.split('-').map(Number);
-    const baseDate = new Date(Date.UTC(y, m - 1, d_part));
-    const newAppointments: Appointment[] = [];
+          const nameParts = data.customerName.trim().split(/\s+/);
+          const firstName = nameParts[0];
+          const lastName = nameParts.slice(1).join(' ') || '.';
 
-    // Helper to push one appointment for a given date
-    const pushAppointmentForDate = (occurrenceDate: Date, indexOffset: number) => {
-      const datePart = occurrenceDate.toISOString().split('T')[0]; // 'YYYY-MM-DD'
-      const dateTime = combineDateTimeToUTC(
-        datePart,
-        newAppointment.time,
-        timezone
-      );
-      const newId = currentMaxId + 1 + indexOffset;
+          await createAppointment({
+             companyId,
+             firstName,
+             lastName,
+             email: data.customerEmail,
+             phone: data.customerPhone,
+             serviceId: data.serviceId,
+             staffId: data.staffId || null,
+             startTime: dateTime, // Use generated UTC string
+             meetingType: data.meetingType,
+             paymentMethod: data.paymentMethod as any,
+             notes: data.notes
+          });
+        };
 
-      const appointmentToAdd: Appointment = {
-        id: newId,
-        customerId: newId, // mock for now
-        customerName: newAppointment.customerName,
-        customerEmail: newAppointment.customerEmail,
-        customerPhone: newAppointment.customerPhone,
-        staffId: newAppointment.staffId,
-        staffName: staff.name,
-        serviceId: newAppointment.serviceId,
-        serviceName: service.name,
-        startDateTime: dateTime,
-        endDateTime: dateTime, // Will be computed by service duration
-        meetingType: newAppointment.meetingType,
-        status: newAppointment.status,
-        price: service.price,
-        currencyCode: 'USD',
-        paymentMethod: newAppointment.paymentMethod,
-        paymentStatus: 'Unpaid' as const,
-        createdAt: new Date().toISOString(),
-      };
+        if (!data.isRecurring) {
+          // Just one appointment
+          await createSingleAppointment(baseDate);
+        } else {
+          // Repeat until end date
+          if (!data.repeatEndDate) throw new Error("Repeat end date required");
+          const endDate = new Date(`${data.repeatEndDate}T23:59:59`);
+          let occurrenceDate = baseDate;
+          let occurrenceIndex = 0;
+          const MAX_OCCURRENCES = 50; 
 
-      newAppointments.push(appointmentToAdd);
-    };
+          while (occurrenceDate <= endDate && occurrenceIndex < MAX_OCCURRENCES) {
+             await createSingleAppointment(occurrenceDate);
 
-    if (!newAppointment.isRecurring) {
-      // Just one appointment
-      pushAppointmentForDate(baseDate, 0);
-    } else {
-      // Repeat until end date
-      const endDate = new Date(`${newAppointment.repeatEndDate}T23:59:59`);
-
-      let occurrenceDate = baseDate;
-      let occurrenceIndex = 0;
-
-      // Safety guard to avoid infinite loops
-      const MAX_OCCURRENCES = 200;
-
-      while (occurrenceDate <= endDate && occurrenceIndex < MAX_OCCURRENCES) {
-        pushAppointmentForDate(occurrenceDate, occurrenceIndex);
-
-        // Move to next occurrence
-        switch (newAppointment.recurrenceType) {
-          case 'daily':
-            occurrenceDate = addDays(occurrenceDate, 1);
-            break;
-          case 'weekly':
-            occurrenceDate = addDays(occurrenceDate, 7);
-            break;
-          case 'monthly':
-            occurrenceDate = addMonths(occurrenceDate, 1);
-            break;
-          default:
-            // Fallback: stop loop
-            occurrenceDate = addDays(endDate, 1);
-            break;
+             // Move to next occurrence
+             switch (data.recurrenceType) {
+               case 'daily': occurrenceDate = addDays(occurrenceDate, 1); break;
+               case 'weekly': occurrenceDate = addDays(occurrenceDate, 7); break;
+               case 'monthly': occurrenceDate = addMonths(occurrenceDate, 1); break;
+               default: occurrenceDate = addDays(endDate, 1); break;
+             }
+             occurrenceIndex++;
+          }
         }
 
-        occurrenceIndex++;
-      }
-    }
+        loadData(); // Reload
+        setShowAddModal(false);
+        resetNewAppointmentForm();
+        alert('Appointment(s) created successfully');
 
-    setAppointments([...appointments, ...newAppointments]);
-    setShowAddModal(false);
-    resetNewAppointmentForm();
+    } catch (err: any) {
+        console.error(err);
+        alert(`Failed to create appointment: ${err.message}`);
+    }
   };
 
   // Edit appointment
@@ -473,6 +617,7 @@ export function AppointmentsPage() {
       isRecurring: false,
       recurrenceType: 'none',
       repeatEndDate: '',
+      price: appointment.price ? String(appointment.price) : '',
     });
 
     setEditingAppointmentId(appointment.id);
@@ -521,11 +666,11 @@ export function AppointmentsPage() {
           <h1 className="text-2xl md:text-3xl font-bold">Appointments</h1>
           <p className="text-gray-600 mt-1">View and manage all appointments</p>
           {/* Timezone Indicator */}
-          <div className="flex items-center gap-2 mt-2 text-sm text-gray-500">
+          {/* <div className="flex items-center gap-2 mt-2 text-sm text-gray-500">
             <Globe className="w-4 h-4" />
             <span>Times shown in {timezoneDisplay} ({timezoneOffset})</span>
             <span className="text-xs bg-gray-100 px-1 rounded">Debug: {timezone}</span>
-          </div>
+          </div> */}
         </div>
 
       </div>
@@ -573,40 +718,151 @@ export function AppointmentsPage() {
             >
               Pending
             </button>
-
-            {/* Staff Filter */}
+            {/* Date Range Filter */}
             <div className="relative">
               <button
-                onClick={() => setShowStaffFilter(!showStaffFilter)}
+                onClick={() => setShowCustomDatePicker(!showCustomDatePicker)}
                 className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                <Filter className="w-4 h-4" />
-                Staff {selectedStaff.length > 0 && `(${selectedStaff.length})`}
+                <CalendarDays className="w-4 h-4" />
+                {dateRangeFilter === 'any_time' ? 'Any Time' :
+                 dateRangeFilter === 'yesterday' ? 'Yesterday' :
+                 dateRangeFilter === 'today' ? 'Today' :
+                 dateRangeFilter === 'this_week' ? 'This Week' :
+                 dateRangeFilter === 'this_month' ? 'This Month' :
+                 dateRangeFilter === 'this_year' ? 'This Year' :
+                 dateRangeFilter === 'custom' ? 'Custom' : 'Any Time'}
                 <ChevronDown className="w-4 h-4" />
               </button>
-              {showStaffFilter && (
-                <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                  <div className="p-3 space-y-2">
-                    {staffList.map((staff: StaffOption) => (
-                      <label
-                        key={staff.id}
-                        className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedStaff.includes(staff.id)}
-                          onChange={() => toggleStaff(staff.id)}
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
-                        />
-                        <span className="text-sm">{staff.name}</span>
-                      </label>
-                    ))}
+              {showCustomDatePicker && (
+                <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-300 rounded-lg shadow-lg z-20">
+                  <div className="p-3 space-y-1">
+                    {/* Show preset options only when NOT in custom mode */}
+                    {dateRangeFilter !== 'custom' ? (
+                      <>
+                        {/* Preset Options */}
+                        {[
+                          { value: 'any_time', label: 'Any Time' },
+                          { value: 'yesterday', label: 'Yesterday' },
+                          { value: 'today', label: 'Today' },
+                          { value: 'this_week', label: 'This Week' },
+                          { value: 'this_month', label: 'This Month' },
+                          { value: 'this_year', label: 'This Year' },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => {
+                              setDateRangeFilter(option.value);
+                              setShowCustomDatePicker(false);
+                              setCurrentPage(1);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                              dateRangeFilter === option.value 
+                                ? 'bg-indigo-100 text-indigo-700' 
+                                : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                        
+                        {/* Custom Option */}
+                        <div className="border-t border-gray-200 pt-2 mt-2">
+                          <button
+                            onClick={() => setDateRangeFilter('custom')}
+                            className="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-gray-50"
+                          >
+                            Custom Range
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      /* Custom Date Range Picker */
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 mb-3">
+                          <CalendarDays className="w-5 h-5 text-indigo-600" />
+                          <span className="font-medium text-gray-700">Custom Date Range</span>
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">Start Date</label>
+                          <input
+                            type="date"
+                            value={customStartDate}
+                            onChange={(e) => setCustomStartDate(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">End Date</label>
+                          <input
+                            type="date"
+                            value={customEndDate}
+                            onChange={(e) => setCustomEndDate(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                          />
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <button
+                            onClick={() => {
+                              setDateRangeFilter('any_time');
+                            }}
+                            className="flex-1 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (customStartDate && customEndDate) {
+                                setShowCustomDatePicker(false);
+                                setCurrentPage(1);
+                              }
+                            }}
+                            disabled={!customStartDate || !customEndDate}
+                            className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-
               )}
-
             </div>
+
+            {/* Staff Filter */}
+            {!(getRoleFromToken(getToken() || '') === 'Staff') && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowStaffFilter(!showStaffFilter)}
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <Filter className="w-4 h-4" />
+                  Staff {selectedStaff.length > 0 && `(${selectedStaff.length})`}
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                {showStaffFilter && (
+                  <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
+                    <div className="p-3 space-y-2">
+                      {staffList.map((staff: StaffOption) => (
+                        <label
+                          key={staff.id}
+                          className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedStaff.includes(staff.id)}
+                            onChange={() => toggleStaff(staff.id)}
+                            className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <span className="text-sm">{staff.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <button style={{ width: "fit-content" }}
               onClick={() => setShowAddModal(true)}
               className="flex  items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors w-full sm:w-auto justify-center"
@@ -649,7 +905,7 @@ export function AppointmentsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredAppointments.map((appointment) => {
+              {appointments.map((appointment) => {
                 const isEditing = editingId === appointment.id;
                 const data = isEditing && editedData ? editedData : appointment;
 
@@ -750,6 +1006,47 @@ export function AppointmentsPage() {
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination Controls */}
+        <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-700">
+              Showing <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium">{totalItems}</span> results
+            </span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="ml-4 text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              <option value={10}>10 per page</option>
+              <option value={20}>20 per page</option>
+              <option value={50}>50 per page</option>
+              <option value={100}>100 per page</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1 || isLoading}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-gray-700">
+              Page {currentPage} of {totalPages || 1}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages || totalPages === 0 || isLoading}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Appointment Detail Modal */}
@@ -830,7 +1127,7 @@ export function AppointmentsPage() {
                     <MapPin className="w-4 h-4" />
                     Meeting Type
                   </label>
-                  <p className="mt-1 font-medium capitalize">{selectedAppointment.meetingType.replace('-', ' ')}</p>
+                  <p className="mt-1 font-medium capitalize">{selectedAppointment.meetingType}</p>
                 </div>
                 <div>
                   <label className="text-sm text-gray-600">Price</label>
@@ -865,357 +1162,29 @@ export function AppointmentsPage() {
         </div>
       )}
 
-      {/* Add Appointment Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl 
-                  max-h-[90vh] flex flex-col overflow-hidden">
-
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className=" text-xl md:text-2xl font-bold">{editingAppointmentId ? 'Edit Appointment' : 'Add New Appointment'}</h2>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 max-h-[60vh] overflow-y-auto">
-              <div className="space-y-6">
-                {/* Customer Information Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <User className="w-5 h-5 text-indigo-600" />
-                    Customer Information
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Customer Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={newAppointment.customerName}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, customerName: e.target.value })}
-                        placeholder="John Doe"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Email <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="email"
-                        value={newAppointment.customerEmail}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, customerEmail: e.target.value })}
-                        placeholder="john@example.com"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        required
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Phone Number
-                      </label>
-                      <input
-                        type="tel"
-                        value={newAppointment.customerPhone}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, customerPhone: e.target.value })}
-                        placeholder="+1 234-567-8900"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Service & Staff Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Service & Staff</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Service <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={newAppointment.serviceId}
-                        onChange={(e) => handleServiceChange(Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        required
-                      >
-                        <option value={0}>Select a service</option>
-                        {servicesList.map((service: ServiceOption) => (
-                          <option key={service.id} value={service.id}>
-                            {service.name} (${service.price} - {service.duration} min)
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Staff Member <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={newAppointment.staffId}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, staffId: Number(e.target.value) })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        required
-                      >
-                        <option value={0}>Select staff member</option>
-                        {staffList.map((staff: StaffOption) => (
-                          <option key={staff.id} value={staff.id}>
-                            {staff.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Date & Time Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-indigo-600" />
-                    Date & Time
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Date <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="date"
-                        value={newAppointment.date}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, date: e.target.value })}
-                        min={new Date().toISOString().split('T')[0]}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Time <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="time"
-                        value={newAppointment.time}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Duration (minutes)
-                      </label>
-                      <input
-                        type="number"
-                        value={newAppointment.duration}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, duration: Number(e.target.value) })}
-                        min="15"
-                        step="15"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-
-                {/* Repeat / Recurring Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-3 text-gray-800">
-                    🔁 Repeat Appointment
-                  </h3>
-
-                  {/* Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewAppointment((prev) => ({
-                        ...prev,
-                        isRecurring: !prev.isRecurring,
-                        repeatEndDate: '', // reset end date when toggling
-                      }))
-                    }
-                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all
-      ${newAppointment.isRecurring
-                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-200'
-                      }`}
-                  >
-                    {newAppointment.isRecurring ? '✅ Repeating Enabled' : 'Repeat this appointment'}
-                  </button>
-
-                  {/* Options when recurring is enabled */}
-                  {newAppointment.isRecurring && (
-                    <div className="mt-4 p-4 bg-gray-50 rounded-2xl border border-gray-200 shadow-sm">
-
-                      {/* Frequency */}
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Repeat Frequency
-                        </label>
-                        <div className="flex flex-wrap gap-2">
-                          {['daily', 'weekly', 'monthly'].map((freq) => (
-                            <button
-                              key={freq}
-                              type="button"
-                              onClick={() =>
-                                setNewAppointment((prev) => ({
-                                  ...prev,
-                                  recurrenceType: freq as any,
-                                }))
-                              }
-                              className={`px-3 py-1 rounded-lg border text-sm capitalize
-                ${newAppointment.recurrenceType === freq
-                                  ? 'border-indigo-600 bg-indigo-100 text-indigo-700'
-                                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-200'
-                                }`}
-                            >
-                              {freq}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* End Date */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Repeat Until
-                        </label>
-                        <input
-                          type="date"
-                          value={newAppointment.repeatEndDate}
-                          onChange={(e) =>
-                            setNewAppointment((prev) => ({
-                              ...prev,
-                              repeatEndDate: e.target.value,
-                            }))
-                          }
-                          min={newAppointment.date || new Date().toISOString().split('T')[0]}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          required
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          Appointment will repeat {newAppointment.recurrenceType} until this date.
-                        </p>
-                      </div>
-
-                    </div>
-                  )}
-                </div>
-
-
-
-                {/* Meeting Type Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <MapPin className="w-5 h-5 text-indigo-600" />
-                    Meeting Type
-                  </h3>
-                  <div className="flex flex-wrap gap-3">
-                    {[
-                      { value: 'zoom', label: 'Zoom', icon: '📹' },
-                      { value: 'in-person', label: 'In Person', icon: '🏢' },
-                      { value: 'phone', label: 'Phone Call', icon: '📞' },
-                    ].map((type) => (
-                      <label
-                        key={type.value}
-                        className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 border-2 rounded-lg cursor-pointer transition-all ${newAppointment.meetingType === type.value
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                          }`}
-                      >
-                        <input
-                          type="radio"
-                          name="meetingType"
-                          value={type.value}
-                          checked={newAppointment.meetingType === type.value}
-                          onChange={(e) => setNewAppointment({ ...newAppointment, meetingType: e.target.value as any })}
-                          className="sr-only"
-                        />
-                        <span className="text-xl">{type.icon}</span>
-                        <span className="font-medium">{type.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Payment & Status Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Payment & Status</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Payment Method
-                      </label>
-                      <select
-                        value={newAppointment.paymentMethod}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, paymentMethod: e.target.value as any })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="credit-card">Credit Card</option>
-                        <option value="debit-card">Debit Card</option>
-                        <option value="paypal">PayPal</option>
-                        <option value="pay-later">Pay Later</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Status
-                      </label>
-                      <select
-                        value={newAppointment.status}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, status: e.target.value as any })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="pending">Pending</option>
-                        <option value="confirmed">Confirmed</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Description Section */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description / Notes
-                  </label>
-                  <textarea
-                    value={newAppointment.notes}
-                    onChange={(e) => setNewAppointment({ ...newAppointment, notes: e.target.value })}
-                    placeholder="Add any additional notes or requirements..."
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="p-6 border-t border-gray-200 flex gap-3">
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  setEditingAppointmentId(null);
-                  resetNewAppointmentForm();
-                }}
-                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveAppointment}
-                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
-              >
-                {editingAppointmentId ? 'Update Appointment' : 'Save Appointment'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AppointmentFormModal 
+        isOpen={showAddModal}
+        onClose={() => {
+          setShowAddModal(false);
+          setEditingAppointmentId(null);
+          resetNewAppointmentForm();
+        }}
+        onSubmit={handleModalSubmit}
+        initialData={
+          editingAppointmentId 
+            ? { ...newAppointment, id: editingAppointmentId } 
+            : undefined
+        }
+        editMode={!!editingAppointmentId}
+        staffList={staffList}
+        servicesList={servicesList}
+        customersList={customersList.map(c => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          phone: c.phone || undefined
+        }))}
+      />
     </div>
   );
 }

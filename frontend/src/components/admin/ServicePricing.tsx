@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, Save, Trash2, Edit3, X, AlertCircle, CheckCircle } from 'lucide-react';
+import { Save, Trash2, Edit3, X, AlertCircle, CheckCircle, Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { getDefaultCurrency } from '../../services/settingsService';
 import { 
   fetchServicesPricing, 
@@ -19,47 +19,105 @@ export function ServicePricing() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
+  // Pagination & Search State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [totalPages, setTotalPages] = useState(0);
+  
   // Editing state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editPrice, setEditPrice] = useState('');
 
   // Fetch services on mount
   useEffect(() => {
-    loadInitialData();
+     loadDefaultCurrency();
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadInitialData = async () => {
+  useEffect(() => {
+    loadServices();
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, itemsPerPage, searchQuery]);
+
+  const loadDefaultCurrency = async () => {
+    try {
+        const currency = await getDefaultCurrency();
+        setDisplayCurrency(currency);
+    } catch (err) {
+        console.error("Failed to load default currency", err);
+    }
+  };
+
+  const loadServices = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // Get default currency
-      const currency = await getDefaultCurrency();
-      setDisplayCurrency(currency);
-      
-      // Get company ID from token
       const token = getToken();
       if (!token) {
         setError('Not authenticated. Please log in again.');
+        setLoading(false);
         return;
       }
       
       const companyId = getCompanyIdFromToken(token);
       if (!companyId) {
         setError('Company ID not found. Please log in again.');
+        setLoading(false);
         return;
       }
       
-      // Fetch services with pricing
-      const data = await fetchServicesPricing(companyId);
-      setServices(data);
-    } catch (err) {
+      const data = await fetchServicesPricing({
+        companyId,
+        page: currentPage,
+        pageSize: itemsPerPage,
+        searchTerm: searchQuery
+      });
+      
+      // Handle potential race condition or stale backend (which might return an array)
+      if (Array.isArray(data)) {
+          // Client-side fallback: Filter and Paginate manually
+          let filtered = data;
+          if (searchQuery) {
+              const lowerQuery = searchQuery.toLowerCase();
+              filtered = data.filter(s => 
+                  s.name.toLowerCase().includes(lowerQuery) || 
+                  (s.description && s.description.toLowerCase().includes(lowerQuery))
+              );
+          }
+          
+          const total = filtered.length;
+          const start = (currentPage - 1) * itemsPerPage;
+          const paginated = filtered.slice(start, start + itemsPerPage);
+          
+          setServices(paginated);
+          setTotalItems(total);
+          setTotalPages(Math.ceil(total / itemsPerPage));
+      } else {
+          setServices(data.items || []);
+          setTotalItems(data.totalCount || 0);
+          setTotalPages(data.totalPages || 1);
+      }
+    } catch (err: any) {
       setError('Failed to load services. Please try again.');
+      setServices([]);
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
+
+  // Debounce search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+        if(currentPage !== 1) setCurrentPage(1); 
+        else loadServices();
+    }, 500); 
+    return () => clearTimeout(timeoutId);
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   const handleStartEdit = (service: ServicePricingDto) => {
     setEditingId(service.id);
@@ -129,15 +187,6 @@ export function ServicePricing() {
 
   const currencySymbol = getCurrencySymbol(displayCurrency);
 
-  if (loading) {
-    return (
-      <div className="p-8 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-        <span className="ml-3 text-gray-600">Loading services...</span>
-      </div>
-    );
-  }
-
   return (
     <div className="p-4 md:p-8">
       <div className="mb-8">
@@ -162,12 +211,32 @@ export function ServicePricing() {
         </div>
       )}
 
+      {/* Search Bar */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-[300px]">
+                <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search services..."
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                </div>
+            </div>
+        </div>
+      </div>
+
       <div className="space-y-6">
         {/* Service Pricing Table */}
         <div className="bg-white rounded-lg shadow">
           <div className="p-6 border-b border-gray-200">
             <h2 className="text-xl font-semibold flex items-center gap-2">
-              <p className="w-4 h-7">{currencySymbol}</p>
+              <span className="flex items-center justify-center w-8 h-8 bg-gray-100 rounded-full text-sm font-bold text-gray-700">
+                  {currencySymbol}
+              </span>
                  Service Pricing 
              
             </h2>
@@ -176,9 +245,14 @@ export function ServicePricing() {
             </p>
           </div>
           <div className="p-6">
-            {services.length === 0 ? (
+            {loading ? (
+                <div className="p-8 text-center text-gray-500 flex flex-col items-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-2" />
+                    Loading services...
+                </div>
+            ) : services?.length === 0 ? (
               <p className="text-gray-500 text-center py-8">
-                No services found. Add services in Manage Services first.
+                {searchQuery ? 'No services found matching your search.' : 'No services found. Add services in Manage Services first.'}
               </p>
             ) : (
               <div className="space-y-3">
@@ -256,6 +330,50 @@ export function ServicePricing() {
                 ))}
               </div>
             )}
+            
+            {/* Pagination Controls */}
+            {!loading && services.length > 0 && (
+                <div className="mt-6 pt-4 border-t border-gray-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-700">
+                            Showing <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium">{totalItems}</span> results
+                        </span>
+                        <select
+                            value={itemsPerPage}
+                            onChange={(e) => {
+                                setItemsPerPage(Number(e.target.value));
+                                setCurrentPage(1);
+                            }}
+                            className="ml-4 text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                        >
+                            <option value={10}>10 per page</option>
+                            <option value={20}>20 per page</option>
+                            <option value={50}>50 per page</option>
+                        </select>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                            disabled={currentPage === 1 || loading}
+                            className="p-2 border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="text-sm text-gray-700">
+                            Page {currentPage} of {totalPages || 1}
+                        </span>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                            disabled={currentPage === totalPages || totalPages === 0 || loading}
+                            className="p-2 border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            )}
+
           </div>
         </div>
 

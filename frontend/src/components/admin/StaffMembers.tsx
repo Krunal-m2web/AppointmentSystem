@@ -3,7 +3,7 @@ import { fetchStaff, updateStaff, fetchStaffAvailability, createAvailability, de
 import { Search, Plus, X, User, Mail, Phone, Briefcase, Clock, Save, Calendar, Trash2 } from 'lucide-react';
 import type { Staff, TimeSlot, StaffServiceInfo } from '../../types/types';
 import { fetchServices, ServiceListItem } from "../../services/serviceApi";
-import { getToken, getCompanyIdFromToken } from '../../utils/auth';
+import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -18,6 +18,7 @@ interface EditableStaff extends Omit<Staff, 'services' | 'schedule'> {
 }
 
 export function StaffMembers() {
+    const [showPassword, setShowPassword] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [staff, setStaff] = useState<Staff[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -32,7 +33,34 @@ export function StaffMembers() {
     const [timeOffs, setTimeOffs] = useState<TimeOff[]>([]);
     const [newTimeOff, setNewTimeOff] = useState({ start: '', end: '', reason: '' });
 
-useEffect(() => {
+    // Validation State
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+    const validateForm = () => {
+        if (!editedStaff) return false;
+        const errors: Record<string, string> = {};
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        if (!editedStaff.firstName?.trim()) errors.firstName = "First name is required";
+        if (!editedStaff.lastName?.trim()) errors.lastName = "Last name is required";
+        if (!editedStaff.email?.trim()) {
+            errors.email = "Email is required";
+        } else if (!emailRegex.test(editedStaff.email)) {
+            errors.email = "Invalid email format";
+        }
+        if (!editedStaff.phone?.trim()) errors.phone = "Phone number is required";
+        
+        // Password validation for new staff
+        if (editedStaff.id <= 0 && !editedStaff.password) {
+             errors.password = "Password is required";
+        }
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+
+  useEffect(() => {
   if (!selectedStaff) return;
 
   let cancelled = false;
@@ -81,14 +109,32 @@ useEffect(() => {
 }, [selectedStaff?.id]);
 
     useEffect(() => {
+        const token = getToken();
         fetchStaff()
-        .then(setStaff)
+        .then(res => {
+            const role = token ? getRoleFromToken(token) : undefined;
+            const userId = token ? getUserIdFromToken(token) : undefined;
+            
+            let data = res;
+            if (role === 'Staff' && userId) {
+                data = res.filter((s: Staff) => s.id === userId);
+            }
+            setStaff(data);
+            
+            // Auto-select if there's only one (e.g. for Staff users)
+            if (role === 'Staff' && data.length === 1) {
+                 handleSelectStaff(data[0]);
+            }
+        })
         .catch(err => console.error(err))
     }, [])
 
     useEffect(() => {
-        fetchServices() // This returns Service[] now but compatible enough
-        .then((res: any) => setServices(res))
+        fetchServices() 
+        .then((res: any) => {
+            const data = Array.isArray(res) ? res : (res.items || []);
+            setServices(data);
+        })
         .catch(err => console.error(err))
     }, [])
 
@@ -147,6 +193,7 @@ const handleSelectStaff = (staffMember: Staff) => {
     schedule: [], // will be filled by useEffect
     role: "",
   });
+  setFormErrors({}); // Clear errors when selecting new staff
 
   setActiveTab("details");
 };
@@ -177,6 +224,7 @@ const handleSelectStaff = (staffMember: Staff) => {
         };
         setSelectedStaff(newStaff);
         setEditedStaff(editableNewStaff);
+        setFormErrors({}); // Clear errors for new staff
         setActiveTab("details");
     };
 
@@ -208,6 +256,9 @@ const handleSelectStaff = (staffMember: Staff) => {
 const handleSave = async () => {
     if (!editedStaff || isSaving) return;
     
+    // Client-side validation
+    if (!validateForm()) return;
+    
     // validate overlaps locally
     if (checkOverlap(editedStaff.schedule)) {
         alert("Error: The schedule contains overlapping time slots. Please correct them before saving.");
@@ -235,7 +286,7 @@ const handleSave = async () => {
                 email: editedStaff.email || "",
                 phone: editedStaff.phone,
                 serviceIds: editedStaff.services,
-                password: editedStaff.password || "Password123!" 
+                password: editedStaff.password   
             });
             staffId = newStaff.id;
         } else {
@@ -320,8 +371,6 @@ const scheduleData = availability.map((a: any) => ({
         }
 
         if (editedStaff.id <= 0) {
-            alert(`Staff member created successfully!\n\nIMPORTANT: Their temporary password is "${editedStaff.password || "Password123!"}".\nPlease share this with them so they can log in.`);
-        } else {
             alert("Staff and schedule saved successfully!");
         }
 
@@ -450,26 +499,32 @@ const scheduleData = availability.map((a: any) => ({
     return (
         <div className="p-4 md:p-8">
             <div className="mb-6 md:mb-8">
-                <h1 className="text-2xl md:text-3xl font-bold">Staff Members</h1>
-                <p className="text-gray-600 mt-1">Manage staff members and their schedules</p>
+                <h1 className="text-2xl md:text-3xl font-bold">
+                    {getRoleFromToken(getToken() || '') === 'Staff' ? 'My Profile' : 'Staff Members'}
+                </h1>
+                <p className="text-gray-600 mt-1">
+                    {getRoleFromToken(getToken() || '') === 'Staff' ? 'My profile and schedules' : 'Manage staff members and their schedules'}
+                </p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Staff List */}
                 <div className="lg:col-span-1">
                     <div className="bg-white rounded-lg shadow">
-                        <div className="p-4 border-b border-gray-200">
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                                <input
-                                    type="text"
-                                    placeholder="Search staff..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
+                        {!(getRoleFromToken(getToken() || '') === 'Staff') && (
+                            <div className="p-4 border-b border-gray-200">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search staff..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         <div className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
                             {filteredStaff.map((staffMember) => (
@@ -493,6 +548,7 @@ const scheduleData = availability.map((a: any) => ({
                         </div>
 
                         <div className="p-4 border-t border-gray-200">
+                           {!(getRoleFromToken(getToken() || '') === 'Staff') && (
                             <button 
                                 onClick={handleAddNewStaff}
                                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
@@ -500,6 +556,7 @@ const scheduleData = availability.map((a: any) => ({
                                 <Plus className="w-5 h-5" />
                                 Add Staff Member
                             </button>
+                           )}
                         </div>
                     </div>
                 </div>
@@ -573,70 +630,146 @@ const scheduleData = availability.map((a: any) => ({
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                                     <User className="w-4 h-4 inline mr-2" />
-                                                    First Name
+                                                    First Name <span className="text-red-500">*</span>
                                                 </label>
                                                 <input
                                                     type="text"
                                                     value={editedStaff.firstName ?? ''}
-                                                    onChange={(e) => setEditedStaff({ ...editedStaff, firstName: e.target.value })}
-                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                    onChange={(e) => {
+                                                        setEditedStaff({ ...editedStaff, firstName: e.target.value });
+                                                        if (formErrors.firstName) setFormErrors({ ...formErrors, firstName: '' });
+                                                    }}
+                                                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.firstName ? 'border-red-500' : 'border-gray-300'}`}
                                                 />
+                                                {formErrors.firstName && <p className="text-red-500 text-xs mt-1">{formErrors.firstName}</p>}
                                             </div>
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    Last Name
+                                                     <User className="w-4 h-4 inline mr-2" />
+                                                    Last Name <span className="text-red-500">*</span>
                                                 </label>
                                                 <input
                                                     type="text"
                                                     value={editedStaff.lastName ?? ''}
-                                                    onChange={(e) => setEditedStaff({ ...editedStaff, lastName: e.target.value })}
-                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                    onChange={(e) => {
+                                                        setEditedStaff({ ...editedStaff, lastName: e.target.value });
+                                                        if (formErrors.lastName) setFormErrors({ ...formErrors, lastName: '' });
+                                                    }}
+                                                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.lastName ? 'border-red-500' : 'border-gray-300'}`}
                                                 />
+                                                {formErrors.lastName && <p className="text-red-500 text-xs mt-1">{formErrors.lastName}</p>}
                                             </div>
                                         </div>
 
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 <Mail className="w-4 h-4 inline mr-2" />
-                                                Email
+                                                Email <span className="text-red-500">*</span>
                                             </label>
                                             <input
                                                 type="email"
                                                 value={editedStaff.email ?? ''}
-                                                onChange={(e) => setEditedStaff({ ...editedStaff, email: e.target.value })}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                onChange={(e) => {
+                                                    setEditedStaff({ ...editedStaff, email: e.target.value });
+                                                    if (formErrors.email) setFormErrors({ ...formErrors, email: '' });
+                                                }}
+                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.email ? 'border-red-500' : 'border-gray-300'}`}
                                             />
+                                            {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
                                         </div>
 
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                                 <Phone className="w-4 h-4 inline mr-2" />
-                                                Phone
+                                                Phone <span className="text-red-500">*</span>
                                             </label>
                                             <input
                                                 type="tel"
                                                 value={editedStaff.phone ?? ''}
-                                                onChange={(e) => setEditedStaff({ ...editedStaff, phone: e.target.value.replace(/[^\d+]/g, '') })}
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                onChange={(e) => {
+                                                    setEditedStaff({ ...editedStaff, phone: e.target.value.replace(/[^\d+]/g, '') });
+                                                    if (formErrors.phone) setFormErrors({ ...formErrors, phone: '' });
+                                                }}
+                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.phone ? 'border-red-500' : 'border-gray-300'}`}
                                             />
+                                            {formErrors.phone && <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>}
                                         </div>
 
-                                        {editedStaff.id <= 0 && (
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                    <Briefcase className="w-4 h-4 inline mr-2" />
-                                                    Initial Password
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={editedStaff.password || ''}
-                                                    onChange={(e) => setEditedStaff({ ...editedStaff, password: e.target.value })}
-                                                    placeholder="Enter initial password"
-                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                                />
-                                                <p className="text-xs text-gray-500 mt-1">This will be the password the staff member uses to log in for the first time.</p>
-                                            </div>
-                                        )}
+                                        <div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">
+    <Briefcase className="w-4 h-4 inline mr-2" />
+    Password
+  </label>
+
+  <div className="relative">
+    <input
+      type={showPassword ? "text" : "password"}
+      value={editedStaff.password ?? ""}
+      onChange={(e) => {
+          setEditedStaff({ ...editedStaff, password: e.target.value });
+          if (formErrors.password) setFormErrors({ ...formErrors, password: '' });
+      }}
+      placeholder={
+        editedStaff.id <= 0
+          ? "Enter password for new staff"
+          : "New password (leave blank to keep current)"
+      }
+      autoComplete="new-password"
+      name="staff-password"
+      className={`w-full px-4 py-2 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white ${formErrors.password ? 'border-red-500' : 'border-gray-300'}`}
+    />
+
+    {/* Eye icon — for both new and existing staff */}
+    <button
+      type="button"
+      onClick={() => setShowPassword((prev) => !prev)}
+      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+    >
+      {showPassword ? (
+        // eye-off
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M3 3l18 18M10.73 5.08A9.97 9.97 0 0112 5
+               c4.478 0 8.268 2.943 9.542 7
+               a9.98 9.98 0 01-4.132 5.411M6.18 6.18
+               A9.98 9.98 0 002.458 12
+               c1.274 4.057 5.064 7 9.542 7
+               a9.97 9.97 0 003.27-.53" />
+        </svg>
+      ) : (
+        // eye
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M2.458 12C3.732 7.943 7.523 5 12 5
+               c4.478 0 8.268 2.943 9.542 7
+               -1.274 4.057-5.064 7-9.542 7
+               -4.477 0-8.268-2.943-9.542-7z" />
+        </svg>
+      )}
+    </button>
+  </div>
+
+  {/* Helper text / reset link */}
+  {editedStaff.id <= 0 ? (
+    <p className={`text-xs mt-1 ${formErrors.password ? 'text-red-500' : 'text-gray-500'}`}>
+      Required: Set a password for the new staff member
+    </p>
+  ) : (
+    <div className="mt-2">
+      {!(getRoleFromToken(getToken() || '') === 'Staff') && (
+        <button
+          type="button"
+          onClick={() => alert("Reset password link will be implemented")}
+          className="text-sm text-indigo-600 hover:text-indigo-700 underline"
+        >
+          Send a Reset Password Link to staff
+        </button>
+      )}
+    </div>
+  )}
+</div>
 
                                         {/* <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -895,12 +1028,15 @@ const scheduleData = availability.map((a: any) => ({
                             </div>
 
                             <div className="p-6 border-t border-gray-200 flex justify-between">
-                                <button
-                                    onClick={handleDeleteStaff}
-                                    className="px-6 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200"
-                                >
-                                    Remove Staff
-                                </button>
+            {editedStaff.id > 0 && !(getRoleFromToken(getToken() || '') === 'Staff') && (
+  <button
+    onClick={handleDeleteStaff}
+    className="px-6 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200"
+  >
+    Remove Staff
+  </button>
+)}
+
 
                                 <button
                                     onClick={handleSave}

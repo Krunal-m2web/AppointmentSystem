@@ -1,6 +1,7 @@
 // =======================================================
 // Date & Time Utilities (UTC storage, Company TZ display)
 // =======================================================
+import { fromZonedTime } from "date-fns-tz";
 
 /**
  * Format date in a specific timezone
@@ -10,7 +11,9 @@ export function formatDate(
   timezone: string,
   options?: Intl.DateTimeFormatOptions
 ): string {
-  return new Date(dateString).toLocaleDateString("en-US", {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -27,7 +30,9 @@ export function formatTime(
   timezone: string,
   options?: Intl.DateTimeFormatOptions
 ): string {
-  return new Date(dateString).toLocaleTimeString("en-US", {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  return date.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
@@ -60,7 +65,6 @@ export function getDateString(date: Date, timezone: string): string {
   const f = (type: string) => parts.find((p) => p.type === type)?.value || "";
   return `${f("year")}-${f("month")}-${f("day")}`;
 }
-
 /**
  * Get HH:mm (24h) string in a timezone
  */
@@ -74,83 +78,43 @@ export function getTimeString(date: Date, timezone: string): string {
 }
 
 /**
- * 🔥 CORE FUNCTION
+ * 🔥 CORE FUNCTION REFACTORED
  * Convert company-timezone date & time → UTC ISO string
+ * Uses date-fns-tz for robust DST handling
  *
- * Example:
- *  date=2025-01-20
- *  time=15:33
- *  tz=America/New_York
- *  → 2025-01-20T20:33:00.000Z
+ * dateStr: YYYY-MM-DD
+ * timeStr: HH:mm or h:mm am/pm
  */
 export function combineDateTimeToUTC(
   dateStr: string,
   timeStr: string,
   timezone: string
 ): string {
-  // Robust parsing: extract numbers only for date
-  const dateParts = dateStr.match(/\d+/g);
-  if (!dateParts || dateParts.length < 3)
-    throw new Error("Invalid date format");
-  const [year, month, day] = dateParts.map(Number);
-
-  // Parsing time: handle 12h (AM/PM) or 24h
-  // Supports formats: "11:30am", "11:30 AM", "11:30", "14:30"
   let hour = 0;
   let minute = 0;
-  const timeMatch = timeStr.match(/(\d+):(\d+)\s*(am|pm)?/i);
-  if (timeMatch) {
-    hour = parseInt(timeMatch[1], 10);
-    minute = parseInt(timeMatch[2], 10);
-    const ampm = timeMatch[3]?.toUpperCase();
-    if (ampm === "PM" && hour < 12) hour += 12;
-    if (ampm === "AM" && hour === 12) hour = 0;
-  } else {
-    // Fallback if regex fails
-    const timeParts = timeStr
-      .split(":")
-      .map((s) => parseInt(s.replace(/\D/g, ""), 10));
-    hour = timeParts[0] || 0;
-    minute = timeParts[1] || 0;
-  }
 
-  // Step 1: Create a date object as if the input was UTC
-  const d = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  // Parse time string (supports "15:30" or "3:30 pm")
+  const match = timeStr.match(/(\d+):(\d+)\s*(am|pm)?/i);
+  if (!match) throw new Error("Invalid time format");
 
-  if (isNaN(d.getTime())) throw new Error("Invalid date generated from inputs");
+  hour = parseInt(match[1], 10);
+  minute = parseInt(match[2], 10);
+  const ampm = match[3]?.toLowerCase();
 
-  // Step 2: Use Intl to see how this UTC moment appears in our target timezone
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone === "UTC" ? "UTC" : timezone,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-    hour12: false,
-  });
+  if (ampm === "pm" && hour < 12) hour += 12;
+  if (ampm === "am" && hour === 12) hour = 0;
 
-  const parts = formatter.formatToParts(d);
-  const findItem = (type: string) =>
-    parseInt(parts.find((p) => p.type === type)?.value || "0");
+  // Create a string that Date.parse or date-fns can understand as "local time in that zone"
+  // Format: "YYYY-MM-DD HH:mm:ss"
+  const localDateTimeStr = `${dateStr} ${hour
+    .toString()
+    .padStart(2, "0")}:${minute.toString().padStart(2, "0")}:00`;
 
-  // Step 3: Map the local components back to a UTC timestamp to find the diff
-  const tzDate = new Date(
-    Date.UTC(
-      findItem("year"),
-      findItem("month") - 1,
-      findItem("day"),
-      findItem("hour") % 24, // handle 24:00 if it happens
-      findItem("minute"),
-      findItem("second")
-    )
-  );
+  // Convert this "local" time in the specific timezone to a true UTC Date object
+  // fromZonedTime takes the string and the timezone it belongs to, and returns the UTC Date
+  const utcDate = fromZonedTime(localDateTimeStr, timezone);
 
-  const offsetMs = tzDate.getTime() - d.getTime();
-
-  // Step 4: UTC = Local - Offset
-  return new Date(d.getTime() - offsetMs).toISOString();
+  return utcDate.toISOString();
 }
 
 /**
@@ -182,31 +146,54 @@ export function addMinutes(date: Date, minutes: number): Date {
  * Get current timezone offset string (e.g. UTC+05:30)
  */
 export function getTimezoneOffset(timezone: string): string {
-  const now = new Date();
-
-  const utc = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));
-  const tz = new Date(now.toLocaleString("en-US", { timeZone: timezone }));
-
-  const diffMin = (tz.getTime() - utc.getTime()) / 60000;
-  const sign = diffMin >= 0 ? "+" : "-";
-  const h = Math.floor(Math.abs(diffMin) / 60);
-  const m = Math.abs(diffMin) % 60;
-
-  return `UTC${sign}${h}:${String(m).padStart(2, "0")}`;
+  try {
+    const now = new Date();
+    const utc = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));
+    const tz = new Date(now.toLocaleString("en-US", { timeZone: timezone }));
+    const diffMin = (tz.getTime() - utc.getTime()) / 60000;
+    const sign = diffMin >= 0 ? "+" : "-";
+    const h = Math.floor(Math.abs(diffMin) / 60);
+    const m = Math.abs(diffMin) % 60;
+    return `UTC${sign}${h}:${String(m).padStart(2, "0")}`;
+  } catch (e) {
+    return "UTC+0:00";
+  }
 }
 
 /**
- * Common timezones (IANA)
+ * Helper to get keywords for search
  */
-export const TIMEZONES = [
-  { value: "America/New_York", label: "Eastern Time (ET)" },
-  { value: "America/Chicago", label: "Central Time (CT)" },
-  { value: "America/Denver", label: "Mountain Time (MT)" },
-  { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
-  { value: "Europe/London", label: "London (GMT/BST)" },
-  { value: "Europe/Paris", label: "Paris (CET/CEST)" },
-  { value: "Europe/Athens", label: "Athens (EET/EEST)" },
-  { value: "Asia/Kolkata", label: "India (IST)" },
-  { value: "Asia/Tokyo", label: "Tokyo (JST)" },
-  { value: "Australia/Sydney", label: "Sydney (AEDT/AEST)" },
-];
+function getTimezoneKeywords(tz: string): string {
+  const t = tz.toLowerCase();
+  const keywords: string[] = [];
+
+  if (t.includes("asia/kolkata")) keywords.push("india", "ist");
+  if (t.includes("europe/london"))
+    keywords.push("uk", "england", "great britain", "gmt", "bst");
+  if (
+    t.includes("america/new_york") ||
+    t.includes("america/chicago") ||
+    t.includes("america/denver") ||
+    t.includes("america/los_angeles") ||
+    t.includes("america/phoenix")
+  ) {
+    keywords.push("usa", "united states", "america");
+  }
+  if (t.includes("asia/tokyo")) keywords.push("japan", "jst");
+  if (t.includes("australia")) keywords.push("australia");
+  if (t.includes("europe/paris")) keywords.push("france", "cet", "cest");
+  if (t.includes("europe/berlin")) keywords.push("germany", "cet", "cest");
+  if (t.includes("asia/dubai")) keywords.push("uae", "united arab emirates");
+
+  return keywords.join(" ");
+}
+
+/**
+ * Common timezones - Generated dynamically from browser support
+ */
+export const TIMEZONES = Intl.supportedValuesOf("timeZone").map((tz) => ({
+  value: tz,
+  label: tz.replace(/_/g, " "), // Simple formatting
+  offset: getTimezoneOffset(tz),
+  keywords: getTimezoneKeywords(tz),
+}));

@@ -20,9 +20,11 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
         // GET: api/customer
         // Get all customers for the company (multi-tenant)
+        // GET: api/customer
+        // Get all customers for the company (multi-tenant)
         [HttpGet]
         [Authorize(Roles = "Admin,Staff")]
-        public async Task<ActionResult<IEnumerable<CustomerResponseDto>>> GetAllCustomers([FromQuery] string? search)
+        public async Task<ActionResult<PaginatedCustomerResponseDto>> GetAllCustomers([FromQuery] GetCustomersQueryDto query)
         {
             var companyIdClaim = User.FindFirst("companyId");
             if (companyIdClaim == null)
@@ -30,30 +32,65 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             int companyId = int.Parse(companyIdClaim.Value);
 
-            var query = _context.Customers
+            var customersQuery = _context.Customers
                 .Include(c => c.Appointments)
                 .Where(c => c.CompanyId == companyId && c.IsActive)
                 .AsQueryable();
 
             // Apply search filter
-            if (!string.IsNullOrWhiteSpace(search))
+            if (!string.IsNullOrWhiteSpace(query.SearchTerm))
             {
-                var searchLower = search.ToLower();
-                query = query.Where(c =>
+                var searchLower = query.SearchTerm.ToLower();
+                customersQuery = customersQuery.Where(c =>
                     c.FirstName.ToLower().Contains(searchLower) ||
                     c.LastName.ToLower().Contains(searchLower) ||
                     c.Email.ToLower().Contains(searchLower) ||
-                    (c.Phone != null && c.Phone.Contains(search)) ||
+                    (c.Phone != null && c.Phone.Contains(query.SearchTerm)) ||
                     (c.Notes != null && c.Notes.ToLower().Contains(searchLower))
                 );
             }
 
-            var customers = await query
-                .OrderBy(c => c.FirstName)
-                .ThenBy(c => c.LastName)
+            // Sort
+            customersQuery = query.SortBy.ToLower() switch
+            {
+                "email" => query.SortDirection.ToLower() == "asc"
+                    ? customersQuery.OrderBy(c => c.Email)
+                    : customersQuery.OrderByDescending(c => c.Email),
+
+                "phone" => query.SortDirection.ToLower() == "asc"
+                    ? customersQuery.OrderBy(c => c.Phone)
+                    : customersQuery.OrderByDescending(c => c.Phone),
+
+                "totalappointments" => query.SortDirection.ToLower() == "asc"
+                    ? customersQuery.OrderBy(c => c.Appointments.Count)
+                    : customersQuery.OrderByDescending(c => c.Appointments.Count),
+
+                "lastappointment" => query.SortDirection.ToLower() == "asc"
+                    ? customersQuery.OrderBy(c => c.Appointments.Max(a => a.StartDateTimeUtc))
+                    : customersQuery.OrderByDescending(c => c.Appointments.Max(a => a.StartDateTimeUtc)),
+
+                "createdat" => query.SortDirection.ToLower() == "asc"
+                    ? customersQuery.OrderBy(c => c.CreatedAt)
+                    : customersQuery.OrderByDescending(c => c.CreatedAt),
+
+                // Default to Name (FirstName then LastName)
+                _ => query.SortDirection.ToLower() == "asc"
+                    ? customersQuery.OrderBy(c => c.FirstName).ThenBy(c => c.LastName)
+                    : customersQuery.OrderByDescending(c => c.FirstName).ThenByDescending(c => c.LastName)
+            };
+
+            // Count
+            var totalCount = await customersQuery.CountAsync();
+            var totalPages = (int)Math.Ceiling(totalCount / (double)query.PageSize);
+            var skip = (query.Page - 1) * query.PageSize;
+
+            // Fetch
+            var customers = await customersQuery
+                .Skip(skip)
+                .Take(query.PageSize)
                 .ToListAsync();
 
-            var response = customers.Select(c => new CustomerResponseDto
+            var customerDtos = customers.Select(c => new CustomerResponseDto
             {
                 Id = c.Id,
                 CompanyId = c.CompanyId,
@@ -70,6 +107,17 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     .FirstOrDefault()?.StartDateTimeUtc,
                 CreatedAt = c.CreatedAt
             }).ToList();
+
+            var response = new PaginatedCustomerResponseDto
+            {
+                Customers = customerDtos,
+                TotalCount = totalCount,
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalPages = totalPages,
+                HasNextPage = query.Page < totalPages,
+                HasPreviousPage = query.Page > 1
+            };
 
             return Ok(response);
         }

@@ -22,6 +22,9 @@ namespace Appointmentbookingsystem.Backend.DTOs.Company
 
         [MaxLength(3)]
         public string Currency { get; set; } = "USD";
+
+        public string? WebsiteUrl { get; set; }
+        public string? LogoBase64 { get; set; }
     }
 
     public class UpdateCompanyDto
@@ -43,6 +46,9 @@ namespace Appointmentbookingsystem.Backend.DTOs.Company
         [MaxLength(3)]
         public string? Currency { get; set; }
 
+        public string? LogoUrl { get; set; }
+        public string? WebsiteUrl { get; set; }
+
         public bool? IsActive { get; set; }
     }
 
@@ -54,6 +60,10 @@ namespace Appointmentbookingsystem.Backend.DTOs.Company
         public string Email { get; set; } = null!;
         public string? Address { get; set; }
         public string Currency { get; set; } = null!;
+        public string? LogoUrl { get; set; }
+        public string? WebsiteUrl { get; set; }
+        public string? Slug { get; set; }
+
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }

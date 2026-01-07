@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Download, Upload, Plus, Edit, Trash2, X, Mail, Phone, User, Loader2 } from 'lucide-react';
+import { Search, Download, Upload, Plus, Edit, Trash2, X, Mail, Phone, User, Loader2, ChevronLeft, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 import { 
   fetchCustomers, 
   createCustomer, 
@@ -19,6 +19,13 @@ export function CustomersPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
+  // Pagination & Sorting State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [sortField, setSortField] = useState('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -29,6 +36,7 @@ export function CustomersPage() {
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     
     if (!formData.firstName.trim()) {
       errors.firstName = 'First name is required';
@@ -44,45 +52,76 @@ export function CustomersPage() {
 
     if (!formData.email.trim()) {
       errors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    } else if (!emailRegex.test(formData.email)) {
       errors.email = 'Invalid email format';
     }
 
-    if (formData.phone && formData.phone.trim().length > 0) {
-      // Basic phone validation - digits, spaces, dashes, parentheses, plus
-      if (!/^[\d\s\-()+]{7,20}$/.test(formData.phone.trim())) {
-        errors.phone = 'Invalid phone format';
-      }
+    if (!formData.phone?.trim()) {
+      errors.phone = 'Phone number is required';
+    } else if (!/^[\d\s\-()+]{7,20}$/.test(formData.phone.trim())) {
+      errors.phone = 'Invalid phone format';
     }
 
-    if (formData.notes && formData.notes.length > 1000) {
-      errors.notes = 'Notes cannot exceed 1000 characters';
+    if (formData.notes && formData.notes.length > 500) {
+      errors.notes = 'Notes cannot exceed 500 characters';
     }
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  // Fetch customers on mount and when search changes
-  useEffect(() => {
-    const loadCustomers = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const data = await fetchCustomers(searchQuery || undefined);
-        setCustomers(data);
-      } catch (err: any) {
-        console.error('Error loading customers:', err);
-        setError(err.message || 'Failed to load customers');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const loadCustomers = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await fetchCustomers({
+        page: currentPage,
+        pageSize: itemsPerPage,
+        sortBy: sortField,
+        sortDirection: sortOrder,
+        searchTerm: searchQuery
+      });
+      setCustomers(data.customers);
+      setTotalItems(data.totalCount);
+    } catch (err: any) {
+      console.error('Error loading customers:', err);
+      setError(err.message || 'Failed to load customers');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    // Debounce search
-    const timeoutId = setTimeout(loadCustomers, 300);
+  // Reload on page/sort change
+  useEffect(() => {
+    loadCustomers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, itemsPerPage, sortField, sortOrder]);
+
+  // Debounce search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setCurrentPage(1); // Reset to page 1 on search
+      loadCustomers();
+    }, 500); // Increased debounce time slightly
     return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
+
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (sortField !== field) return null;
+    return sortOrder === 'asc' ? <ArrowUp className="w-4 h-4 inline ml-1" /> : <ArrowDown className="w-4 h-4 inline ml-1" />;
+  };
+
 
   const handleSelectAll = () => {
     if (selectedCustomers.length === customers.length) {
@@ -128,7 +167,8 @@ export function CustomersPage() {
     if (confirm('Are you sure you want to delete this customer?')) {
       try {
         await deleteCustomer(id);
-        setCustomers(customers.filter((c) => c.id !== id));
+        // Reload current page
+        loadCustomers();
         setSelectedCustomers(selectedCustomers.filter((cId) => cId !== id));
       } catch (err: any) {
         alert(err.message || 'Failed to delete customer');
@@ -159,7 +199,7 @@ export function CustomersPage() {
     try {
       if (editingCustomer) {
         // Update existing customer
-        const updated = await updateCustomer(editingCustomer.id, {
+        await updateCustomer(editingCustomer.id, {
           firstName: formData.firstName,
           lastName: formData.lastName,
           email: formData.email,
@@ -167,19 +207,18 @@ export function CustomersPage() {
           notes: formData.notes || undefined,
           isActive: true,
         });
-        setCustomers(customers.map((c) => (c.id === updated.id ? updated : c)));
       } else {
         // Create new customer
-        const created = await createCustomer({
+        await createCustomer({
           firstName: formData.firstName,
           lastName: formData.lastName,
           email: formData.email,
           phone: formData.phone || undefined,
           notes: formData.notes || undefined,
         });
-        setCustomers([...customers, created]);
       }
       handleCloseForm();
+      loadCustomers(); // Reload list
     } catch (err: any) {
       alert(err.message || 'Failed to save customer');
     } finally {
@@ -188,6 +227,8 @@ export function CustomersPage() {
   };
 
   const handleExportCSV = () => {
+    // Note: This currently only exports loaded customers. 
+    // Ideally should hit a backend endpoint for full export.
     const headers = ['Name', 'First Name', 'Last Name', 'Phone', 'Email', 'Notes', 'Last Appointment', 'Total Appointments'];
     const rows = customers.map((c) => [
       c.name,
@@ -231,7 +272,7 @@ export function CustomersPage() {
     return colors[index];
   };
 
-  if (isLoading && customers.length === 0) {
+  if (isLoading && customers.length === 0 && !searchQuery) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
@@ -256,6 +297,8 @@ export function CustomersPage() {
       </div>
     );
   }
+
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   return (
     <div className="p-6">
@@ -288,12 +331,7 @@ export function CustomersPage() {
               <Download className="w-4 h-4" />
               Export to CSV...
             </button>
-            <button
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm text-gray-700"
-            >
-              <Upload className="w-4 h-4" />
-              Import...
-            </button>
+            
             <button
               onClick={handleNewCustomer}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
@@ -316,26 +354,42 @@ export function CustomersPage() {
                     type="checkbox"
                     checked={selectedCustomers.length === customers.length && customers.length > 0}
                     onChange={handleSelectAll}
+                    disabled={customers.length === 0}
                     className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                   />
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                  Name
+                <th 
+                    className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('name')}
+                >
+                  Name <SortIcon field="name" />
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                  Phone
+                <th 
+                    className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('phone')}
+                >
+                  Phone <SortIcon field="phone" />
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                  Email
+                <th 
+                    className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('email')}
+                >
+                  Email <SortIcon field="email" />
                 </th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
                   Notes
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                  Last Appointment
+                <th 
+                    className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('lastAppointment')}
+                >
+                  Last Appointment <SortIcon field="lastAppointment" />
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                  Total Appointments
+                <th 
+                    className="px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('totalAppointments')}
+                >
+                  Total Appts <SortIcon field="totalAppointments" />
                 </th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
                   Actions
@@ -343,7 +397,17 @@ export function CustomersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {customers.length > 0 ? (
+                {isLoading && (
+                    <tr>
+                        <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                            <div className="flex justify-center items-center gap-2">
+                                <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                                <span>Loading...</span>
+                            </div>
+                        </td>
+                    </tr>
+                )}
+              {!isLoading && customers.length > 0 ? (
                 customers.map((customer) => (
                   <tr
                     key={customer.id}
@@ -410,7 +474,7 @@ export function CustomersPage() {
                     </td>
                   </tr>
                 ))
-              ) : (
+              ) : !isLoading && (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                     {searchQuery ? 'No customers found matching your search' : 'No customers yet'}
@@ -419,6 +483,48 @@ export function CustomersPage() {
               )}
             </tbody>
           </table>
+        </div>
+        
+        {/* Pagination Controls */}
+        <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-700">
+              Showing <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium">{totalItems}</span> results
+            </span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="ml-4 text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              <option value={10}>10 per page</option>
+              <option value={20}>20 per page</option>
+              <option value={50}>50 per page</option>
+              <option value={100}>100 per page</option>
+            </select>
+          </div>
+            
+                <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1 || isLoading}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-gray-700">
+              Page {currentPage} of {totalPages || 1}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages || totalPages === 0 || isLoading}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
 
@@ -431,7 +537,7 @@ export function CustomersPage() {
               <div>
                 <h2 className="text-xl font-bold">{editingCustomer ? 'Edit Customer' : 'New Customer'}</h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  {editingCustomer ? 'Update customer information' : 'Add a new customer to your database'}
+                  {editingCustomer ? 'Update customer information' : 'Add a new customer  '}
                 </p>
               </div>
               <button
@@ -467,7 +573,6 @@ export function CustomersPage() {
                   className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
                     formErrors.firstName ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  required
                 />
                 {formErrors.firstName && (
                   <p className="text-red-500 text-xs mt-1">{formErrors.firstName}</p>
@@ -494,7 +599,6 @@ export function CustomersPage() {
                   className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
                     formErrors.lastName ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  required
                 />
                 {formErrors.lastName && (
                   <p className="text-red-500 text-xs mt-1">{formErrors.lastName}</p>
@@ -506,7 +610,7 @@ export function CustomersPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4 text-indigo-600" />
-                    Phone
+                    Phone <span className="text-red-500">*</span>
                   </div>
                 </label>
                 <input
@@ -553,7 +657,6 @@ export function CustomersPage() {
                   className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
                     formErrors.email ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  required
                 />
                 {formErrors.email && (
                   <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>

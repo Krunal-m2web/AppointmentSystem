@@ -1,5 +1,252 @@
 {
   "Version": 1,
   "ManifestType": "Build",
-  "Endpoints": []
+  "Endpoints": [
+    {
+      "Route": "logos/company-10.jpg",
+      "AssetFile": "logos/company-10.jpg",
+      "Selectors": [],
+      "ResponseHeaders": [
+        {
+          "Name": "Accept-Ranges",
+          "Value": "bytes"
+        },
+        {
+          "Name": "Cache-Control",
+          "Value": "max-age=3600, must-revalidate"
+        },
+        {
+          "Name": "Content-Length",
+          "Value": "7803"
+        },
+        {
+          "Name": "Content-Type",
+          "Value": "image/jpeg"
+        },
+        {
+          "Name": "ETag",
+          "Value": "\"yIyquWwNOV90kkcVuBkbC/FEbewAdFHDjY/Yofg7WkE=\""
+        },
+        {
+          "Name": "Last-Modified",
+          "Value": "Tue, 30 Dec 2025 11:32:31 GMT"
+        }
+      ],
+      "EndpointProperties": [
+        {
+          "Name": "integrity",
+          "Value": "sha256-yIyquWwNOV90kkcVuBkbC/FEbewAdFHDjY/Yofg7WkE="
+        }
+      ]
+    },
+    {
+      "Route": "logos/company-10.kg9elrm2y3.png",
+      "AssetFile": "logos/company-10.png",
+      "Selectors": [],
+      "ResponseHeaders": [
+        {
+          "Name": "Accept-Ranges",
+          "Value": "bytes"
+        },
+        {
+          "Name": "Cache-Control",
+          "Value": "max-age=31536000, immutable"
+        },
+        {
+          "Name": "Content-Length",
+          "Value": "174211"
+        },
+        {
+          "Name": "Content-Type",
+          "Value": "image/png"
+        },
+        {
+          "Name": "ETag",
+          "Value": "\"ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0=\""
+        },
+        {
+          "Name": "Last-Modified",
+          "Value": "Tue, 30 Dec 2025 11:32:25 GMT"
+        }
+      ],
+      "EndpointProperties": [
+        {
+          "Name": "fingerprint",
+          "Value": "kg9elrm2y3"
+        },
+        {
+          "Name": "integrity",
+          "Value": "sha256-ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0="
+        },
+        {
+          "Name": "label",
+          "Value": "logos/company-10.png"
+        }
+      ]
+    },
+    {
+      "Route": "logos/company-10.png",
+      "AssetFile": "logos/company-10.png",
+      "Selectors": [],
+      "ResponseHeaders": [
+        {
+          "Name": "Accept-Ranges",
+          "Value": "bytes"
+        },
+        {
+          "Name": "Cache-Control",
+          "Value": "max-age=3600, must-revalidate"
+        },
+        {
+          "Name": "Content-Length",
+          "Value": "174211"
+        },
+        {
+          "Name": "Content-Type",
+          "Value": "image/png"
+        },
+        {
+          "Name": "ETag",
+          "Value": "\"ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0=\""
+        },
+        {
+          "Name": "Last-Modified",
+          "Value": "Tue, 30 Dec 2025 11:32:25 GMT"
+        }
+      ],
+      "EndpointProperties": [
+        {
+          "Name": "integrity",
+          "Value": "sha256-ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0="
+        }
+      ]
+    },
+    {
+      "Route": "logos/company-10.snrrszcwow.jpg",
+      "AssetFile": "logos/company-10.jpg",
+      "Selectors": [],
+      "ResponseHeaders": [
+        {
+          "Name": "Accept-Ranges",
+          "Value": "bytes"
+        },
+        {
+          "Name": "Cache-Control",
+          "Value": "max-age=31536000, immutable"
+        },
+        {
+          "Name": "Content-Length",
+          "Value": "7803"
+        },
+        {
+          "Name": "Content-Type",
+          "Value": "image/jpeg"
+        },
+        {
+          "Name": "ETag",
+          "Value": "\"yIyquWwNOV90kkcVuBkbC/FEbewAdFHDjY/Yofg7WkE=\""
+        },
+        {
+          "Name": "Last-Modified",
+          "Value": "Tue, 30 Dec 2025 11:32:31 GMT"
+        }
+      ],
+      "EndpointProperties": [
+        {
+          "Name": "fingerprint",
+          "Value": "snrrszcwow"
+        },
+        {
+          "Name": "integrity",
+          "Value": "sha256-yIyquWwNOV90kkcVuBkbC/FEbewAdFHDjY/Yofg7WkE="
+        },
+        {
+          "Name": "label",
+          "Value": "logos/company-10.jpg"
+        }
+      ]
+    },
+    {
+      "Route": "logos/company-16.jpg",
+      "AssetFile": "logos/company-16.jpg",
+      "Selectors": [],
+      "ResponseHeaders": [
+        {
+          "Name": "Accept-Ranges",
+          "Value": "bytes"
+        },
+        {
+          "Name": "Cache-Control",
+          "Value": "max-age=3600, must-revalidate"
+        },
+        {
+          "Name": "Content-Length",
+          "Value": "7803"
+        },
+        {
+          "Name": "Content-Type",
+          "Value": "image/jpeg"
+        },
+        {
+          "Name": "ETag",
+          "Value": "\"yIyquWwNOV90kkcVuBkbC/FEbewAdFHDjY/Yofg7WkE=\""
+        },
+        {
+          "Name": "Last-Modified",
+          "Value": "Tue, 30 Dec 2025 12:58:58 GMT"
+        }
+      ],
+      "EndpointProperties": [
+        {
+          "Name": "integrity",
+          "Value": "sha256-yIyquWwNOV90kkcVuBkbC/FEbewAdFHDjY/Yofg7WkE="
+        }
+      ]
+    },
+    {
+      "Route": "logos/company-16.snrrszcwow.jpg",
+      "AssetFile": "logos/company-16.jpg",
+      "Selectors": [],
+      "ResponseHeaders": [
+        {
+          "Name": "Accept-Ranges",
+          "Value": "bytes"
+        },
+        {
+          "Name": "Cache-Control",
+          "Value": "max-age=31536000, immutable"
+        },
+        {
+          "Name": "Content-Length",
+          "Value": "7803"
+        },
+        {
+          "Name": "Content-Type",
+          "Value": "image/jpeg"
+        },
+        {
+          "Name": "ETag",
+          "Value": "\"yIyquWwNOV90kkcVuBkbC/FEbewAdFHDjY/Yofg7WkE=\""
+        },
+        {
+          "Name": "Last-Modified",
+          "Value": "Tue, 30 Dec 2025 12:58:58 GMT"
+        }
+      ],
+      "EndpointProperties": [
+        {
+          "Name": "fingerprint",
+          "Value": "snrrszcwow"
+        },
+        {
+          "Name": "integrity",
+          "Value": "sha256-yIyquWwNOV90kkcVuBkbC/FEbewAdFHDjY/Yofg7WkE="
+        },
+        {
+          "Name": "label",
+          "Value": "logos/company-16.jpg"
+        }
+      ]
+    }
+  ]
 }

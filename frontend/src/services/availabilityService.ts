@@ -29,6 +29,18 @@ export const fetchAvailableSlots = async (
   return response.json();
 };
 
+export const fetchAnyStaffSlots = async (
+  serviceId: number,
+  date: string // YYYY-MM-DD
+): Promise<TimeSlotDto[]> => {
+  const url = `${API_BASE_URL}/api/availability/service/${serviceId}/slots?date=${date}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("Failed to fetch available slots");
+  }
+  return response.json();
+};
+
 export const fetchStaffTimeOffs = async (
   staffId: number
 ): Promise<TimeOffResponseDto[]> => {

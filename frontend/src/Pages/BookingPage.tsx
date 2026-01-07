@@ -93,20 +93,16 @@ export function UserBooking({ user, onLogout }: UserBookingProps) {
                 <div className="grid gap-3">
                   <div>
                     <span className="text-gray-600">Service:</span>
-                    <span className="ml-2">{bookingDetails?.service}</span>
+                    <span className="ml-2">{bookingDetails?.serviceName}</span>
                   </div>
                   
                    <div>
                     <span className="text-gray-600">Staff:</span>
-                    <span className="ml-2">{bookingDetails?.staff}</span>
+                    <span className="ml-2">{bookingDetails?.staffName}</span>
                   </div>
                   <div>
                     <span className="text-gray-600">Location:</span>
                     <span className="ml-2">{bookingDetails?.location}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Duration:</span>
-                    <span className="ml-2">{bookingDetails?.duration}</span>
                   </div>
                   <div>
                     <span className="text-gray-600">Date & Time:</span>

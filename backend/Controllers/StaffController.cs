@@ -185,7 +185,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
         public async Task<IActionResult> UpdateStaff(int id, [FromBody] UpdateStaffDto dto)
         {
             if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            {
+                var errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList();
+               return BadRequest(ModelState);
+
+            }
 
             var staff = await _context.Staff
                 .Include(s => s.StaffServices)
@@ -201,6 +208,12 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (dto.Address != null) staff.Address = dto.Address;
             if (dto.Notes != null) staff.Notes = dto.Notes;
             if (dto.IsActive.HasValue) staff.IsActive = dto.IsActive.Value;
+
+            // Update Password if provided
+            if (!string.IsNullOrEmpty(dto.Password))
+            {
+                staff.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+            }
 
             // Update email with duplicate check
             if (dto.Email != null && staff.Email != dto.Email.ToLowerInvariant())

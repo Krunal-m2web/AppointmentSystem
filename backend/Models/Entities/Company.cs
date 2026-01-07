@@ -12,6 +12,9 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [Required, MaxLength(100)]
         public string CompanyName { get; set; } = null!;
 
+        [MaxLength(100)]
+        public string? Slug { get; set; }
+
         [Required]
         [Phone, MaxLength(20)]
         public string Phone { get; set; } = null!;
@@ -33,7 +36,29 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [Required, MaxLength(50)]
         public string Timezone { get; set; } = "UTC";
 
+        public string? WebsiteUrl { get; set; }
+
+        // Branding
+        public string? LogoUrl { get; set; }
+
         public bool IsActive { get; set; } = true;
+
+        // Email Settings
+        [MaxLength(100)]
+        public string? DefaultSenderName { get; set; }
+
+        [MaxLength(255)]
+        public string? DefaultReplyToEmail { get; set; }
+
+        public bool IsEmailServiceEnabled { get; set; } = true;
+
+        // Payment Settings
+        public string? EnabledPaymentMethods { get; set; } // JSON array of enabled payment methods
+        public bool ShowPayNow { get; set; } = true;
+        public bool ShowPayLater { get; set; } = true;
+
+        // Meeting Location Settings
+        public string? EnabledMeetingLocations { get; set; } // JSON array of enabled meeting locations
 
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }

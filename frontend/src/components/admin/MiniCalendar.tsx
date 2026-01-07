@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight, Clock, Globe } from 'lucide-react';
+import { useTimezone } from '../../context/TimezoneContext';
+import { getDateString } from '../../utils/datetime';
 
 interface CalendarProps {
   selectedDate: Date | null;
@@ -242,8 +244,14 @@ export function Calendar({
   );
 }
 
+interface MiniCalendarProps {
+  selectedDate?: Date;
+  onSelectDate?: (date: Date) => void;
+}
+
 // Simple MiniCalendar for Dashboard (no time selection)
-export function MiniCalendar() {
+export function MiniCalendar({ selectedDate, onSelectDate }: MiniCalendarProps) {
+  const { timezone } = useTimezone();
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   const getDaysInMonth = (date: Date) => {
@@ -278,36 +286,54 @@ export function MiniCalendar() {
     setCurrentMonth(newDate);
   };
 
+  const isSameDay = (d1: Date, d2: Date) => {
+    return d1.getDate() === d2.getDate() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getFullYear() === d2.getFullYear();
+  };
+
   const isToday = (date: Date | null) => {
     if (!date) return false;
-    const today = new Date();
-    return (
-      date.getDate() === today.getDate() &&
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear()
-    );
+    const now = new Date();
+    // Use simple component comparsion for today highlighting in mini calendar
+    return isSameDay(date, now);
   };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="font-medium">
-          {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-        </h4>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           <button
             onClick={previousMonth}
             className="p-1 hover:bg-gray-100 rounded transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <button
+          <span className="font-medium text-sm w-20 text-center">
+             {currentMonth.toLocaleDateString('en-US', { month: 'long' })}
+          </span>
+           <button
             onClick={nextMonth}
             className="p-1 hover:bg-gray-100 rounded transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
+
+        <select
+           value={currentMonth.getFullYear()}
+           onChange={(e) => {
+               const newYear = parseInt(e.target.value);
+               const newDate = new Date(currentMonth);
+               newDate.setFullYear(newYear);
+               setCurrentMonth(newDate);
+           }}
+           className="text-sm font-medium border-none bg-transparent hover:bg-gray-50 rounded cursor-pointer focus:ring-0"
+        >
+            {Array.from({ length: 101 }, (_, i) => new Date().getFullYear() - 50 + i).map(year => (
+                <option key={year} value={year}>{year}</option>
+            ))}
+        </select>
       </div>
 
       <div>
@@ -320,17 +346,21 @@ export function MiniCalendar() {
         </div>
         <div className="grid grid-cols-7 gap-1">
           {days.map((date, index) => (
-            <div
+            <button
               key={index}
-              className={`aspect-square flex items-center justify-center text-sm rounded ${!date
+              disabled={!date}
+              onClick={() => date && onSelectDate?.(date)}
+              className={`aspect-square flex items-center justify-center text-sm rounded transition-colors ${!date
                   ? 'invisible'
-                  : isToday(date)
+                  : selectedDate && isSameDay(date, selectedDate)
                     ? 'bg-indigo-600 text-white font-semibold'
-                    : 'hover:bg-gray-100'
+                    : isToday(date)
+                      ? 'bg-indigo-100 text-indigo-700 font-medium'
+                      : 'hover:bg-gray-100'
                 }`}
             >
               {date?.getDate()}
-            </div>
+            </button>
           ))}
         </div>
       </div>

@@ -9,6 +9,10 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment // Defines what filt
 
          // Filter by specific staff member
          public int? StaffId { get; set;}
+         public List<int>? StaffIds { get; set; }
+
+         // Search Term
+         public string? SearchTerm { get; set; }
 
          // Filter by Customer
          public int? CustomerId { get; set;}
@@ -33,7 +37,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment // Defines what filt
         // Sort by: "date", "customer", "service", "status"
         public string SortBy { get; set; } = "date";
 
-        public string SortDirection { get; set; } = "desc";
+        public string SortDirection { get; set; } = "asc";
  
 
     }

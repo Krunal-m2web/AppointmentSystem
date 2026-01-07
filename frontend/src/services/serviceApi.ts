@@ -9,11 +9,41 @@ export interface ServiceListItem {
   name: string;
 }
 
-export async function fetchServices(companyId?: number): Promise<Service[]> {
-  const tid = companyId || getCompanyIdFromToken(getToken() || "");
-  const url = tid
-    ? `${API_BASE_URL}/api/services?companyId=${tid}`
-    : `${API_BASE_URL}/api/services`;
+export interface PaginatedServiceResponse {
+  items: Service[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface ServiceQueryParams {
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortDirection?: string;
+  searchTerm?: string;
+  companyId?: number;
+}
+
+export async function fetchServices(
+  params: ServiceQueryParams = {}
+): Promise<PaginatedServiceResponse | any[]> {
+  const tid = params.companyId || getCompanyIdFromToken(getToken() || "");
+
+  const queryParams = new URLSearchParams();
+  if (tid) queryParams.append("companyId", tid.toString());
+  if (params.page) queryParams.append("page", params.page.toString());
+  if (params.pageSize)
+    queryParams.append("pageSize", params.pageSize.toString());
+  if (params.sortBy) queryParams.append("sortBy", params.sortBy);
+  if (params.sortDirection)
+    queryParams.append("sortDirection", params.sortDirection);
+  if (params.searchTerm) queryParams.append("searchTerm", params.searchTerm);
+
+  const url = `${API_BASE_URL}/api/services?${queryParams.toString()}`;
 
   const res = await fetch(url);
   if (!res.ok) {

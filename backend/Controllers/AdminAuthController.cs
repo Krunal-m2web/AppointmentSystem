@@ -2,6 +2,7 @@ using Appointmentbookingsystem.Backend.Data;
 using Appointmentbookingsystem.Backend.DTOs.Auth;
 using Appointmentbookingsystem.Backend.Models.Entities;
 using Appointmentbookingsystem.Backend.Services;
+using Appointmentbookingsystem.Backend.Helpers;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +21,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
             _jwt = jwt;
         }
 
+
+ 
         /// <summary>
         /// Register a new admin with a new company.
         /// This creates both the company and the first admin user.
@@ -46,10 +49,23 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (await _context.Companies.AnyAsync(c => c.Email.ToLower() == normalizedCompanyEmail))
                 return BadRequest("This email is used by other company");
 
+            // Generate unique slug
+            var baseSlug = SlugHelper.GenerateSlug(dto.CompanyName);
+            if (string.IsNullOrEmpty(baseSlug)) baseSlug = "company";
+            
+            var slug = baseSlug;
+            var counter = 1;
+            while (await _context.Companies.AnyAsync(c => c.Slug == slug))
+            {
+                slug = $"{baseSlug}-{counter}";
+                counter++;
+            }
+
             // Create the company first
             var company = new Company
             {
                 CompanyName = dto.CompanyName,
+                Slug = slug,
                 Email = normalizedEmail,
                 Phone = dto.CompanyPhone,
                 Address = dto.CompanyAddress,

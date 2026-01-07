@@ -21,11 +21,11 @@ namespace Appointmentbookingsystem.Backend.Controllers
         }
 
         /// <summary>
-        /// GET /api/services/pricing - Get all services with pricing in current default currency
+        /// GET /api/services/pricing - Get all services with pricing in current default currency (paginated)
         /// </summary>
         [HttpGet]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> GetServicesPricing([FromQuery] int? companyId)
+        public async Task<ActionResult<PaginatedServicePricingResponseDto>> GetServicesPricing([FromQuery] GetServiceQueryDto queryDto)
         {
             // Get the system-wide default currency
             var defaultCurrency = _configuration["AppSettings:DefaultCurrency"] ?? "USD";
@@ -35,14 +35,37 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .Include(s => s.Prices)
                 .Where(s => s.IsActive);
 
-            if (companyId.HasValue)
+            if (queryDto.CompanyId.HasValue)
             {
-                query = query.Where(s => s.CompanyId == companyId.Value);
+                query = query.Where(s => s.CompanyId == queryDto.CompanyId.Value);
             }
 
-            var services = await query.ToListAsync();
+            // Search
+            if (!string.IsNullOrWhiteSpace(queryDto.SearchTerm))
+            {
+                var term = queryDto.SearchTerm.ToLower();
+                query = query.Where(s => s.Name.ToLower().Contains(term));
+            }
 
-            var result = services.Select(s =>
+             // Sort
+            query = queryDto.SortBy.ToLower() switch
+            {
+                _ => queryDto.SortDirection.ToLower() == "asc"
+                    ? query.OrderBy(s => s.Name)
+                    : query.OrderByDescending(s => s.Name)
+            };
+
+            // Pagination
+            var totalCount = await query.CountAsync();
+            var totalPages = (int)Math.Ceiling(totalCount / (double)queryDto.PageSize);
+            var skip = (queryDto.Page - 1) * queryDto.PageSize;
+
+            var services = await query
+                .Skip(skip)
+                .Take(queryDto.PageSize)
+                .ToListAsync();
+
+            var serviceDtos = services.Select(s =>
             {
                 // Check if service has a price for the current default currency
                 var priceInCurrency = s.Prices.FirstOrDefault(x => x.Currency == defaultCurrency);
@@ -58,6 +81,17 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     ServiceDuration = s.ServiceDuration
                 };
             }).ToList();
+
+            var result = new PaginatedServicePricingResponseDto
+            {
+                Items = serviceDtos,
+                TotalCount = totalCount,
+                Page = queryDto.Page,
+                PageSize = queryDto.PageSize,
+                TotalPages = totalPages,
+                HasNextPage = queryDto.Page < totalPages,
+                HasPreviousPage = queryDto.Page > 1
+            };
 
             return Ok(result);
         }

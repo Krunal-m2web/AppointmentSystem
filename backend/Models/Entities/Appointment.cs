@@ -66,6 +66,9 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [MaxLength(1000)]
         public string? Notes { get; set; }
 
+        public bool ReminderSent { get; set; }
+        public bool FollowupSent { get; set; }
+
         // Timestamps
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }

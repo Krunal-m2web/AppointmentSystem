@@ -19,12 +19,14 @@ namespace Appointmentbookingsystem.Backend.Data
         // Existing entities
         public DbSet<Appointment> Appointments { get; set; } = null!;
         public DbSet<Availability> Availabilities { get; set; } = null!;
-        public DbSet<TimeOff> TimeOffs { get; set; } = null!;
+        public DbSet<TimeOff> TimeOffs { get; set; }
+        public DbSet<NotificationConfig> NotificationConfigs { get; set; } = null!;
         public DbSet<AppointmentReservation> AppointmentReservations { get; set; } = null!;
         public DbSet<Customer> Customers { get; set; } = null!;
         public DbSet<Staff> Staff { get; set; } = null!;
         public DbSet<Service> Services { get; set; } = null!;
         public DbSet<ServicePrice> ServicePrices { get; set; } = null!;
+        public DbSet<EmailLog> EmailLogs { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -36,6 +38,7 @@ namespace Appointmentbookingsystem.Backend.Data
                 entity.HasKey(c => c.Id);
                 entity.HasIndex(c => c.Email).IsUnique();
                 entity.HasIndex(c => c.CompanyName).IsUnique();
+                entity.HasIndex(c => c.Slug).IsUnique().HasFilter("[Slug] IS NOT NULL");
 
                 entity.HasOne(c => c.User)
                       .WithMany()

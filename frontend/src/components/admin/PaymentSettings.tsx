@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CreditCard, Save, DollarSign, Search } from 'lucide-react';
 import { CURRENCIES, searchCurrencies, getCurrencyByCode } from '../../utils/currency';
-import { getDefaultCurrency, updateDefaultCurrency } from '../../services/settingsService';
+import { getDefaultCurrency, updateDefaultCurrency, getPaymentSettings, updatePaymentSettings } from '../../services/settingsService';
 
 export function PaymentSettings() {
   const [selectedCurrency, setSelectedCurrency] = useState('USD');
@@ -24,21 +24,40 @@ export function PaymentSettings() {
 
   const paymentMethods = ['Credit Card', 'Debit Card', 'PayPal', 'Bank Transfer'];
 
-  // Fetch current currency from backend when component loads
+  // Fetch current currency and payment settings from backend when component loads
   useEffect(() => {
-    const loadCurrency = async () => {
+    const loadSettings = async () => {
       try {
         setCurrencyLoading(true);
+        
+        // Load currency
         const currency = await getDefaultCurrency();
         setSelectedCurrency(currency);
+        
+        // Load payment settings
+        const paymentSettingsData = await getPaymentSettings();
+        
+        // Convert array to object for enabled payment methods
+        const methodsObj: Record<string, boolean> = {};
+        paymentMethods.forEach(method => {
+          methodsObj[method] = paymentSettingsData.enabledPaymentMethods.includes(method);
+        });
+        setEnabledPaymentMethods(methodsObj as typeof enabledPaymentMethods);
+        
+        // Set payment options
+        setPaymentOptions({
+          showPayNow: paymentSettingsData.showPayNow,
+          showPayLater: paymentSettingsData.showPayLater,
+          enablePaymentSection: paymentSettingsData.showPayNow || paymentSettingsData.showPayLater,
+        });
       } catch (error) {
-        console.error('Failed to load currency:', error);
-        // Keep default USD if fetch fails
+        console.error('Failed to load settings:', error);
+        // Keep defaults if fetch fails
       } finally {
         setCurrencyLoading(false);
       }
     };
-    loadCurrency();
+    loadSettings();
   }, []);
 
   const togglePaymentMethod = (method: string) => {
@@ -53,18 +72,23 @@ export function PaymentSettings() {
       setLoading(true);
       
       // Save currency to backend
-      const message = await updateDefaultCurrency(selectedCurrency);
+      await updateDefaultCurrency(selectedCurrency);
       
-      console.log('Saving payment settings:', {
-        selectedCurrency,
-        paymentOptions,
-        enabledPaymentMethods,
+      // Save payment settings to backend
+      const enabledMethods = Object.keys(enabledPaymentMethods).filter(
+        method => enabledPaymentMethods[method as keyof typeof enabledPaymentMethods]
+      );
+      
+      await updatePaymentSettings({
+        enabledPaymentMethods: enabledMethods,
+        showPayNow: paymentOptions.showPayNow,
+        showPayLater: paymentOptions.showPayLater,
       });
       
-      alert(message || 'Payment settings saved successfully!');
+      alert('Payment settings saved successfully!');
     } catch (error: any) {
-      console.error('Failed to save currency:', error);
-      alert(`Failed to save currency: ${error.message || 'Unknown error'}`);
+      console.error('Failed to save payment settings:', error);
+      alert(`Failed to save payment settings: ${error.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }

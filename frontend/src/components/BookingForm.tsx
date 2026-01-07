@@ -12,44 +12,42 @@ import {
   Calendar,
   CreditCard,
   DollarSign,
-  User
+  User,
+  Globe
 } from 'lucide-react';
 import { EnhancedCalendar } from './EnhancedCalendar';
 import { fetchServices, CustomerServiceDto } from '../services/servicesService';
 import { fetchStaffByService, StaffMemberDto } from '../services/staffService';
 import { getCurrencySymbol } from '../utils/currency';
 import { createAppointment, CreateAppointmentRequest } from '../services/appointmentApi';
+import { getPaymentSettings, getMeetingLocationSettings } from '../services/settingsService';
 import '../styles/globals.css';
-import { combineDateTimeToUTC, formatDate, formatTime, getDateString, getTimeString } from "../utils/datetime";
-import { fetchAvailableSlots, fetchStaffTimeOffs, TimeSlotDto, TimeOffResponseDto } from '../services/availabilityService';
+import { combineDateTimeToUTC, formatDate, formatTime, getDateString, getTimeString, TIMEZONES, getTimezoneOffset } from "../utils/datetime";
+import { fetchAvailableSlots, fetchStaffTimeOffs, fetchAnyStaffSlots, TimeSlotDto, TimeOffResponseDto } from '../services/availabilityService';
+import { getPublicCompanyProfile, getPublicCompanyProfileBySlug } from '../services/CompanyService';
+import { useParams } from 'react-router-dom';
+import { TimezoneSelect } from './TimezoneSelect';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
-
+// Detect browser timezone
+function getBrowserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return 'UTC';
+  }
+}
 
 interface BookingFormProps {
   onComplete: (details: any) => void;
   onClose: () => void;
 }
-
-// Mock data for locations, durations, etc.
-
+ 
 const LOCATIONS = [
   { label: 'In Person', value: 'InPerson', icon: '👤' },
-  { label: 'Phone Call',value: 'Phone', icon: '📞' },
-  { label: 'Zoom', value: 'Zoom', icon: '🎥' },
-];
-
-// const DURATIONS = ['60 min', '90 min', 'Custom'];
-
-const SERVICE_PRICES = {
-  'Web Design': 150,
-  'Software Development': 200,
-};
-
-const CURRENCY_RATES = [
-  { code: 'USD', symbol: '$', name: 'US Dollar', rate: 1, enabled: true },
-  { code: 'EUR', symbol: '€', name: 'Euro', rate: 0.92, enabled: true },
-  { code: 'GBP', symbol: '£', name: 'British Pound', rate: 0.79, enabled: true },
+  { label: 'Phone Call',value: 'Phone', image: 'https://www.bing.com/th/id/OIP.U4eWFInhZ02-FcJ5V5ieewHaIO?w=173&h=211&c=8&rs=1&qlt=90&o=6&pid=3.1&rm=2' },
+  { label: 'Zoom', value: 'Zoom', image: 'https://static.vecteezy.com/system/resources/previews/016/716/466/non_2x/zoom-meeting-icon-free-png.png' },
 ];
 
 const PAYMENT_METHODS = [
@@ -69,6 +67,9 @@ const STEPS = [
 
 export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   const [step, setStep] = useState(1);
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+  const [companyId, setCompanyId] = useState<number | null>(null);
+
   
   // Services state - fetched from API
   const [services, setServices] = useState<CustomerServiceDto[]>([]);
@@ -84,7 +85,6 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   const [description, setDescription] = useState('');
   
   const [meetingType, setMeetingType] = useState<string | null>(null);
- 
   const [customDuration, setCustomDuration] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState('');
@@ -98,13 +98,21 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   // Booking submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [companyTimezone, setCompanyTimezone] = useState("UTC");
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   // Availability state
   const [unavailableDates, setUnavailableDates] = useState<Date[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+
+  // Customer timezone - detected from browser, editable
+  const [customerTimezone, setCustomerTimezone] = useState<string>(getBrowserTimezone());
+
+  // Dynamic payment and meeting location settings
+  const [availableLocations, setAvailableLocations] = useState(LOCATIONS);
+  const [availablePaymentMethods, setAvailablePaymentMethods] = useState(PAYMENT_METHODS);
+  const [showPayNow, setShowPayNow] = useState(true);
+  const [showPayLater, setShowPayLater] = useState(true);
 
   const validateStep = () => {
     const errors: Record<string, string> = {};
@@ -152,33 +160,52 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   };
 
   // Fetch services when component loads
+  const { slug } = useParams<{ slug: string }>();
+
   useEffect(() => {
     const loadServices = async () => {
       try {
         setServicesLoading(true);
         setServicesError(null);
         
-        // Get companyId from URL query params
-        const queryParams = new URLSearchParams(window.location.search);
-        const companyIdParam = queryParams.get('companyId');
-        
-        if (!companyIdParam) {
-          setServicesError('No company ID provided. Please use a valid booking link.');
+        let cid: number | null = null;
+
+  if (slug) {
+    const company = await getPublicCompanyProfileBySlug(slug);
+    setCompanyId(company.id);        
+    cid = company.id;
+
+    if (company.logoUrl) {
+      setCompanyLogo(`${API_BASE_URL}${company.logoUrl}`);
+    }
+  } else {
+    // Fallback to query param
+    const queryParams = new URLSearchParams(window.location.search);
+    const companyIdParam = queryParams.get('companyId');
+    if (companyIdParam) {
+       cid = parseInt(companyIdParam, 10);
+       setCompanyId(cid); 
+       
+       // Also load profile for logo
+       const profile = await getPublicCompanyProfile(cid);
+       if (profile.logoUrl) {
+          setCompanyLogo(`${API_BASE_URL}${profile.logoUrl}`);
+       }
+    }
+  }
+
+        if (!cid) {
+          setServicesError('No company specified. Please use a valid booking link.');
           return;
         }
 
-        const companyId = parseInt(companyIdParam, 10);
-        
-        // Fetch services with dynamic currency from backend settings
-        const data = await fetchServices(companyId);
-        setServices(data);
+        const response = await fetchServices(cid);
+        setServices(response.items || []);
 
-        // Fetch timezone
-        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
-        const tzRes = await fetch(`${API_BASE_URL}/api/settings/timezone?companyId=${companyId}`);
-        if(tzRes.ok) {
-            const tzData = await tzRes.json();
-            if(tzData.timezone) setCompanyTimezone(tzData.timezone);
+        // If using query param, we still need to fetch profile for logo if not done yet
+        if (!slug && cid) {
+           const profile = await getPublicCompanyProfile(cid);
+           setCompanyLogo(profile.logoUrl ? `${API_BASE_URL}${profile.logoUrl}` : null);
         }
 
       } catch (err) {
@@ -190,7 +217,44 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     };
 
     loadServices();
-  }, []); // Empty dependency array = run once when component mounts
+
+    // Removed separate loadCompanyProfile as it is merged above to handle slug dependency
+  }, [slug]);
+
+  // Fetch payment and meeting location settings
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        if (companyId) {
+          // Load payment settings - requires auth, so we'll use defaults if it fails
+          try {
+            const paymentSettings = await getPaymentSettings();
+            const filteredMethods = PAYMENT_METHODS.filter(method => 
+              paymentSettings.enabledPaymentMethods.includes(method.name)
+            );
+            setAvailablePaymentMethods(filteredMethods);
+            setShowPayNow(paymentSettings.showPayNow);
+            setShowPayLater(paymentSettings.showPayLater);
+          } catch (err) {
+            // Not authenticated, use defaults
+            console.log('Using default payment settings (not authenticated)');
+          }
+
+          // Load meeting location settings - public endpoint
+          const locationSettings = await getMeetingLocationSettings(companyId);
+          const filteredLocations = LOCATIONS.filter(loc => 
+            locationSettings.enabledMeetingLocations.includes(loc.value)
+          );
+          setAvailableLocations(filteredLocations);
+        }
+      } catch (err) {
+        console.error('Error loading settings:', err);
+        // Keep defaults on error
+      }
+    };
+
+    loadSettings();
+  }, [companyId]);
 
   // Fetch staff when service changes
   useEffect(() => {
@@ -207,8 +271,6 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         
         const data = await fetchStaffByService(selectedServiceId);
         setStaffMembers(data);
-        
-        // Set "Any Staff" (-1) as default selection when service is first selected
         setSelectedStaffId(-1);
       } catch (err) {
         console.error('Error loading staff:', err);
@@ -221,7 +283,7 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     };
 
     loadStaff();
-  }, [selectedServiceId]); // Run when selected service changes
+  }, [selectedServiceId]);
 
   // Fetch Time Offs when staff changes
   useEffect(() => {
@@ -233,19 +295,15 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
 
       try {
         const timeOffs = await fetchStaffTimeOffs(selectedStaffId);
-        // Convert timeOffs to disabled dates
-        // Note: This logic disables the entire day if there's any time off. 
-        // For partial days, we should rely on slot availability, but visually blocking full days is good.
-        // If the backend returns start/end UTC, we ideally check if it covers the whole business day.
-        // For simplicity, if a timeOff spans a full day, we disable it.
         const disabledDates: Date[] = [];
         timeOffs.forEach((t) => {
            const start = new Date(t.startDateTimeUtc);
            const end = new Date(t.endDateTimeUtc);
            
-           // Simple loop to add all days in range
-           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-              disabledDates.push(new Date(d));
+           let d = new Date(start);
+           while (d <= end) {
+             disabledDates.push(new Date(d));
+             d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
            }
         });
         setUnavailableDates(disabledDates);
@@ -258,44 +316,88 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   }, [selectedStaffId]);
 
   // Fetch Available Slots when date changes
+  // Fetch Available Slots when date changes
   useEffect(() => {
     const loadSlots = async () => {
-      if (!selectedDate || !selectedServiceId || !selectedStaffId || selectedStaffId === -1) {
+      if (!selectedDate || !selectedServiceId || selectedStaffId === null) {
         setAvailableSlots([]);
         return;
       }
 
       try {
         setSlotsLoading(true);
-        // Format date as YYYY-MM-DD
-        const dateStr = selectedDate.toISOString().split('T')[0];
         
-        const slots = await fetchAvailableSlots(selectedStaffId, selectedServiceId, dateStr);
+        // Helper to formatting date YYYY-MM-DD
+        const toDateStr = (d: Date) => {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const currDateStr = toDateStr(selectedDate);
         
-        // Filter only available slots and extract times
-        // The backend returns TimeSlotDto { startTime: ISO, endTime: ISO, isAvailable: boolean }
-        // We need to display the time in HH:mm format (e.g., "9:00am")
-        // Since the backend returns UTC, we should convert to company timezone or local?
-        // Usually, the display "9:00am" implies the company's local time.
-        // Our formatTime util helps here if we pass the timezone.
+        // Calculate Prev and Next days
+        const prevDate = new Date(selectedDate);
+        prevDate.setDate(selectedDate.getDate() - 1);
+        const prevDateStr = toDateStr(prevDate);
+
+        const nextDate = new Date(selectedDate);
+        nextDate.setDate(selectedDate.getDate() + 1);
+        const nextDateStr = toDateStr(nextDate);
+
+        // Define fetch wrapper that ignores 400 errors (past dates)
+        const safeFetch = async (dateStr: string) => {
+            try {
+                if (selectedStaffId === -1) {
+                    return await fetchAnyStaffSlots(selectedServiceId, dateStr);
+                } else {
+                    return await fetchAvailableSlots(selectedStaffId, selectedServiceId, dateStr);
+                }
+            } catch (e) {
+                // Ignore errors (likely "past date" validation from backend)
+                return [];
+            }
+        };
+
+        // Fetch all 3 days in parallel
+        const [prevSlots, currSlots, nextSlots] = await Promise.all([
+            safeFetch(prevDateStr),
+            safeFetch(currDateStr),
+            safeFetch(nextDateStr)
+        ]);
+
+        const allSlots = [...prevSlots, ...currSlots, ...nextSlots];
+
+        // Filter and Format
+        // We only want to show slots that, when converted to Customer Timezone, 
+        // fall on the 'selectedDate' (User's YYYY-MM-DD).
         
-        const formattedSlots = slots
+        // User's selected YYYY-MM-DD (matches currDateStr)
+        const targetDateStr = currDateStr;
+
+        const formattedSlots = allSlots
           .filter(s => s.isAvailable)
+          .filter(s => {
+             // Convert UTC start time to Customer Timezone Date String
+             const dateInTz = new Date(s.startTime).toLocaleDateString('en-CA', { // en-CA gives YYYY-MM-DD
+                 timeZone: customerTimezone
+             });
+             return dateInTz === targetDateStr;
+          })
           .map(s => {
-             // Convert ISO UTC string to formatted time string in company timezone
-             const date = new Date(s.startTime);
-             // Use our helper or built-in, but we need strictly "h:mm a" format to match existing UI style or similar
-             // formatTime(s.startTime, companyTimezone) returns something like "9:00 AM" if configured.
-             // Let's use standard JS for cleaner control if needed, or formatTime
              return new Date(s.startTime).toLocaleTimeString('en-US', {
                 hour: 'numeric',
                 minute: '2-digit',
-                timeZone: companyTimezone,
+                timeZone: customerTimezone,
                 hour12: true
-             }).toLowerCase().replace(' ', ''); // "9:00am"
+             }).toLowerCase().replace(' ', '');
           });
           
-        setAvailableSlots(formattedSlots);
+        // Remove duplicates (possible between days overlap if logic weird, or just safety)
+        const uniqueSlots = Array.from(new Set(formattedSlots));
+
+        setAvailableSlots(uniqueSlots);
       } catch (err) {
         console.error("Error loading slots:", err);
         setAvailableSlots([]);
@@ -305,21 +407,19 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     };
 
     loadSlots();
-  }, [selectedDate, selectedServiceId, selectedStaffId, companyTimezone]);
+  }, [selectedDate, selectedServiceId, selectedStaffId, customerTimezone]);
 
-  // Helper function to get the selected service object
   const getSelectedService = (): CustomerServiceDto | null => {
-    if (selectedServiceId === null) return null;
+    if (selectedServiceId === null || !Array.isArray(services)) return null;
     return services.find(s => s.id === selectedServiceId) || null;
   };
-
 
   const canProceed = () => {
     switch (step) {
       case 1:
         return selectedServiceId !== null && selectedStaffId !== null;
       case 2:
-        return location ;
+        return meetingType !== null;
       case 3:
         return selectedDate && selectedTime;
       case 4:
@@ -334,7 +434,7 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   const handleNext = () => {
     if (canProceed() && validateStep()) {
       setStep(step + 1);
-      setFormErrors({}); // Clear errors when moving to next step
+      setFormErrors({});
     }
   };
 
@@ -342,7 +442,8 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     setStep(step - 1);
   };
 
-  const showPayLater = meetingType === 'InPerson';
+  // Dynamic showPayLater based on meeting type and settings
+  const canShowPayLater = meetingType === 'InPerson' && showPayLater;
 
   const getServicePrice = (): number => {
     const selectedService = getSelectedService();
@@ -358,8 +459,6 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     return getCurrencySymbol(getServiceCurrency());
   };
 
-  
-
   const handleConfirm = async () => {
     if (!canProceed() || !validateStep()) return;
     
@@ -367,43 +466,37 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     setSubmitError(null);
     
     try {
-      // Get companyId from URL
-      const queryParams = new URLSearchParams(window.location.search);
-      const companyIdParam = queryParams.get('companyId');
-      const companyId = companyIdParam ? parseInt(companyIdParam, 10) : 0;
+      if (!companyId) {
+        throw new Error('Company not resolved');
+      }
       
       if (!companyId) {
         throw new Error('Invalid company ID');
       }
       
-      // Build ISO date-time string in UTC
-      if (!selectedDate) {
-        throw new Error('Please select a date');
-      }
-      
       if (!selectedDate || !selectedTime) {
-  throw new Error("Please select date and time");
-}
+        throw new Error("Please select date and time");
+      }
 
-// Convert Date → YYYY-MM-DD in company timezone
-const dateStr = getDateString(selectedDate, companyTimezone);
+      // Extract date components directly from the Date object to avoid timezone shifts
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
 
-// selectedTime already comes from calendar in HH:mm
-const startTimeUtc = combineDateTimeToUTC(
-  dateStr,
-  selectedTime,
-  companyTimezone // 🔥 critical
-);
+      const startTimeUtc = combineDateTimeToUTC(
+        dateStr,
+        selectedTime,
+        customerTimezone
+      );
 
-      // Map payment method to backend enum
       const mapPaymentMethod = (method: string): 'Card' | 'Cash' | 'PayPal' => {
         if (method === 'Credit Card' || method === 'Debit Card') return 'Card';
         if (method === 'PayPal') return 'PayPal';
-        if (paymentTiming === 'later') return 'Cash'; // Pay Later = Cash on arrival
+        if (paymentTiming === 'later') return 'Cash';
         return 'Card';
       };
       
-      // Map meeting type
       const mapMeetingType = (type: string | null): 'InPerson' | 'Phone' | 'Zoom' => {
         if (type === 'InPerson') return 'InPerson';
         if (type === 'Phone') return 'Phone';
@@ -411,55 +504,49 @@ const startTimeUtc = combineDateTimeToUTC(
         return 'InPerson';
       };
       
-    const request: CreateAppointmentRequest = {
-  companyId,
-  firstName,
-  lastName,
-  email,
-  phone,
-  serviceId: selectedServiceId!,
-  staffId: selectedStaffId === -1 ? null : selectedStaffId,
-  startTime: startTimeUtc, // ✅ UTC only
-  meetingType: mapMeetingType(meetingType),
-  paymentMethod: mapPaymentMethod(paymentMethod),
-  notes: description || undefined,
-};
-
+      const request: CreateAppointmentRequest = {
+        companyId,
+        firstName,
+        lastName,
+        email,
+        phone,
+        serviceId: selectedServiceId!,
+        staffId: selectedStaffId === -1 ? null : selectedStaffId,
+        startTime: startTimeUtc,
+        meetingType: mapMeetingType(meetingType),
+        paymentMethod: mapPaymentMethod(paymentMethod),
+        notes: description || undefined,
+      };
       
       const response = await createAppointment(request);
       
-      // Build details for confirmation screen
       const selectedService = getSelectedService();
       const selectedStaff = selectedStaffId === -1 
         ? { id: -1, fullName: 'Any Staff' } 
         : staffMembers.find(s => s.id === selectedStaffId);
       
-     const details = {
-  id: response.id,
-  serviceId: selectedServiceId,
-  serviceName: selectedService?.name || response.serviceName,
-  staffId: selectedStaffId,
-  staffName:
-    response.staffName || selectedStaff?.fullName || "To be assigned",
-  description,
-  location: meetingType,
-  meetingType,
-
-  // ✅ ALWAYS format from UTC using company timezone
-  date: formatDate(startTimeUtc, companyTimezone, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }),
-  time: formatTime(startTimeUtc, companyTimezone),
-
-  price: `${getCurrencySymbolForService()}${response.price}`,
-  paymentMethod: paymentTiming === "later" ? "Pay Later" : paymentMethod,
-  paymentTiming,
-  status: response.status,
-};
-
+      const details = {
+        id: response.id,
+        serviceId: selectedServiceId,
+        serviceName: selectedService?.name || response.serviceName,
+        staffId: selectedStaffId,
+        staffName: response.staffName || selectedStaff?.fullName || "To be assigned",
+        description,
+        location: meetingType,
+        meetingType,
+        date: formatDate(startTimeUtc, customerTimezone, {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }),
+        time: formatTime(startTimeUtc, customerTimezone),
+        duration: `${getSelectedService()?.serviceDuration || 60} min`,
+        price: `${getCurrencySymbolForService()}${response.price}`,
+        paymentMethod: paymentTiming === "later" ? "Pay Later" : paymentMethod,
+        paymentTiming,
+        status: response.status,
+      };
       
       onComplete(details);
     } catch (error) {
@@ -476,9 +563,14 @@ const startTimeUtc = combineDateTimeToUTC(
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h1>Book Your Appointment</h1>
-              <p className="text-gray-600 mt-1">Complete the form to schedule your session</p>
+           <div className="flex items-center gap-4">
+              {companyLogo && (
+                <img src={companyLogo} alt="Company Logo" className="w-32 h-32 object-contain rounded-md" />
+              )}
+              <div>
+                <h1>Book Your Appointment</h1>
+                <p className="text-gray-600 mt-1">Complete the form to schedule your session</p>
+              </div>
             </div>
             <button
               onClick={onClose}
@@ -492,7 +584,6 @@ const startTimeUtc = combineDateTimeToUTC(
         {/* Progress Steps */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
           <div className="flex items-center justify-between relative">
-            {/* Progress Line */}
             <div className="absolute top-5 left-0 right-0 h-0.5 bg-gray-200 -z-10">
               <div
                 className="h-full bg-indigo-600 transition-all duration-300"
@@ -552,15 +643,14 @@ const startTimeUtc = combineDateTimeToUTC(
                     <option value="">Loading services...</option>
                   ) : servicesError ? (
                     <option value="">{servicesError}</option>
-                  ) : services.length === 0 ? (
+                  ) : (!Array.isArray(services) || services.length === 0) ? (
                     <option value="">No services available</option>
                   ) : (
                     <>
                       <option value="">Choose a service...</option>
-                      {services.map((s) => (
+                      {Array.isArray(services) && services.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.name} 
-                       
+                          {s.name}
                         </option>
                       ))}
                     </>
@@ -604,33 +694,7 @@ const startTimeUtc = combineDateTimeToUTC(
 
           {step === 2 && (
             <div className="space-y-4">
-              <div>
-                <label className="flex items-center gap-2 mb-2 text-gray-700">
-                  <FileText className="w-4 h-4 text-indigo-600" />
-                  Description (Optional)
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => {
-                    setDescription(e.target.value);
-                    if (formErrors.description) {
-                      const newErrors = { ...formErrors };
-                      delete newErrors.description;
-                      setFormErrors(newErrors);
-                    }
-                  }}
-                  placeholder="Tell us more about your requirements..."
-                  rows={3}
-                  maxLength={500}
-                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none ${
-                    formErrors.description ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {formErrors.description && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.description}</p>
-                )}
-                <p className="text-gray-500 text-xs mt-1">{description.length}/500 characters</p>
-              </div>
+             
 
               <div>
                 <label className="flex items-center gap-2 mb-2 text-gray-700">
@@ -638,7 +702,7 @@ const startTimeUtc = combineDateTimeToUTC(
                   Meeting Location
                 </label>
                 <div className="grid grid-cols-3 gap-3">
-                  {LOCATIONS.map((loc) => (
+                  {availableLocations.map((loc) => (
                     <button
                       key={loc.value}
                       onClick={() => {
@@ -650,7 +714,7 @@ const startTimeUtc = combineDateTimeToUTC(
                         }
                       }}
                       className={`
-                        p-3 rounded-lg border-2 transition-all text-center
+                        p-3 rounded-lg border-2 transition-all text-center flex flex-col items-center justify-center gap-1
                         ${meetingType === loc.value
                           ? 'border-indigo-600 bg-indigo-50'
                           : formErrors.meetingType
@@ -659,7 +723,11 @@ const startTimeUtc = combineDateTimeToUTC(
                         }
                       `}
                     >
-                      <div className="text-2xl mb-1">{loc.icon}</div>
+                      {loc.image ? (
+                        <img src={loc.image} alt={loc.label} className="w-8 h-8 object-contain mb-1" />
+                      ) : (
+                        <div className="text-2xl mb-1">{loc.icon}</div>
+                      )}
                       <p className="text-sm text-gray-900">{loc.label}</p>
                     </button>
                   ))}
@@ -668,52 +736,34 @@ const startTimeUtc = combineDateTimeToUTC(
                   <p className="text-red-500 text-xs mt-1">{formErrors.meetingType}</p>
                 )}
               </div>
-
-              {/* <div>
-                <label className="flex items-center gap-2 mb-2 text-gray-700">
-                  <Timer className="w-4 h-4 text-indigo-600" />
-                  Duration
-                </label>
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  {DURATIONS.map((dur) => (
-                    <button
-                      key={dur}
-                      onClick={() => setDuration(dur)}
-                      className={`
-                        py-2.5 px-4 rounded-lg border-2 transition-all
-                        ${duration === dur
-                          ? 'border-indigo-600 bg-indigo-50'
-                          : 'border-gray-300 hover:border-indigo-300 bg-white'
-                        }
-                      `}
-                    >
-                      {dur}
-                    </button>
-                  ))}
-                </div>
-                {duration === 'Custom' && (
-                  <input
-                    type="number"
-                    value={customDuration}
-                    onChange={(e) => setCustomDuration(e.target.value)}
-                    placeholder="Enter duration in minutes"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    min="15"
-                    step="15"
-                  />
-                )}
-              </div> */}
             </div>
           )}
 
           {step === 3 && (
             <div>
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <label className="flex items-center gap-2 mb-2 text-gray-700 font-medium">
+                  <Globe className="w-4 h-4 text-indigo-600" />
+                  Your Timezone
+                </label>
+                <div className="flex items-center gap-3">
+                  <TimezoneSelect
+                    value={customerTimezone}
+                    onChange={setCustomerTimezone}
+                    className="flex-1"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Times shown below are in your selected timezone. Current offset: {getTimezoneOffset(customerTimezone)}
+                </p>
+              </div>
+
               <EnhancedCalendar
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
                 selectedTime={selectedTime}
                 onSelectTime={setSelectedTime}
-                timezone={companyTimezone}
+                timezone={customerTimezone}
                 unavailableDates={unavailableDates}
                 timeSlots={availableSlots}
                 isLoadingSlots={slotsLoading}
@@ -721,13 +771,11 @@ const startTimeUtc = combineDateTimeToUTC(
             </div>
           )}
 
-            {step === 4 && (
+          {step === 4 && (
             <div className="space-y-6">
-              {/* Booking Summary */}
               <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                 <h3 className="text-indigo-900 mb-3">You are booking:</h3>
                 <div className="space-y-1 text-sm">
-                  
                   <p className="text-gray-900">
                     <span className="text-gray-700">Date:</span> {selectedDate?.toLocaleDateString('en-US', { 
                       month: 'long', 
@@ -744,12 +792,10 @@ const startTimeUtc = combineDateTimeToUTC(
                 </div>
               </div>
 
-              {/* Instructions */}
               <p className="text-gray-600">
                 Please provide your details in the form below to proceed with booking.
               </p>
 
-              {/* Personal Details Form */}
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -851,14 +897,40 @@ const startTimeUtc = combineDateTimeToUTC(
                     <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
                   )}
                 </div>
+
+                 <div>
+                <label className="flex items-center gap-2 mb-2 text-gray-700">
+                  {/* <FileText className="w-4 h-4 text-indigo-600" /> */}
+                  Description (Optional)
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    if (formErrors.description) {
+                      const newErrors = { ...formErrors };
+                      delete newErrors.description;
+                      setFormErrors(newErrors);
+                    }
+                  }}
+                  placeholder="Tell us more about your requirements..."
+                  rows={3}
+                  maxLength={500}
+                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none ${
+                    formErrors.description ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                />
+                {formErrors.description && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.description}</p>
+                )}
+                <p className="text-gray-500 text-xs mt-1">{description.length}/500 characters</p>
+              </div>
               </div>
             </div>
           )}
 
-
           {step === 5 && (
             <div className="space-y-4">
-              {/* Price Display */}
               <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -871,31 +943,6 @@ const startTimeUtc = combineDateTimeToUTC(
                 </div>
               </div>
 
-              {/* Available Currencies */}
-              {/* <div>
-                <label className="flex items-center gap-2 mb-2 text-gray-700">
-                  <DollarSign className="w-4 h-4 text-indigo-600" />
-                  Available Currencies
-                </label>
-                <div className="grid grid-cols-3 gap-3">
-                  {CURRENCY_RATES.filter(c => c.enabled).map((curr) => {
-                    const convertedPrice = convertPrice(getServicePriceUSD(), curr.rate);
-                    return (
-                      <div
-                        key={curr.code}
-                        className="p-3 bg-gray-50 border border-gray-200 rounded-lg"
-                      >
-                        <p className="text-xs text-gray-600">{curr.name}</p>
-                        <p className="text-lg text-gray-900 mt-1">
-                          {curr.symbol}{convertedPrice}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div> */}
-
-              {/* Payment Timing */}
               <div>
                 <label className="flex items-center gap-2 mb-2 text-gray-700">
                   <CreditCard className="w-4 h-4 text-indigo-600" />
@@ -918,7 +965,7 @@ const startTimeUtc = combineDateTimeToUTC(
                     <CreditCard className="w-5 h-5 mx-auto mb-1 text-indigo-600" />
                     Pay Now
                   </button>
-                  {showPayLater && (
+                  {canShowPayLater && (
                     <button
                       onClick={() => {
                         setPaymentTiming('later');
@@ -937,7 +984,7 @@ const startTimeUtc = combineDateTimeToUTC(
                     </button>
                   )}
                 </div>
-                {!showPayLater && (
+                {!canShowPayLater && (
                   <p className="text-amber-600 text-sm mt-2 flex items-center gap-2 bg-amber-50 p-2 rounded border border-amber-200">
                     <span>ℹ️</span>
                     <span>Pay Later option is only available for In Person appointments</span>
@@ -945,7 +992,6 @@ const startTimeUtc = combineDateTimeToUTC(
                 )}
               </div>
 
-              {/* Payment Method */}
               {paymentTiming === 'now' && (
                 <div>
                   <label className="flex items-center gap-2 mb-2 text-gray-700">
@@ -953,7 +999,7 @@ const startTimeUtc = combineDateTimeToUTC(
                     Select Payment Method
                   </label>
                   <div className="grid grid-cols-4 gap-3">
-                    {PAYMENT_METHODS.map((method) => (
+                    {availablePaymentMethods.map((method) => (
                       <button
                         key={method.name}
                         onClick={() => setPaymentMethod(method.name)}
@@ -973,23 +1019,29 @@ const startTimeUtc = combineDateTimeToUTC(
                 </div>
               )}
 
-              {/* Summary */}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <h3 className="text-gray-900 mb-3">Booking Summary</h3>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between py-1 border-b border-gray-200">
-                    <span className="text-gray-600">Service:</span>
-                    <span className="text-gray-900">{getSelectedService()?.name}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-gray-200">
-                    <span className="text-gray-600">Staff:</span>
-                    <span className="text-gray-900">{selectedStaffId === -1 ? 'Any Staff' : (staffMembers.find(s => s.id === selectedStaffId)?.fullName || 'No staff selected')}</span>
-                  </div>
+                    <div className="flex justify-between py-1 border-b border-gray-200">
+                      <span className="text-gray-600">Service:</span>
+                      <span className="text-gray-900">{getSelectedService()?.name || "Service not found"}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-gray-200">
+                      <span className="text-gray-600">Duration:</span>
+                      <span className="text-gray-900">{getSelectedService()?.serviceDuration || 60} mins</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-gray-200">
+                      <span className="text-gray-600">Staff:</span>
+                      <span className="text-gray-900">
+                        {selectedStaffId === -1 
+                          ? 'Any Staff' 
+                          : (staffMembers.find(s => s.id === selectedStaffId)?.fullName || 'No staff selected')}
+                      </span>
+                    </div>
                   <div className="flex justify-between py-1 border-b border-gray-200">
                     <span className="text-gray-600">Location:</span>
                     <span className="text-gray-900">{meetingType}</span>
                   </div>
-                  
                   <div className="flex justify-between py-1 border-b border-gray-200">
                     <span className="text-gray-600">Date:</span>
                     <span className="text-gray-900">

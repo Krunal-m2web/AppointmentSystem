@@ -1,4 +1,4 @@
-import { getToken } from "../utils/auth";
+import { getToken, getCompanyIdFromToken } from "../utils/auth";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
@@ -18,11 +18,42 @@ export interface UpsertPriceDto {
   amount: number;
 }
 
+export interface PaginatedServicePricingResponse {
+  items: ServicePricingDto[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface ServicePricingQueryParams {
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortDirection?: string;
+  searchTerm?: string;
+  companyId?: number;
+}
+
 export async function fetchServicesPricing(
-  companyId: number
-): Promise<ServicePricingDto[]> {
+  params: ServicePricingQueryParams = {}
+): Promise<PaginatedServicePricingResponse | any[]> {
   const token = getToken();
-  const url = `${API_BASE_URL}/api/service-pricing?companyId=${companyId}`;
+  const tid = params.companyId ?? getCompanyIdFromToken(token || "") ?? -1;
+
+  const queryParams = new URLSearchParams();
+  queryParams.append("companyId", tid.toString());
+  if (params.page) queryParams.append("page", params.page.toString());
+  if (params.pageSize)
+    queryParams.append("pageSize", params.pageSize.toString());
+  if (params.sortBy) queryParams.append("sortBy", params.sortBy);
+  if (params.sortDirection)
+    queryParams.append("sortDirection", params.sortDirection);
+  if (params.searchTerm) queryParams.append("searchTerm", params.searchTerm);
+
+  const url = `${API_BASE_URL}/api/service-pricing?${queryParams.toString()}`;
 
   const res = await fetch(url, {
     method: "GET",
