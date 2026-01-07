@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, X, User, DollarSign, Search, RefreshCw, Filter, Edit, Trash2, Mail, Phone, Calendar as CalendarIcon, Link as LinkIcon, AlertCircle, ChevronDown, MapPin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, User, DollarSign, Search, RefreshCw, Filter, Edit, Trash2, Mail, Phone, Calendar as CalendarIcon, Link as LinkIcon, AlertCircle, ChevronDown, MapPin, XCircle } from 'lucide-react';
 import { fetchServices } from '../../services/serviceApi';
 import { fetchStaff } from '../../services/staffApi';
 import { fetchCustomers, CustomerResponse } from '../../services/customerApi';
-import { getAppointments, createAppointment, deleteAppointment } from '../../services/appointmentApi';
+import { getAppointments, createAppointment, deleteAppointment, updateAppointment } from '../../services/appointmentApi';
 import { Staff, Service } from '../../types/types';
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
 import { combineDateTimeToUTC, formatTime, getDateString } from '../../utils/datetime';
@@ -647,18 +647,19 @@ export function CalendarPage() {
       }, 300);
   };
 
-  const handleDeleteAppointment = async (id: number) => {
-      if (!window.confirm("Are you sure you want to delete this appointment?")) return;
+  const handleCancelAppointment = async (id: number) => {
+      if (!window.confirm("Are you sure you want to cancel this appointment?")) return;
       try {
           const token = getToken();
           if (token) {
-              await deleteAppointment(id, token);
+              await updateAppointment(id, { status: "Cancelled" }, token);
               // Optimistic update
-              setAppointments(prev => prev.filter(a => a.id !== id));
+              setAppointments(prev => prev.map(a => a.id === id ? { ...a, status: 'cancelled' } : a));
               setHoveredAppointment(null); // Close popover
           }
       } catch(err) {
-          alert("Failed to delete appointment");
+          console.error(err);
+          alert("Failed to cancel appointment");
       }
   };
 
@@ -985,7 +986,7 @@ export function CalendarPage() {
         <ListView
           appointments={getFilteredAppointments()}
           onEdit={handleEditAppointment}
-          onDelete={handleDeleteAppointment}
+          onDelete={handleCancelAppointment}
           currentDate={currentDate}
         />
       )}
@@ -1046,15 +1047,12 @@ export function CalendarPage() {
                    >
                        <Edit className="w-4 h-4" />
                    </button>
-                   <button className="p-1.5 bg-white border border-gray-300 text-gray-600 rounded hover:bg-gray-50 transition" title="Link">
-                       <LinkIcon className="w-4 h-4" />
-                   </button>
                    <button 
-                      onClick={() => handleDeleteAppointment(hoveredAppointment.id)}
+                      onClick={() => handleCancelAppointment(hoveredAppointment.id)}
                       className="p-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition" 
-                      title="Delete"
+                      title="Cancel Appointment"
                    >
-                       <Trash2 className="w-4 h-4" />
+                       <XCircle className="w-4 h-4" />
                    </button>
               </div>
           </div>
@@ -1912,9 +1910,9 @@ function ListView({
                       <button
                         onClick={() => onDelete(apt.id)}
                         className="p-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition"
-                        title="Delete"
+                        title="Cancel Appointment"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <XCircle className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
