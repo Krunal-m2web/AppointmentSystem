@@ -121,14 +121,14 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
       case 4: // Personal Details
         if (!firstName.trim()) {
           errors.firstName = 'First name is required';
-        } else if (firstName.trim().length < 2) {
-          errors.firstName = 'First name must be at least 2 characters';
+        } else if (firstName.trim().length < 3) {
+          errors.firstName = 'First name must be at least 3 characters';
         }
         
         if (!lastName.trim()) {
           errors.lastName = 'Last name is required';
-        } else if (lastName.trim().length < 2) {
-          errors.lastName = 'Last name must be at least 2 characters';
+        } else if (lastName.trim().length < 3) {
+          errors.lastName = 'Last name must be at least 3 characters';
         }
         
         if (!email.trim()) {

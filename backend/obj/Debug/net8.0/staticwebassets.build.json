@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "Hash": "mExgP7D7m3fkZTHicRBHtlqDZ/pk1Tnj7gYQaE3fq2I=",
+  "Hash": "7l5z8ibB1v54UrSEhzHqa1Y1q9dASZcx1n4BS4Ex2AE=",
   "Source": "backend",
   "BasePath": "_content/backend",
   "Mode": "Default",
@@ -52,8 +52,8 @@
       "RelatedAsset": "",
       "AssetTraitName": "",
       "AssetTraitValue": "",
-      "Fingerprint": "kg9elrm2y3",
-      "Integrity": "ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0=",
+      "Fingerprint": "rm79e9ikbg",
+      "Integrity": "Hb/bfHwL0Iy5005VyDoSJEfEjLzTe8tz3LldOS5GVOs=",
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
       "OriginalItemSpec": "wwwroot\\logos\\company-10.png"
@@ -104,7 +104,7 @@
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 30 Dec 2025 11:32:31 GMT"
+          "Value": "Tue, 06 Jan 2026 11:52:31 GMT"
         },
         {
           "Name": "Cache-Control",
@@ -119,51 +119,6 @@
       ]
     },
     {
-      "Route": "logos/company-10.kg9elrm2y3.png",
-      "AssetFile": "C:\\Users\\HP\\Desktop\\PratikProj\\AppointmentSystem\\backend\\wwwroot\\logos\\company-10.png",
-      "Selectors": [],
-      "ResponseHeaders": [
-        {
-          "Name": "Accept-Ranges",
-          "Value": "bytes"
-        },
-        {
-          "Name": "Content-Length",
-          "Value": "174211"
-        },
-        {
-          "Name": "Content-Type",
-          "Value": "image/png"
-        },
-        {
-          "Name": "ETag",
-          "Value": "\"ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0=\""
-        },
-        {
-          "Name": "Last-Modified",
-          "Value": "Tue, 30 Dec 2025 11:32:25 GMT"
-        },
-        {
-          "Name": "Cache-Control",
-          "Value": "max-age=31536000, immutable"
-        }
-      ],
-      "EndpointProperties": [
-        {
-          "Name": "fingerprint",
-          "Value": "kg9elrm2y3"
-        },
-        {
-          "Name": "label",
-          "Value": "logos/company-10.png"
-        },
-        {
-          "Name": "integrity",
-          "Value": "sha256-ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0="
-        }
-      ]
-    },
-    {
       "Route": "logos/company-10.png",
       "AssetFile": "C:\\Users\\HP\\Desktop\\PratikProj\\AppointmentSystem\\backend\\wwwroot\\logos\\company-10.png",
       "Selectors": [],
@@ -174,7 +129,7 @@
         },
         {
           "Name": "Content-Length",
-          "Value": "174211"
+          "Value": "38599"
         },
         {
           "Name": "Content-Type",
@@ -182,11 +137,11 @@
         },
         {
           "Name": "ETag",
-          "Value": "\"ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0=\""
+          "Value": "\"Hb/bfHwL0Iy5005VyDoSJEfEjLzTe8tz3LldOS5GVOs=\""
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 30 Dec 2025 11:32:25 GMT"
+          "Value": "Tue, 06 Jan 2026 11:52:27 GMT"
         },
         {
           "Name": "Cache-Control",
@@ -196,7 +151,52 @@
       "EndpointProperties": [
         {
           "Name": "integrity",
-          "Value": "sha256-ZIhp0JaU1LwtSt0rh/kv5WoiuNgV5Grz5TVBviNFqx0="
+          "Value": "sha256-Hb/bfHwL0Iy5005VyDoSJEfEjLzTe8tz3LldOS5GVOs="
+        }
+      ]
+    },
+    {
+      "Route": "logos/company-10.rm79e9ikbg.png",
+      "AssetFile": "C:\\Users\\HP\\Desktop\\PratikProj\\AppointmentSystem\\backend\\wwwroot\\logos\\company-10.png",
+      "Selectors": [],
+      "ResponseHeaders": [
+        {
+          "Name": "Accept-Ranges",
+          "Value": "bytes"
+        },
+        {
+          "Name": "Content-Length",
+          "Value": "38599"
+        },
+        {
+          "Name": "Content-Type",
+          "Value": "image/png"
+        },
+        {
+          "Name": "ETag",
+          "Value": "\"Hb/bfHwL0Iy5005VyDoSJEfEjLzTe8tz3LldOS5GVOs=\""
+        },
+        {
+          "Name": "Last-Modified",
+          "Value": "Tue, 06 Jan 2026 11:52:27 GMT"
+        },
+        {
+          "Name": "Cache-Control",
+          "Value": "max-age=31536000, immutable"
+        }
+      ],
+      "EndpointProperties": [
+        {
+          "Name": "fingerprint",
+          "Value": "rm79e9ikbg"
+        },
+        {
+          "Name": "label",
+          "Value": "logos/company-10.png"
+        },
+        {
+          "Name": "integrity",
+          "Value": "sha256-Hb/bfHwL0Iy5005VyDoSJEfEjLzTe8tz3LldOS5GVOs="
         }
       ]
     },
@@ -223,7 +223,7 @@
         },
         {
           "Name": "Last-Modified",
-          "Value": "Tue, 30 Dec 2025 11:32:31 GMT"
+          "Value": "Tue, 06 Jan 2026 11:52:31 GMT"
         },
         {
           "Name": "Cache-Control",
