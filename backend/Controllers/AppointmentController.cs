@@ -77,6 +77,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 appointmentsQuery = appointmentsQuery.Where(a => 
                     a.Customer.FirstName.ToLower().Contains(lowerTerm) || 
                     a.Customer.LastName.ToLower().Contains(lowerTerm) || 
+                    (a.Customer.FirstName + " " + a.Customer.LastName).ToLower().Contains(lowerTerm) ||
                     a.Customer.Email.ToLower().Contains(lowerTerm) ||
                     a.Service.Name.ToLower().Contains(lowerTerm)
                 );

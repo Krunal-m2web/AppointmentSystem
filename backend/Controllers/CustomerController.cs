@@ -44,6 +44,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 customersQuery = customersQuery.Where(c =>
                     c.FirstName.ToLower().Contains(searchLower) ||
                     c.LastName.ToLower().Contains(searchLower) ||
+                    (c.FirstName + " " + c.LastName).ToLower().Contains(searchLower) ||
                     c.Email.ToLower().Contains(searchLower) ||
                     (c.Phone != null && c.Phone.Contains(query.SearchTerm)) ||
                     (c.Notes != null && c.Notes.ToLower().Contains(searchLower))

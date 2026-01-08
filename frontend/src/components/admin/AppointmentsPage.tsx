@@ -632,7 +632,8 @@ export function AppointmentsPage() {
   };
 
   // Show loading state - wait for timezone AND appointments to load
-  if (isLoading || !timezoneReady) {
+  // Only show full page loader if timezone is not ready or if it's the very first load
+  if (!timezoneReady || (isLoading && appointments.length === 0 && !searchTerm)) {
     return (
       <div className="p-4 md:p-8 flex flex-col items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
@@ -905,7 +906,18 @@ export function AppointmentsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {appointments.map((appointment) => {
+              {/* Show loading spinner in table when refreshing data */}
+              {isLoading && (
+                  <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                          <div className="flex justify-center items-center gap-2">
+                              <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                              <span>Loading...</span>
+                          </div>
+                      </td>
+                  </tr>
+              )}
+              {!isLoading && appointments.map((appointment) => {
                 const isEditing = editingId === appointment.id;
                 const data = isEditing && editedData ? editedData : appointment;
 

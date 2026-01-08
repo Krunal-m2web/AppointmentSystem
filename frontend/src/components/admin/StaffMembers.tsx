@@ -22,6 +22,7 @@ export function StaffMembers() {
     const [isSaving, setIsSaving] = useState(false);
     const [staff, setStaff] = useState<Staff[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [serviceSearchTerm, setServiceSearchTerm] = useState('');
     const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>('details');
     // Use EditableStaff for the form state
@@ -176,6 +177,7 @@ const applyBulkSchedule = () => {
             s.isActive !== false && 
             ((s.firstName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
             (s.lastName?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()) ||
+            (`${s.firstName ?? ""} ${s.lastName ?? ""}`.toLowerCase()).includes(searchTerm.toLowerCase()) ||
             (s.email?.toLowerCase() ?? "").includes(searchTerm.toLowerCase()))
     );
 
@@ -798,14 +800,15 @@ const scheduleData = availability.map((a: any) => ({
       type="text"
       placeholder="Search services..."
       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-      onChange={(e) => setSearchTerm(e.target.value)}
+      onChange={(e) => setServiceSearchTerm(e.target.value)}
+      value={serviceSearchTerm}
     />
 
     {/* Scrollable service list */}
     <div className="border border-gray-200 rounded-lg max-h-[300px] overflow-y-auto divide-y">
       {services
         .filter(s =>
-          s.name.toLowerCase().includes(searchTerm.toLowerCase())
+          s.name.toLowerCase().includes(serviceSearchTerm.toLowerCase())
         )
         .map(service => (
           <label
