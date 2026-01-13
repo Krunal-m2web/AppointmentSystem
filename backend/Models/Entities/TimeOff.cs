@@ -21,6 +21,9 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [MaxLength(500)]
         public string? Reason { get; set; }
 
+        // Type of time off
+        public bool IsFullDay { get; set; } = true;
+
         // Approval workflow
         public int? ApprovedByAdminId { get; set; }
         public User? ApprovedByAdmin { get; set; }
@@ -30,6 +33,10 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
 
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+
+        // Badge/Notification flags
+        public bool IsViewedByStaff { get; set; }
+        public bool IsViewedByAdmin { get; set; }
     }
 
     public enum TimeOffStatus

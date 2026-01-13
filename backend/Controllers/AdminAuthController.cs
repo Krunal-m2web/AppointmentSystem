@@ -3,6 +3,7 @@ using Appointmentbookingsystem.Backend.DTOs.Auth;
 using Appointmentbookingsystem.Backend.Models.Entities;
 using Appointmentbookingsystem.Backend.Services;
 using Appointmentbookingsystem.Backend.Helpers;
+using Appointmentbookingsystem.Backend.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,8 +22,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
             _jwt = jwt;
         }
 
-
- 
         /// <summary>
         /// Register a new admin with a new company.
         /// This creates both the company and the first admin user.
@@ -30,24 +29,43 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register(AdminRegisterDto dto)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(dto.Email))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Email is required.", "email");
+            
+            if (string.IsNullOrWhiteSpace(dto.Password))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Password is required.", "password");
+            
+            if (dto.Password.Length < 6)
+                throw new ValidationException(ValidationErrors.PASSWORD_TOO_SHORT, "Password must be at least 6 characters.", "password");
+            
+            if (string.IsNullOrWhiteSpace(dto.CompanyName))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Company name is required.", "companyName");
+
+            if (string.IsNullOrWhiteSpace(dto.FirstName))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "First name is required.", "firstName");
+            if (dto.FirstName.Length < 3)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "First name must be at least 3 characters.", "firstName");
+
+            if (string.IsNullOrWhiteSpace(dto.LastName))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Last name is required.", "lastName");
+            if (dto.LastName.Length < 3)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Last name must be at least 3 characters.", "lastName");
 
             var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
             var normalizedCompanyName = dto.CompanyName.Trim().ToLowerInvariant();
 
             // Check if company name already exists
             if (await _context.Companies.AnyAsync(c => c.CompanyName.ToLower() == normalizedCompanyName))
-                return BadRequest("Company already exists");
+                throw new ConflictException(BusinessErrors.DUPLICATE_COMPANY_NAME, "Company name already exists. Please choose a different name.", "companyName");
 
             // Check if email already exists in Users
             if (await _context.Users.AnyAsync(u => u.Email.ToLower() == normalizedEmail))
-                return BadRequest("This email is used by other company");
+                throw new ConflictException(BusinessErrors.DUPLICATE_EMAIL, "This email is already registered.", "email");
 
             // Check if company email already exists
-            var normalizedCompanyEmail = normalizedEmail; // Using same email for company
-            if (await _context.Companies.AnyAsync(c => c.Email.ToLower() == normalizedCompanyEmail))
-                return BadRequest("This email is used by other company");
+            if (await _context.Companies.AnyAsync(c => c.Email.ToLower() == normalizedEmail))
+                throw new ConflictException(BusinessErrors.DUPLICATE_EMAIL, "This company email is already registered.", "email");
 
             // Generate unique slug
             var baseSlug = SlugHelper.GenerateSlug(dto.CompanyName);
@@ -114,8 +132,12 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login(AdminLoginDto dto)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(dto.Email))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Email is required.", "email");
+            
+            if (string.IsNullOrWhiteSpace(dto.Password))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Password is required.", "password");
 
             var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
 
@@ -124,17 +146,18 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
 
             if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
-                return Unauthorized("Invalid email or password.");
+                throw new UnauthorizedException(AuthorizationErrors.INVALID_CREDENTIALS, "Invalid email or password.");
 
             if (!user.IsActive)
-                return Unauthorized("This account has been deactivated.");
+                throw new UnauthorizedException(AuthorizationErrors.ACCOUNT_INACTIVE, "This account has been deactivated.");
 
             if (!user.Company.IsActive)
-                return Unauthorized("This company has been deactivated.");
+                throw new UnauthorizedException(AuthorizationErrors.ACCOUNT_INACTIVE, "This company has been deactivated.");
 
             var token = _jwt.GenerateToken(
                 user.Id,
                 $"{user.FirstName} {user.LastName}",
+                user.Email,
                 "Admin",
                 user.CompanyId
             );
@@ -148,6 +171,39 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 CompanyId = user.CompanyId,
                 CompanyName = user.Company.CompanyName
             });
+        }
+
+        /// <summary>
+        /// Change admin password
+        /// </summary>
+        [HttpPost("change-password")]
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        public async Task<IActionResult> ChangePassword(ChangePasswordDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.CurrentPassword))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Current password is required.", "currentPassword");
+            
+            if (string.IsNullOrWhiteSpace(dto.NewPassword))
+                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "New password is required.", "newPassword");
+            
+            if (dto.NewPassword.Length < 6)
+                throw new ValidationException(ValidationErrors.PASSWORD_TOO_SHORT, "Password must be at least 6 characters.", "newPassword");
+
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+                throw new UnauthorizedException(AuthorizationErrors.TOKEN_INVALID, "Invalid user token.");
+
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                throw new NotFoundException(NotFoundErrors.USER_NOT_FOUND, "User not found.");
+
+            if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Incorrect current password.", "currentPassword");
+
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { Message = "Password changed successfully." });
         }
     }
 }

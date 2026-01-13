@@ -8,7 +8,7 @@ namespace Appointmentbookingsystem.Backend.Services
 {
     public interface IJwtTokenService
     {
-        string GenerateToken(int id, string username, string role, int? companyId = null);
+        string GenerateToken(int id, string username, string email, string role, int? companyId = null);
     }
 
     public class JwtTokenService : IJwtTokenService
@@ -20,7 +20,7 @@ namespace Appointmentbookingsystem.Backend.Services
             _configuration = configuration;
         }
 
-        public string GenerateToken(int id, string username, string role, int? companyId = null)
+        public string GenerateToken(int id, string username, string email, string role, int? companyId = null)
         {
             var jwtSettings = _configuration.GetSection("Jwt");
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"]!));
@@ -29,7 +29,11 @@ namespace Appointmentbookingsystem.Backend.Services
             var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, id.ToString()),
+                new Claim(ClaimTypes.NameIdentifier, id.ToString()),
+                new Claim("UserId", id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Name, username),
+                new Claim(JwtRegisteredClaimNames.Email, email),
+                new Claim(ClaimTypes.Email, email),
 
                 // role claims
                 new Claim(ClaimTypes.Role, role),          // for [Authorize(Roles="...")]

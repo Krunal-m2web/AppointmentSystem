@@ -9,6 +9,8 @@ import {
 } from '../../services/servicePricing';
 import { getCompanyIdFromToken, getToken } from '../../utils/auth';
 import { getCurrencySymbol } from '../../utils/currency';
+import { toast } from 'sonner';
+import { ConfirmationModal } from '../../components/ConfirmationModal';
 
 export function ServicePricing() {
   // State
@@ -29,6 +31,7 @@ export function ServicePricing() {
   // Editing state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editPrice, setEditPrice] = useState('');
+  const [removePriceServiceId, setRemovePriceServiceId] = useState<number | null>(null);
 
   // Fetch services on mount
   useEffect(() => {
@@ -153,36 +156,39 @@ export function ServicePricing() {
       
       setEditingId(null);
       setEditPrice('');
-      setSuccessMessage('Price updated successfully!');
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success('Price updated successfully!');
     } catch (err: any) {
-      setError(err.message || 'Failed to save price.');
+      toast.error(err.message || 'Failed to save price.');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleRemovePrice = async (serviceId: number) => {
-    if (!confirm('Remove price? This service will not appear on the booking page until you add a price.')) return;
+  const confirmRemovePrice = async () => {
+    if (!removePriceServiceId) return;
     
     try {
       setSaving(true);
       setError(null);
-      await deleteServicePrice(serviceId, displayCurrency);
+      await deleteServicePrice(removePriceServiceId, displayCurrency);
       
       setServices(prev => prev.map(s => 
-        s.id === serviceId 
+        s.id === removePriceServiceId 
           ? { ...s, amount: null, priceMissing: true }
           : s
       ));
       
-      setSuccessMessage('Price removed! Service hidden from booking page.');
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success('Price removed! Service hidden from booking page.');
     } catch (err: any) {
-      setError(err.message || 'Failed to remove price.');
+      toast.error(err.message || 'Failed to remove price.');
     } finally {
       setSaving(false);
+      setRemovePriceServiceId(null);
     }
+  };
+
+  const handleRemovePrice = (serviceId: number) => {
+    setRemovePriceServiceId(serviceId);
   };
 
   const currencySymbol = getCurrencySymbol(displayCurrency);

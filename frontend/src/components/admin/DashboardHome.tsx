@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, User, TrendingUp, DollarSign, Filter, ChevronDown, ExternalLink, Loader2, RefreshCw, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
+import { Calendar, Clock, User, TrendingUp, DollarSign, Filter, ChevronDown, ExternalLink, Loader2, RefreshCw, ChevronLeft, ChevronRight, CalendarDays, Download, Printer } from 'lucide-react';
 import { AnalyticsChart } from './AnalyticsChart';
 import { MiniCalendar } from './MiniCalendar';
-import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
+import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken, getUserNameFromToken } from '../../utils/auth';
 import { AppointmentResponse, getAppointments } from '../../services/appointmentApi';
 import { fetchStaff } from '../../services/staffApi';
 import { fetchServices } from '../../services/serviceApi';
 import { getMyCompany } from '../../services/CompanyService';
 import { useTimezone } from '../../context/TimezoneContext';
 import { formatTime as centralFormatTime, getDateString, combineDateTimeToUTC } from '../../utils/datetime';
+import { toast } from 'sonner';
 
 // Types
 interface DashboardStats {
@@ -18,6 +19,9 @@ interface DashboardStats {
   revenue: number;
 }
 
+// Import Staff type if possible, or define partial
+import type { Staff } from '../../types/types';
+
 interface StaffOption {
   id: number;
   name: string;
@@ -26,6 +30,18 @@ interface StaffOption {
 interface ServiceOption {
   id: number;
   name: string;
+}
+
+interface TableRowData {
+  staffName: string;
+  serviceCount: number;
+  total: number;
+  approved: number;
+  pending: number;
+  rejected: number;
+  cancelled: number;
+  customersTotal: number;
+  revenue: number;
 }
 
 export function DashboardHome() {
@@ -56,14 +72,18 @@ export function DashboardHome() {
   const [todayAppointments, setTodayAppointments] = useState<AppointmentResponse[]>([]);
   const [upcomingAppointments, setUpcomingAppointments] = useState<AppointmentResponse[]>([]);
   const [chartData, setChartData] = useState<{ date: string; appointments: number; revenue: number }[]>([]);
+  const [tableData, setTableData] = useState<TableRowData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingList, setIsLoadingList] = useState(false); // Specific loader for the list
   const [isLoadingChart, setIsLoadingChart] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
   // Dynamic staff and services from API
   const [staffList, setStaffList] = useState<StaffOption[]>([]);
+  const [fullStaffList, setFullStaffList] = useState<Staff[]>([]);
   const [servicesList, setServicesList] = useState<ServiceOption[]>([]);
+  const userName = getToken() ? getUserNameFromToken(getToken()!) : 'Admin';
 
   const toggleStaff = (staffId: number) => {
     setSelectedStaff(prev =>
@@ -191,53 +211,164 @@ export function DashboardHome() {
     }));
   };
 
-  const fetchData = async () => {
-    // Only set full loading on initial load
-    if (stats.totalAppointments === 0) setIsLoading(true);
-    
-    try {
+  const processTableData = (appointments: AppointmentResponse[], start: Date, end: Date): TableRowData[] => {
+      // Map key: StaffId (number) or StaffName (string for Unassigned)
+      const map = new Map<number | string, TableRowData>();
+      const serviceCountMap = new Map<number, number>();
+      
+      // 1. Initialize from fullStaffList
+      fullStaffList.forEach(staff => {
+          let serviceCount = 0;
+          if (staff.services) {
+              serviceCount = staff.services.filter(s => s.isActive !== false).length;
+              serviceCountMap.set(staff.id, serviceCount);
+          }
+
+          const staffName = `${staff.firstName} ${staff.lastName}`;
+          map.set(staff.id, {
+              staffName: staffName,
+              serviceCount: serviceCount,
+              total: 0,
+              approved: 0,
+              pending: 0,
+              rejected: 0,
+              cancelled: 0,
+              customersTotal: 0,
+              revenue: 0,
+          });
+      });
+
+      // 2. Aggregate from appointments
+      appointments.forEach(appt => {
+          const sid = appt.staffId ? Number(appt.staffId) : null;
+          const sname = appt.staffName || 'Unassigned';
+          
+          // Use ID if possible, otherwise Name (for Unassigned or orphans)
+          let key: number | string = sid !== null ? sid : sname;
+          
+          if (!map.has(key)) {
+              // Fallback: Check if name matches any existing staff by name (case-insensitive)
+              let foundKey: number | string | null = null;
+              const normalizedApptName = sname.trim().toLowerCase();
+              
+              for (const [existingKey, existingData] of map.entries()) {
+                  if (existingData.staffName.trim().toLowerCase() === normalizedApptName) {
+                      foundKey = existingKey;
+                      break;
+                  }
+              }
+
+              if (foundKey !== null) {
+                  key = foundKey;
+              } else {
+                  // Truly a new entry (e.g. Unassigned or deleted staff)
+                  map.set(key, {
+                      staffName: sname,
+                      serviceCount: sid ? (serviceCountMap.get(sid) || 0) : 0,
+                      total: 0,
+                      approved: 0,
+                      pending: 0,
+                      rejected: 0,
+                      cancelled: 0,
+                      customersTotal: 0,
+                      revenue: 0,
+                  });
+              }
+          }
+
+          const entry = map.get(key)!;
+          entry.total += 1;
+          
+          if (appt.status === 'Confirmed' || appt.status === 'Completed') {
+              entry.approved += 1;
+              entry.revenue += appt.price;
+          } else if (appt.status === 'Pending') {
+              entry.pending += 1;
+          } else if (appt.status === 'Cancelled') {
+              entry.cancelled += 1;
+          }
+      });
+
+      // 3. Calculate distinct customers per staff row
+      const distinctCustomersMap = new Map<number | string, Set<number>>();
+      appointments.forEach(appt => {
+          const sid = appt.staffId ? Number(appt.staffId) : null;
+          const sname = appt.staffName || 'Unassigned';
+          
+          let key: number | string = sid !== null ? sid : sname;
+          // Re-apply matching logic to ensure same key
+          if (sid === null) {
+              const normalizedName = sname.trim().toLowerCase();
+              for (const [k, v] of map.entries()) {
+                  if (v.staffName.trim().toLowerCase() === normalizedName) {
+                      key = k;
+                      break;
+                  }
+              }
+          }
+
+          if (!distinctCustomersMap.has(key)) distinctCustomersMap.set(key, new Set());
+          if (appt.customerId) distinctCustomersMap.get(key)!.add(appt.customerId);
+      });
+
+      return Array.from(map.values())
+        .filter(row => row.total > 0 || row.serviceCount > 0) // Hide rows with no services AND no appointments
+        .map(item => {
+          // Find the key for this item to get customer count
+          let key: number | string = item.staffName;
+          for (const [k, v] of map.entries()) {
+              if (v === item) { key = k; break; }
+          }
+
+          return {
+              ...item,
+              customersTotal: distinctCustomersMap.get(key)?.size || 0
+          };
+      });
+  };
+
+  // Helper to get API params
+  const getApiParams = () => {
       const token = getToken();
       if (!token) throw new Error("Not authenticated");
-
-      // Initialize timezone
-      await refreshTimezone();
-
       const role = getRoleFromToken(token);
       const userId = getUserIdFromToken(token);
+      let staffIds: number[] | undefined = undefined;
       
-      let apiStaffIds: number[] | undefined = undefined;
-      // If Staff, restrict to their ID. If Admin, use selected filters.
       if (role === 'Staff' && userId) {
-          apiStaffIds = [userId];
+          staffIds = [userId];
       } else if (selectedStaff.length > 0) {
-          apiStaffIds = selectedStaff;
+          staffIds = selectedStaff;
       }
+      return { token, staffIds };
+  };
 
-      const nowInCompanyTz = new Date(); 
-      
-      // Fetch metadata if needed
-      if (staffList.length === 0) {
+  const fetchMetadata = async () => {
+      if (staffList.length > 0) return;
+      try {
         const [staffData, servicesRaw, companyData] = await Promise.all([
             fetchStaff().catch(() => []),
             fetchServices().catch(() => []),
             getMyCompany().catch(() => null)
         ]);
-        
         const servicesData = Array.isArray(servicesRaw) ? servicesRaw : (servicesRaw.items || []);
-
         if (companyData?.slug) setCompanySlug(companyData.slug);
+        setFullStaffList(staffData); // Store full data
         setStaffList(staffData.map((s: any) => ({ id: s.id, name: `${s.firstName} ${s.lastName}` })));
         setServicesList(servicesData.map((s: any) => ({ id: s.id, name: s.name })));
-      }
-        // 1. Fetch Selected Date Appointments with BUFFER
-      // We fetch -1 day and +1 day to ensure we catch all appointments regardless of timezone usage
-      // and then strictly filter client-side for the "Formatted Date" matching "Selected Date"
-      
-      // FIX: Use naive local date string to preserve user's intended date selection
-      // (Browser Date -> "YYYY-MM-DD" regardless of timezone shift)
+      } catch (e) { console.error("Metadata fetch error", e); }
+  };
+
+  const fetchDailyData = async () => {
+    if (isInitialLoad) setIsLoading(true);
+    else setIsLoadingList(true);
+    
+    try {
+      const { token, staffIds } = getApiParams();
+
+      // 1. Fetch Selected Date Appointments with BUFFER
       const selectedDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
       
-      // Calculate buffer strings naively as well to ensure consistent range
       const prevDate = new Date(selectedDate);
       prevDate.setDate(prevDate.getDate() - 1);
       const prevDateStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
@@ -252,99 +383,214 @@ export function DashboardHome() {
       const dailyRes = await getAppointments({
         startDate: bufferStartUtc,
         endDate: bufferEndUtc,
-        pageSize: 100, // Increase page size to accommodate buffer
+        pageSize: 100,
         sortBy: 'date',
         sortDirection: 'asc',
-        staffIds: apiStaffIds
+        staffIds: staffIds
       }, token);
 
-      // STRICT CLIENT-SIDE FILTER & SORT
       const filteredDaily = filterAppointments(dailyRes.appointments)
         .filter(apt => {
-            // Only keep appointments where the formatted date (in current timezone) matches the selected date
             const aptDateStr = getDateString(new Date(apt.startDateTime), timezone);
             return aptDateStr === selectedDateStr;
         })
-        .sort((a, b) => {
-             // Explicit chronological sort
-             return new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime();
-        });
+        .sort((a, b) => new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime());
 
       const totalFiltered = filteredDaily.length;
-      
-      // Calculate pagination slice
       const startIndex = (listPage - 1) * listPageSize;
       const paginatedDaily = filteredDaily.slice(startIndex, startIndex + listPageSize);
 
       setTodayAppointments(paginatedDaily);
       setListTotalCount(totalFiltered);
-      setIsLoadingList(false);
-
-
-      // 2. Fetch Upcoming (Tomorrow onwards)
-      const tomorrowDate = new Date(nowInCompanyTz);
-      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-      const tomorrowStr = getDateString(tomorrowDate, timezone);
-      const tomorrowStartUtc = combineDateTimeToUTC(tomorrowStr, "00:00", timezone);
-      
-      const upcomingRes = await getAppointments({
-        startDate: tomorrowStartUtc,
-        sortBy: 'date',
-        sortDirection: 'asc',
-        pageSize: 50,
-        staffIds: apiStaffIds
-      }, token);
-
-      const filteredUpcoming = filterAppointments(upcomingRes.appointments).slice(0, 5);
-
-      // 3. Counts (Global)
-      const totalRes = await getAppointments({ pageSize: 1, staffIds: apiStaffIds }, token);
-      const pendingRes = await getAppointments({ status: 'Pending', pageSize: 1, staffIds: apiStaffIds }, token);
-
-      // 4. Chart Data
-      setIsLoadingChart(true);
-      const { start: rangeStart, end: rangeEnd } = getRangeDates(dateRange, nowInCompanyTz);
-      
-      const startStr = getDateString(rangeStart, timezone);
-      const endStr = getDateString(rangeEnd, timezone); 
-      
-      const historyStartUtc = combineDateTimeToUTC(startStr, "00:00", timezone);
-      const historyEndUtc = combineDateTimeToUTC(endStr, "23:59", timezone);
-
-      const historyRes = await getAppointments({
-          startDate: historyStartUtc,
-          endDate: historyEndUtc,
-          pageSize: 1000,
-          staffIds: apiStaffIds
-      }, token);
-
-      const filteredHistory = filterAppointments(historyRes.appointments);
-      const processedChart = processChartData(filteredHistory, rangeStart, rangeEnd);
-      
-      const totalRevenue = filteredHistory.reduce((sum, appt) => {
-        if (appt.status === 'Confirmed' || appt.status === 'Completed') {
-          return sum + appt.price;
-        }
-        return sum;
-      }, 0);
-
-      setUpcomingAppointments(filteredUpcoming);
-      setChartData(processedChart);
-      setStats({
-        totalAppointments: totalRes.totalCount,
-        pendingAppointments: pendingRes.totalCount,
-        todayCount: filteredDaily.length, // Show count for the SELECTED day
-        revenue: totalRevenue 
-      });
+      setStats(prev => ({ ...prev, todayCount: totalFiltered }));
 
     } catch (err: any) {
-      console.error("Dashboard fetch error:", err);
-      setError(err.message || "Failed to load dashboard data");
+      console.error("Daily fetch error:", err);
+      setError(err.message || "Failed to load daily data");
     } finally {
       setIsLoading(false);
       setIsLoadingList(false);
-      setIsLoadingChart(false);
+      setIsInitialLoad(false);
     }
+  };
+
+  const fetchAnalyticsData = async () => {
+      setIsLoadingChart(true);
+      try {
+        const { token, staffIds } = getApiParams();
+        const nowInCompanyTz = new Date();
+        const { start: rangeStart, end: rangeEnd } = getRangeDates(dateRange, nowInCompanyTz);
+        
+        const startStr = getDateString(rangeStart, timezone);
+        const endStr = getDateString(rangeEnd, timezone); 
+        
+        const historyStartUtc = combineDateTimeToUTC(startStr, "00:00", timezone);
+        const historyEndUtc = combineDateTimeToUTC(endStr, "23:59", timezone);
+
+        const historyRes = await getAppointments({
+            startDate: historyStartUtc,
+            endDate: historyEndUtc,
+            pageSize: 1000,
+            staffIds: staffIds
+        }, token);
+
+        const filteredHistory = filterAppointments(historyRes.appointments);
+        const processedChart = processChartData(filteredHistory, rangeStart, rangeEnd);
+        const processedTable = processTableData(filteredHistory, rangeStart, rangeEnd);
+        
+        const totalRevenue = filteredHistory.reduce((sum, appt) => {
+          if (appt.status === 'Confirmed' || appt.status === 'Completed') {
+            return sum + appt.price;
+          }
+          return sum;
+        }, 0);
+
+
+        setChartData(processedChart);
+        setTableData(processedTable);
+        setStats(prev => ({ ...prev, revenue: totalRevenue }));
+      } catch (err) {
+          console.error("Analytics fetch error:", err);
+      } finally {
+          setIsLoadingChart(false);
+      }
+  };
+
+  const handleExportCSV = () => {
+    if (tableData.length === 0) return;
+
+    const headers = [
+      'Employee',
+      'Total Services',
+      'Total Appointments',
+      'Approved Appointments',
+      'Pending Appointments',
+      'Rejected Appointments',
+      'Cancelled Appointments',
+      'Total Customers',
+      'Revenue'
+    ];
+
+    const rows = tableData.map(row => [
+      `"${row.staffName}"`,
+      row.serviceCount,
+      row.total,
+      row.approved,
+      row.pending,
+      row.rejected,
+      row.cancelled,
+      row.customersTotal,
+      row.revenue.toFixed(2)
+    ]);
+
+    // Totals row
+    const totalsResponse = [
+        "TOTALS",
+        "",
+        tableData.reduce((s, r) => s + r.total, 0),
+        tableData.reduce((s, r) => s + r.approved, 0),
+        tableData.reduce((s, r) => s + r.pending, 0),
+        tableData.reduce((s, r) => s + r.rejected, 0),
+        tableData.reduce((s, r) => s + r.cancelled, 0),
+        tableData.reduce((s, r) => s + r.customersTotal, 0),
+        tableData.reduce((s, r) => s + r.revenue, 0).toFixed(2)
+    ]
+    rows.push(totalsResponse);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `dashboard_stats_${getDateString(new Date(), timezone)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handlePrint = () => {
+    const printContent = document.getElementById('dashboard-stats-table');
+    if (!printContent) return;
+
+    // Calculate actual date range for the header
+    const { start, end } = getRangeDates(dateRange, new Date());
+    const formatDateLabel = (d: Date) => d.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric',
+        timeZone: timezone === 'UTC' ? 'UTC' : undefined 
+    });
+
+    const rangeTitle = dateRange === 'custom' 
+        ? `${customStartDate} to ${customEndDate}`
+        : `${formatDateLabel(start)} - ${formatDateLabel(end)}`;
+
+    const windowUrl = 'about:blank';
+    const windowName = 'PrintWindow';
+    const printWindow = window.open(windowUrl, windowName);
+
+    if (printWindow) {
+      printWindow.document.write('<html><head><title>Dashboard Stats</title>');
+      printWindow.document.write('<style>');
+      printWindow.document.write(`
+        body { font-family: sans-serif; padding: 20px; color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f8f9fa; font-weight: 600; }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        h2 { margin-bottom: 5px; color: #1a1a1a; }
+        .subtitle { margin-bottom: 25px; color: #666; font-size: 0.9rem; }
+      `);
+      printWindow.document.write('</style></head><body>');
+      printWindow.document.write(`<h2>Dashboard Statistics</h2>`);
+      printWindow.document.write(`<p class="subtitle">Range: ${rangeTitle} (${dateRange.replace('_', ' ')})</p>`);
+      printWindow.document.write(printContent.outerHTML);
+      printWindow.document.write('</body></html>');
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    }
+  };
+
+  const fetchGlobalStats = async () => {
+      try {
+          const { token, staffIds } = getApiParams();
+          const totalRes = await getAppointments({ pageSize: 1, staffIds: staffIds }, token);
+          const pendingRes = await getAppointments({ status: 'Pending', pageSize: 1, staffIds: staffIds }, token);
+          
+          setStats(prev => ({ 
+              ...prev, 
+              totalAppointments: totalRes.totalCount,
+              pendingAppointments: pendingRes.totalCount
+          }));
+
+          // Upcoming fetch (global tomorrow+)
+          const nowInCompanyTz = new Date();
+          const tomorrowDate = new Date(nowInCompanyTz);
+          tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+          const tomorrowStr = getDateString(tomorrowDate, timezone);
+          const tomorrowStartUtc = combineDateTimeToUTC(tomorrowStr, "00:00", timezone);
+          
+          const upcomingRes = await getAppointments({
+            startDate: tomorrowStartUtc,
+            sortBy: 'date',
+            sortDirection: 'asc',
+            pageSize: 50,
+            staffIds: staffIds
+          }, token);
+
+          const filteredUpcoming = filterAppointments(upcomingRes.appointments).slice(0, 5);
+          setUpcomingAppointments(filteredUpcoming);
+
+      } catch (err) {
+          console.error("Global stats fetch error:", err);
+      }
   };
 
   // Reset page when date changes
@@ -353,11 +599,26 @@ export function DashboardHome() {
   }, [selectedDate]);
 
   useEffect(() => {
-    fetchData();
-  }, [timezone, dateRange, selectedStaff, selectedServices, selectedDate, listPage, listPageSize, customStartDate, customEndDate]);
+    fetchMetadata();
+    refreshTimezone();
+  }, []);
+
+  useEffect(() => {
+     fetchDailyData();
+  }, [selectedDate, listPage, selectedStaff, selectedServices, timezone]);
+
+  useEffect(() => {
+    fetchAnalyticsData();
+  }, [dateRange, customStartDate, customEndDate, selectedServices, selectedStaff, fullStaffList, timezone]); 
+
+  useEffect(() => {
+     fetchGlobalStats();
+  }, [selectedStaff, selectedServices, timezone]);
 
   const handleRefresh = () => {
-    fetchData();
+    fetchDailyData();
+    fetchAnalyticsData();
+    fetchGlobalStats();
   };
 
 
@@ -392,8 +653,8 @@ export function DashboardHome() {
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8 flex flex-col md:flex-row justify-between items-start gap-4">
         <div>
-           <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
-           <p className="text-gray-600 mt-1">Welcome back! Here's what's happening today.</p>
+          
+           <p className="text-gray-600 mt-1">Welcome {userName}! See Here's what's happening today.</p>
         </div>
         <div className="flex gap-3">
             <button
@@ -535,7 +796,7 @@ export function DashboardHome() {
                             setShowCustomDatePicker(false);
                             // Trigger refetch by changing state
                           } else {
-                            alert('Please select both start and end dates');
+                            toast.error('Please select both start and end dates');
                           }
                         }}
                         className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -635,8 +896,90 @@ export function DashboardHome() {
           )}
         </div>
       </div>
+      
+      {/* Stats Breakdown Table - Hidden for Staff */}
+      {getRoleFromToken(getToken() || '') !== 'Staff' && (
+        <div className="bg-white rounded-lg shadow mb-6 md:mb-8 overflow-hidden">
+          <div className="p-4 md:p-6 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <h3 className="text-md font-medium text-gray-700">Detailed Breakdown</h3>
+              <div className="flex gap-2">
+                  <button 
+                      onClick={handleExportCSV}
+                      disabled={tableData.length === 0}
+                      className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                      <Download className="w-4 h-4" /> Export to CSV
+                  </button>
+                  <button 
+                      onClick={handlePrint}
+                      disabled={tableData.length === 0}
+                      className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                      <Printer className="w-4 h-4" /> Print
+                  </button>
+              </div>
+          </div>
+          <div className="overflow-x-auto">
+              <table id="dashboard-stats-table" className="w-full text-sm text-left">
+                  <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
+                      <tr>
+                          <th className="px-4 py-3 border-r border-gray-200" rowSpan={2}>Employee</th>
+                          <th className="px-4 py-3 border-r border-gray-200" rowSpan={2}>Total Services</th>
+                          <th className="px-4 py-2 border-r border-gray-200 text-center border-b" colSpan={5}>Appointments</th>
+                          <th className="px-4 py-2 border-r border-gray-200 text-center border-b" colSpan={1}>Customers</th>
+                          <th className="px-4 py-3" rowSpan={2}>Revenue</th>
+                      </tr>
+                      <tr>
+                          <th className="px-4 py-2 border-r border-gray-200 text-center">Total</th>
+                          <th className="px-4 py-2 border-r border-gray-200 text-center">Approved</th>
+                          <th className="px-4 py-2 border-r border-gray-200 text-center">Pending</th>
+                          <th className="px-4 py-2 border-r border-gray-200 text-center">Rejected</th>
+                          <th className="px-4 py-2 border-r border-gray-200 text-center">Cancelled</th>
+                          <th className="px-4 py-2 border-r border-gray-200 text-center">Total</th>
+                      </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                      {tableData.length === 0 ? (
+                          <tr>
+                              <td colSpan={10} className="px-4 py-8 text-center text-gray-500 bg-gray-50">
+                                  No data available in table
+                              </td>
+                          </tr>
+                      ) : (
+                          <>
+                              {tableData.map((row, idx) => (
+                                  <tr key={idx} className="hover:bg-gray-50">
+                                      <td className="px-4 py-3 font-medium text-gray-900 border-r border-gray-100">{row.staffName}</td>
+                                      <td className="px-4 py-3 text-center border-r border-gray-100">{row.serviceCount}</td>
+                                      <td className="px-4 py-3 text-center border-r border-gray-100">{row.total}</td>
+                                      <td className="px-4 py-3 text-center border-r border-gray-100 text-green-600 font-medium">{row.approved}</td>
+                                      <td className="px-4 py-3 text-center border-r border-gray-100 text-yellow-600">{row.pending}</td>
+                                      <td className="px-4 py-3 text-center border-r border-gray-100 text-gray-400">{row.rejected}</td>
+                                      <td className="px-4 py-3 text-center border-r border-gray-100 text-red-600">{row.cancelled}</td>
+                                      <td className="px-4 py-3 text-center border-r border-gray-100">{row.customersTotal}</td>
+                                      <td className="px-4 py-3 font-medium text-gray-900 text-right">${row.revenue.toFixed(2)}</td>
+                                  </tr>
+                              ))}
+                              {/* Total Row */}
+                              <tr className="bg-gray-50 font-bold text-gray-900 border-t border-gray-200">
+                                  <td className="px-4 py-3 border-r border-gray-200" colSpan={2}>Total:</td>
+                                  <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.total, 0)}</td>
+                                  <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.approved, 0)}</td>
+                                  <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.pending, 0)}</td>
+                                  <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.rejected, 0)}</td>
+                                  <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.cancelled, 0)}</td>
+                                  <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.customersTotal, 0)}</td>
+                                  <td className="px-4 py-3 text-right">${tableData.reduce((s, r) => s + r.revenue, 0).toFixed(2)}</td>
+                              </tr>
+                          </>
+                      )}
+                  </tbody>
+              </table>
+          </div>
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
         {/* Today's Appointments */}
         <div  style={{height: '888px'}}  className="lg:col-span-2">
           <div className="bg-white rounded-lg shadow">

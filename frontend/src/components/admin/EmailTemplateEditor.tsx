@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, Save, Copy, Check, Mail, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface EmailTemplate {
   subject: string;
@@ -135,7 +136,10 @@ export function EmailTemplateEditor({
       previewBody = previewBody.replace(regex, value);
     });
 
-    alert(`Preview:\n\nSubject: ${previewSubject}\n\n${previewBody}`);
+    toast.info(`Preview for: ${previewSubject}`);
+    console.log("Template Preview:", { subject: previewSubject, body: previewBody });
+    // Note: Inline preview already shows this. 
+    // If the user really wants a popup, we suggest a dedicated PreviewModal later.
   };
 
   if (!isOpen) return null;

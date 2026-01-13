@@ -29,8 +29,8 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment // Defines what filt
         [Range(1, int.MaxValue)]
         public int Page { get; set; } = 1;
 
-        // Pagination - number of items per page (default: 25, MAX: 1000)
-        [Range(1, 1000)]
+        // Pagination - number of items per page (default: 25, MAX: 100000)
+        [Range(1, 100000)]
         public int PageSize { get; set; } = 25;
 
         

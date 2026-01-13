@@ -59,6 +59,39 @@ export function getCompanyIdFromToken(token: string): number | undefined {
   }
 }
 
+export function getUserNameFromToken(token: string): string | undefined {
+  try {
+    const decoded = jwtDecode<DecodedToken>(token);
+    return (
+      decoded.name ||
+      decoded["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"] ||
+      (decoded as any)["unique_name"]
+    );
+  } catch (e) {
+    return undefined;
+  }
+}
+
+export function getEmailFromToken(token: string): string | undefined {
+  try {
+    const decoded = jwtDecode<DecodedToken>(token);
+    const email =
+      decoded.email ||
+      decoded["email"] ||
+      decoded[
+        "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+      ];
+
+    // If multiple claims exist, it might be an array
+    if (Array.isArray(email)) {
+      return email[0];
+    }
+    return email;
+  } catch (e) {
+    return undefined;
+  }
+}
+
 export function saveToken(token: string): void {
   localStorage.setItem("auth_token", token);
 }
@@ -71,6 +104,7 @@ export function clearToken(): void {
   localStorage.removeItem("auth_token");
   localStorage.removeItem("company_id");
   localStorage.removeItem("user_role");
+  localStorage.removeItem("adminActiveTab");
 }
 
 export function isTokenExpired(token: string): boolean {

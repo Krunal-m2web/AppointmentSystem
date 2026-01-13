@@ -1,16 +1,31 @@
 
 import { useState } from 'react';
-import { Building2, User, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Building2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { adminRegister } from '../../services/authService';
 import type { AdminRegisterDto } from '../../types/auth.types';
+import { parseApiError } from '../../utils/error';
+
+interface FieldErrors {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    password?: string;
+    userPhone?: string;
+    userCountry?: string;
+    companyName?: string;
+    phone?: string;
+    companyCountry?: string;
+    address?: string;
+}
 
 const AdminRegister = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [generalError, setGeneralError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   // STEP 1: ADMIN USER INFO
   const [firstName, setFirstName] = useState('');
@@ -27,32 +42,70 @@ const AdminRegister = () => {
   const [companyCountry, setCompanyCountry] = useState('');
   const [currency, setCurrency] = useState('USD');
 
+  // Validate Step 1 Fields
+  const validateStep1 = (): boolean => {
+    const errors: FieldErrors = {};
+    
+    if (!firstName.trim()) errors.firstName = 'First name is required';
+    else if (firstName.length < 3) errors.firstName = 'First name must be at least 3 characters';
+    
+    if (!lastName.trim()) errors.lastName = 'Last name is required';
+    else if (lastName.length < 3) errors.lastName = 'Last name must be at least 3 characters';
+    
+    if (!email.trim()) errors.email = 'Email is required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Invalid email address';
+    
+    if (!password) errors.password = 'Password is required';
+    else if (password.length < 6) errors.password = 'Password must be at least 6 characters';
+    
+    if (!userPhone.trim()) errors.userPhone = 'Phone is required';
+    if (!userCountry.trim()) errors.userCountry = 'Country is required';
+
+    setFieldErrors(prev => ({ ...prev, ...errors }));
+    return Object.keys(errors).length === 0;
+  };
+
+  // Validate Step 2 Fields
+  const validateStep2 = (): boolean => {
+    const errors: FieldErrors = {};
+    
+    if (!companyName.trim()) errors.companyName = 'Company name is required';
+    if (!phone.trim()) errors.phone = 'Company phone is required';
+    if (!companyCountry.trim()) errors.companyCountry = 'Company country is required';
+
+    setFieldErrors(prev => ({ ...prev, ...errors }));
+    return Object.keys(errors).length === 0;
+  };
+
+  // Clear specific field error
+  const clearFieldError = (field: keyof FieldErrors) => {
+    if (fieldErrors[field]) {
+        setFieldErrors(prev => ({ ...prev, [field]: undefined }));
+    }
+    setGeneralError(null);
+  };
+
   const handleNextStep = () => {
-    setError(null);
+    setGeneralError(null);
+    setFieldErrors({}); // Clear previous errors to re-validate cleanly
+    
     if (step === 1) {
-      if (!firstName || !lastName || !email || !password || !userPhone || !userCountry) {
-        setError('Please fill in all personal details, including phone and country.');
-        return;
+      if (validateStep1()) {
+        setStep(2);
       }
-      if (password.length < 6) {
-        setError('Password must be at least 6 characters.');
-        return;
-      }
-      setStep(2);
     }
   };
 
   const handlePrevStep = () => {
-    setError(null);
+    setGeneralError(null);
     setStep(1);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setGeneralError(null);
     
-    if (!companyName || !phone || !companyCountry) {
-        setError("Company name, phone, and country are required.");
+    if (!validateStep2()) {
         return;
     }
 
@@ -80,12 +133,29 @@ const AdminRegister = () => {
       // Redirect to login after success
       setTimeout(() => navigate('/auth/admin'), 2000);
     } catch (err: any) {
-      console.error('Registration error:', err);
-      setError(err.message || 'Registration failed. Please try again.');
+      const apiError = parseApiError(err.message || '');
+      
+      if (apiError.field) {
+        setFieldErrors(prev => ({ ...prev, [apiError.field!]: apiError.message }));
+        // Also ensure we are on the right step for the error
+        if (['firstName', 'lastName', 'email', 'password', 'userPhone', 'userCountry'].includes(apiError.field!)) {
+            setStep(1);
+        } else {
+            setStep(2);
+        }
+      } else {
+        setGeneralError(apiError.message || 'Registration failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  const getInputClass = (fieldName: keyof FieldErrors) => `w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 bg-gray-50 ${
+    fieldErrors[fieldName] 
+      ? 'border-red-400 focus:ring-red-500' 
+      : 'border-gray-200 focus:ring-indigo-500'
+  }`;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-100 flex items-center justify-center p-4">
@@ -105,10 +175,10 @@ const AdminRegister = () => {
             Step {step} of 2: {step === 1 ? 'Admin Profile' : 'Company Details'}
         </p>
 
-        {/* ERROR/SUCCESS MESSAGES */}
-        {error && (
+        {/* GENERAL ERROR/SUCCESS MESSAGES */}
+        {generalError && (
             <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-4 py-3">
-              {error}
+              {generalError}
             </div>
         )}
         {success && (
@@ -127,20 +197,22 @@ const AdminRegister = () => {
                         <input
                             type="text"
                             value={firstName}
-                            onChange={e => setFirstName(e.target.value)}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                            onChange={e => { setFirstName(e.target.value); clearFieldError('firstName'); }}
+                            className={getInputClass('firstName')}
                             placeholder="John"
                         />
+                        {fieldErrors.firstName && <p className="mt-1 text-sm text-red-500">{fieldErrors.firstName}</p>}
                     </div>
                     <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Last Name</label>
                         <input
                             type="text"
                             value={lastName}
-                            onChange={e => setLastName(e.target.value)}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                            onChange={e => { setLastName(e.target.value); clearFieldError('lastName'); }}
+                            className={getInputClass('lastName')}
                             placeholder="Doe"
                         />
+                        {fieldErrors.lastName && <p className="mt-1 text-sm text-red-500">{fieldErrors.lastName}</p>}
                     </div>
                 </div>
 
@@ -149,10 +221,11 @@ const AdminRegister = () => {
                   <input
                     type="email"
                     value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                    onChange={e => { setEmail(e.target.value); clearFieldError('email'); }}
+                    className={getInputClass('email')}
                     placeholder="admin@company.com"
                   />
+                  {fieldErrors.email && <p className="mt-1 text-sm text-red-500">{fieldErrors.email}</p>}
                 </div>
 
                 <div>
@@ -160,10 +233,11 @@ const AdminRegister = () => {
                   <input
                     type="password"
                     value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                    onChange={e => { setPassword(e.target.value); clearFieldError('password'); }}
+                    className={getInputClass('password')}
                     placeholder="Min 6 characters"
                   />
+                  {fieldErrors.password && <p className="mt-1 text-sm text-red-500">{fieldErrors.password}</p>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -172,20 +246,22 @@ const AdminRegister = () => {
                         <input
                             type="tel"
                             value={userPhone}
-                            onChange={e => setUserPhone(e.target.value.replace(/[^\d+]/g, ''))}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                            onChange={e => { setUserPhone(e.target.value.replace(/[^\d+]/g, '')); clearFieldError('userPhone'); }}
+                            className={getInputClass('userPhone')}
                             placeholder="+1 234 567 890"
                         />
+                        {fieldErrors.userPhone && <p className="mt-1 text-sm text-red-500">{fieldErrors.userPhone}</p>}
                     </div>
                     <div>
                         <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Country</label>
                         <input
                             type="text"
                             value={userCountry}
-                            onChange={e => setUserCountry(e.target.value)}
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                            onChange={e => { setUserCountry(e.target.value); clearFieldError('userCountry'); }}
+                            className={getInputClass('userCountry')}
                             placeholder="USA"
                         />
+                        {fieldErrors.userCountry && <p className="mt-1 text-sm text-red-500">{fieldErrors.userCountry}</p>}
                     </div>
                 </div>
 
@@ -207,23 +283,24 @@ const AdminRegister = () => {
                    <input
                      type="text"
                      value={companyName}
-                     onChange={e => setCompanyName(e.target.value)}
-                     className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                     onChange={e => { setCompanyName(e.target.value); clearFieldError('companyName'); }}
+                     className={getInputClass('companyName')}
                      placeholder="Acme Salon"
                    />
+                   {fieldErrors.companyName && <p className="mt-1 text-sm text-red-500">{fieldErrors.companyName}</p>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Country</label>
-                     
-                       <input
-                     type="text"
-                     value={companyCountry}
-                     onChange={e => setCompanyCountry(e.target.value)}
-                     className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
-                     placeholder="USA"
-                   />
+                      <input
+                        type="text"
+                        value={companyCountry}
+                        onChange={e => { setCompanyCountry(e.target.value); clearFieldError('companyCountry'); }}
+                        className={getInputClass('companyCountry')}
+                        placeholder="USA"
+                      />
+                      {fieldErrors.companyCountry && <p className="mt-1 text-sm text-red-500">{fieldErrors.companyCountry}</p>}
                     </div>
                     <div>
                       <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Currency</label>
@@ -256,10 +333,11 @@ const AdminRegister = () => {
                     <input
                         type="tel"
                         value={phone}
-                        onChange={e => setPhone(e.target.value.replace(/[^\d+]/g, ''))}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                        onChange={e => { setPhone(e.target.value.replace(/[^\d+]/g, '')); clearFieldError('phone'); }}
+                        className={getInputClass('phone')}
                         placeholder="+1 234 567 890"
                       />
+                      {fieldErrors.phone && <p className="mt-1 text-sm text-red-500">{fieldErrors.phone}</p>}
                 </div>
 
                 <div className="flex gap-4 mt-2">

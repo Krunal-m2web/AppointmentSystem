@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
-  X, 
   ChevronRight, 
   ChevronLeft, 
   Check, 
@@ -8,12 +7,17 @@ import {
   Users,
   FileText, 
   MapPin, 
-  Timer,
   Calendar,
   CreditCard,
   DollarSign,
   User,
-  Globe
+  Globe,
+  Video,
+  Phone as PhoneIcon,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+  ChevronDown
 } from 'lucide-react';
 import { EnhancedCalendar } from './EnhancedCalendar';
 import { fetchServices, CustomerServiceDto } from '../services/servicesService';
@@ -22,8 +26,8 @@ import { getCurrencySymbol } from '../utils/currency';
 import { createAppointment, CreateAppointmentRequest } from '../services/appointmentApi';
 import { getPaymentSettings, getMeetingLocationSettings } from '../services/settingsService';
 import '../styles/globals.css';
-import { combineDateTimeToUTC, formatDate, formatTime, getDateString, getTimeString, TIMEZONES, getTimezoneOffset } from "../utils/datetime";
-import { fetchAvailableSlots, fetchStaffTimeOffs, fetchAnyStaffSlots, TimeSlotDto, TimeOffResponseDto } from '../services/availabilityService';
+import { combineDateTimeToUTC, formatDate, formatTime, getTimezoneOffset } from "../utils/datetime";
+import { fetchAvailableSlots, fetchStaffTimeOffs, fetchAnyStaffSlots } from '../services/availabilityService';
 import { getPublicCompanyProfile, getPublicCompanyProfileBySlug } from '../services/CompanyService';
 import { useParams } from 'react-router-dom';
 import { TimezoneSelect } from './TimezoneSelect';
@@ -41,51 +45,244 @@ function getBrowserTimezone(): string {
 
 interface BookingFormProps {
   onComplete: (details: any) => void;
-  onClose: () => void;
 }
  
 const LOCATIONS = [
-  { label: 'In Person', value: 'InPerson', icon: '👤' },
-  { label: 'Phone Call',value: 'Phone', image: 'https://www.bing.com/th/id/OIP.U4eWFInhZ02-FcJ5V5ieewHaIO?w=173&h=211&c=8&rs=1&qlt=90&o=6&pid=3.1&rm=2' },
-  { label: 'Zoom', value: 'Zoom', image: 'https://static.vecteezy.com/system/resources/previews/016/716/466/non_2x/zoom-meeting-icon-free-png.png' },
+  { 
+    label: 'In Person', 
+    value: 'InPerson', 
+    icon: MapPin,
+    description: 'Meet at our office',
+    gradient: 'from-blue-500 to-blue-600'
+  },
+  { 
+    label: 'Phone Call', 
+    value: 'Phone', 
+    icon: PhoneIcon,
+    description: 'Call on your phone',
+    gradient: 'from-emerald-500 to-emerald-600'
+  },
+  { 
+    label: 'Zoom', 
+    value: 'Zoom', 
+    icon: Video,
+    description: 'Video conference',
+    gradient: 'from-indigo-500 to-indigo-600'
+  },
 ];
 
 const PAYMENT_METHODS = [
-  { name: 'Credit Card', icon: '💳' },
-  { name: 'Debit Card', icon: '💳' },
-  { name: 'PayPal', icon: '🔵' },
-  { name: 'Bank Transfer', icon: '🏦' },
+  { name: 'Credit Card', icon: '💳', description: 'Visa, Mastercard' },
+  { name: 'Debit Card', icon: '💳', description: 'Bank debit' },
+  { name: 'PayPal', icon: '🔵', description: 'PayPal account' },
+  { name: 'Bank Transfer', icon: '🏦', description: 'Direct transfer' },
 ];
 
 const STEPS = [
   { number: 1, name: 'Service', icon: Briefcase },
-  { number: 2, name: 'Details', icon: FileText },
+  { number: 2, name: 'Location', icon: MapPin },
   { number: 3, name: 'Schedule', icon: Calendar },
-  { number: 4, name: 'Personal Details', icon: User },
+  { number: 4, name: 'Details', icon: User },
   { number: 5, name: 'Payment', icon: CreditCard },
 ];
 
-export function BookingForm({ onComplete, onClose }: BookingFormProps) {
+interface CustomSelectOption {
+  value: number | string;
+  label: string;
+  subLabel?: string;
+}
+
+interface CustomSelectProps {
+  id: string;
+  options: CustomSelectOption[];
+  value: number | string | null;
+  onChange: (value: number | string) => void;
+  isLoading?: boolean;
+  placeholder?: string;
+  disabled?: boolean;
+  error?: string | null;
+}
+
+const CustomSelect = ({ 
+  id, 
+  options, 
+  value, 
+  onChange, 
+  isLoading = false,
+  placeholder = "Select an option...", 
+  disabled = false,
+  error = null
+}: CustomSelectProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const selectedOption = options.find(opt => opt.value === value);
+
+  // Filter options based on search term
+  const filteredOptions = options.filter(opt => 
+    !searchTerm || 
+    opt.label.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (opt.subLabel && opt.subLabel.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setSearchTerm(""); // Reset search on close
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Handle keystrokes for invisible search
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Clear search and close on Escape
+      if (e.key === 'Escape') {
+        setSearchTerm("");
+        setIsOpen(false);
+        return;
+      }
+
+      // Backspace removes last character
+      if (e.key === 'Backspace') {
+        setSearchTerm(prev => prev.slice(0, -1));
+        return;
+      }
+
+      // Capture alphanumeric keys and spaces
+      if (e.key.length === 1 && /^[\w\s]$/i.test(e.key)) {
+        // Don't prevent default for Tab/Enter, but maybe for Space if it scrolls
+        if (e.key === ' ') e.preventDefault(); 
+        
+        setSearchTerm(prev => prev + e.key);
+
+        // Clear search buffer after inactivity
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
+        }
+        searchTimeoutRef.current = setTimeout(() => {
+          setSearchTerm("");
+        }, 2000); // 2 seconds to clear
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        id={id}
+        type="button"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`w-full px-4 py-3 border-2 rounded-lg text-left flex items-center justify-between transition-all duration-200 bg-white ${
+          disabled ? 'bg-slate-100 cursor-not-allowed border-slate-200 text-slate-400' :
+          error ? 'border-rose-300 hover:border-rose-400' :
+          isOpen ? 'border-indigo-500 ring-4 ring-indigo-500/10' :
+          'border-slate-300 hover:border-slate-400'
+        }`}
+      >
+        <span className={`block truncate ${!selectedOption?.label ? 'text-slate-500' : 'text-slate-900'}`}>
+          {isLoading ? "Loading..." : selectedOption?.label || placeholder}
+        </span>
+        <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      
+      {isOpen && !disabled && !isLoading && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-[500px] overflow-y-auto custom-scrollbar">
+          {options.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-slate-500 italic">No options available</div>
+          ) : filteredOptions.length === 0 ? (
+             <div className="px-4 py-3 text-sm text-slate-500 italic">No matches for "{searchTerm}"</div>
+          ) : (
+            <>
+              <ul className="py-1 group/list">
+                {/* Optional: Show search indicator if typing */}
+                {searchTerm && (
+                  <li className="px-4 py-1 text-xs text-indigo-500 font-medium bg-indigo-50 border-b border-indigo-100">
+                    Filtering: "{searchTerm}"
+                  </li>
+                )}
+                {filteredOptions.map((option) => (
+                  <li key={option.value}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange(option.value);
+                        setIsOpen(false);
+                        setSearchTerm("");
+                      }}
+                      className={`
+                        w-full px-4 py-2.5 text-left text-sm transition-colors duration-150 group/item
+                        ${option.value === value 
+                          ? 'bg-indigo-600 text-white group-hover/list:bg-white group-hover/list:text-slate-700 hover:!bg-indigo-600 hover:!text-white' 
+                          : 'text-slate-700 hover:bg-indigo-600 hover:text-white'
+                        }
+                      `}
+                    >
+                      <span className="font-medium block">{option.label}</span>
+                      {option.subLabel && (
+                        <span className={`text-xs block mt-0.5 ${
+                          option.value === value 
+                            ? 'text-indigo-200 group-hover/list:text-slate-500 hover:!text-indigo-200' 
+                            : 'text-slate-500 group-hover/item:text-indigo-200'
+                        }`}>
+                          {option.subLabel}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="px-4 py-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-500 sticky bottom-0">
+                 Showing {filteredOptions.length} option{filteredOptions.length !== 1 ? 's' : ''}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      
+      {error && (
+        <p className="text-rose-600 text-sm mt-2 font-medium animate-fadeIn">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+};
+
+export function BookingForm({ onComplete }: BookingFormProps) {
   const [step, setStep] = useState(1);
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<number | null>(null);
 
-  
-  // Services state - fetched from API
+  // Services state
   const [services, setServices] = useState<CustomerServiceDto[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
   const [servicesError, setServicesError] = useState<string | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<number | null>(null);
   
-  // Staff state - fetched based on selected service
+  // Staff state
   const [staffMembers, setStaffMembers] = useState<StaffMemberDto[]>([]);
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffError, setStaffError] = useState<string | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [description, setDescription] = useState('');
   
-  const [meetingType, setMeetingType] = useState<string | null>(null);
-  const [customDuration, setCustomDuration] = useState('');
+  const [meetingType, setMeetingType] = useState<string | null>('InPerson');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -105,10 +302,10 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
 
-  // Customer timezone - detected from browser, editable
+  // Customer timezone
   const [customerTimezone, setCustomerTimezone] = useState<string>(getBrowserTimezone());
 
-  // Dynamic payment and meeting location settings
+  // Dynamic settings
   const [availableLocations, setAvailableLocations] = useState(LOCATIONS);
   const [availablePaymentMethods, setAvailablePaymentMethods] = useState(PAYMENT_METHODS);
   const [showPayNow, setShowPayNow] = useState(true);
@@ -122,29 +319,29 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         if (!firstName.trim()) {
           errors.firstName = 'First name is required';
         } else if (firstName.trim().length < 3) {
-          errors.firstName = 'First name must be at least 3 characters';
+          errors.firstName = 'Must be at least 3 characters';
         }
         
         if (!lastName.trim()) {
           errors.lastName = 'Last name is required';
         } else if (lastName.trim().length < 3) {
-          errors.lastName = 'Last name must be at least 3 characters';
+          errors.lastName = 'Must be at least 3 characters';
         }
         
         if (!email.trim()) {
           errors.email = 'Email is required';
         } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-          errors.email = 'Invalid email format';
+          errors.email = 'Please enter a valid email';
         }
         
         if (!phone.trim()) {
           errors.phone = 'Phone number is required';
         } else if (!/^[\d\s\-()+]{7,20}$/.test(phone.trim())) {
-          errors.phone = 'Invalid phone format';
+          errors.phone = 'Please enter a valid phone number';
         }
         break;
       
-      case 2: // Details
+      case 2: // Location
         if (!meetingType) {
           errors.meetingType = 'Please select a meeting location';
         }
@@ -159,7 +356,7 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     return Object.keys(errors).length === 0;
   };
 
-  // Fetch services when component loads
+  // Fetch services
   const { slug } = useParams<{ slug: string }>();
 
   useEffect(() => {
@@ -170,43 +367,36 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         
         let cid: number | null = null;
 
-  if (slug) {
-    const company = await getPublicCompanyProfileBySlug(slug);
-    setCompanyId(company.id);        
-    cid = company.id;
+        if (slug) {
+          const company = await getPublicCompanyProfileBySlug(slug);
+          setCompanyId(company.id);        
+          cid = company.id;
 
-    if (company.logoUrl) {
-      setCompanyLogo(`${API_BASE_URL}${company.logoUrl}`);
-    }
-  } else {
-    // Fallback to query param
-    const queryParams = new URLSearchParams(window.location.search);
-    const companyIdParam = queryParams.get('companyId');
-    if (companyIdParam) {
-       cid = parseInt(companyIdParam, 10);
-       setCompanyId(cid); 
-       
-       // Also load profile for logo
-       const profile = await getPublicCompanyProfile(cid);
-       if (profile.logoUrl) {
-          setCompanyLogo(`${API_BASE_URL}${profile.logoUrl}`);
-       }
-    }
-  }
+          if (company.logoUrl) {
+            setCompanyLogo(`${API_BASE_URL}${company.logoUrl}`);
+          }
+        } else {
+          const queryParams = new URLSearchParams(window.location.search);
+          const companyIdParam = queryParams.get('companyId');
+          if (companyIdParam) {
+            cid = parseInt(companyIdParam, 10);
+            setCompanyId(cid); 
+            
+            const profile = await getPublicCompanyProfile(cid);
+            if (profile.logoUrl) {
+              setCompanyLogo(`${API_BASE_URL}${profile.logoUrl}`);
+            }
+          }
+        }
 
         if (!cid) {
           setServicesError('No company specified. Please use a valid booking link.');
           return;
         }
 
-        const response = await fetchServices(cid);
-        setServices(response.items || []);
-
-        // If using query param, we still need to fetch profile for logo if not done yet
-        if (!slug && cid) {
-           const profile = await getPublicCompanyProfile(cid);
-           setCompanyLogo(profile.logoUrl ? `${API_BASE_URL}${profile.logoUrl}` : null);
-        }
+        // Fetch services (limit to 100 to show "all" for now, or implement infinite scroll later)
+        const data = await fetchServices(cid, undefined, 1, 100);
+        setServices(data.items);
 
       } catch (err) {
         console.error('Error loading services:', err);
@@ -217,16 +407,13 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     };
 
     loadServices();
-
-    // Removed separate loadCompanyProfile as it is merged above to handle slug dependency
   }, [slug]);
 
-  // Fetch payment and meeting location settings
+  // Fetch settings
   useEffect(() => {
     const loadSettings = async () => {
       try {
         if (companyId) {
-          // Load payment settings - requires auth, so we'll use defaults if it fails
           try {
             const paymentSettings = await getPaymentSettings();
             const filteredMethods = PAYMENT_METHODS.filter(method => 
@@ -236,11 +423,9 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
             setShowPayNow(paymentSettings.showPayNow);
             setShowPayLater(paymentSettings.showPayLater);
           } catch (err) {
-            // Not authenticated, use defaults
-            console.log('Using default payment settings (not authenticated)');
+            console.log('Using default payment settings');
           }
 
-          // Load meeting location settings - public endpoint
           const locationSettings = await getMeetingLocationSettings(companyId);
           const filteredLocations = LOCATIONS.filter(loc => 
             locationSettings.enabledMeetingLocations.includes(loc.value)
@@ -249,14 +434,13 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         }
       } catch (err) {
         console.error('Error loading settings:', err);
-        // Keep defaults on error
       }
     };
 
     loadSettings();
   }, [companyId]);
 
-  // Fetch staff when service changes
+  // Fetch staff
   useEffect(() => {
     const loadStaff = async () => {
       if (!selectedServiceId) {
@@ -285,7 +469,7 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     loadStaff();
   }, [selectedServiceId]);
 
-  // Fetch Time Offs when staff changes
+  // Fetch time offs
   useEffect(() => {
     const loadTimeOffs = async () => {
       if (!selectedStaffId || selectedStaffId === -1) {
@@ -297,14 +481,14 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         const timeOffs = await fetchStaffTimeOffs(selectedStaffId);
         const disabledDates: Date[] = [];
         timeOffs.forEach((t) => {
-           const start = new Date(t.startDateTimeUtc);
-           const end = new Date(t.endDateTimeUtc);
-           
-           let d = new Date(start);
-           while (d <= end) {
-             disabledDates.push(new Date(d));
-             d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-           }
+          const start = new Date(t.startDateTimeUtc);
+          const end = new Date(t.endDateTimeUtc);
+          
+          let d = new Date(start);
+          while (d <= end) {
+            disabledDates.push(new Date(d));
+            d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+          }
         });
         setUnavailableDates(disabledDates);
       } catch (err) {
@@ -315,8 +499,7 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     loadTimeOffs();
   }, [selectedStaffId]);
 
-  // Fetch Available Slots when date changes
-  // Fetch Available Slots when date changes
+  // Fetch available slots
   useEffect(() => {
     const loadSlots = async () => {
       if (!selectedDate || !selectedServiceId || selectedStaffId === null) {
@@ -327,17 +510,15 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
       try {
         setSlotsLoading(true);
         
-        // Helper to formatting date YYYY-MM-DD
         const toDateStr = (d: Date) => {
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
         };
 
         const currDateStr = toDateStr(selectedDate);
         
-        // Calculate Prev and Next days
         const prevDate = new Date(selectedDate);
         prevDate.setDate(selectedDate.getDate() - 1);
         const prevDateStr = toDateStr(prevDate);
@@ -346,55 +527,45 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         nextDate.setDate(selectedDate.getDate() + 1);
         const nextDateStr = toDateStr(nextDate);
 
-        // Define fetch wrapper that ignores 400 errors (past dates)
         const safeFetch = async (dateStr: string) => {
-            try {
-                if (selectedStaffId === -1) {
-                    return await fetchAnyStaffSlots(selectedServiceId, dateStr);
-                } else {
-                    return await fetchAvailableSlots(selectedStaffId, selectedServiceId, dateStr);
-                }
-            } catch (e) {
-                // Ignore errors (likely "past date" validation from backend)
-                return [];
+          try {
+            if (selectedStaffId === -1) {
+              return await fetchAnyStaffSlots(selectedServiceId, dateStr);
+            } else {
+              return await fetchAvailableSlots(selectedStaffId, selectedServiceId, dateStr);
             }
+          } catch (e) {
+            return [];
+          }
         };
 
-        // Fetch all 3 days in parallel
         const [prevSlots, currSlots, nextSlots] = await Promise.all([
-            safeFetch(prevDateStr),
-            safeFetch(currDateStr),
-            safeFetch(nextDateStr)
+          safeFetch(prevDateStr),
+          safeFetch(currDateStr),
+          safeFetch(nextDateStr)
         ]);
 
         const allSlots = [...prevSlots, ...currSlots, ...nextSlots];
 
-        // Filter and Format
-        // We only want to show slots that, when converted to Customer Timezone, 
-        // fall on the 'selectedDate' (User's YYYY-MM-DD).
-        
-        // User's selected YYYY-MM-DD (matches currDateStr)
         const targetDateStr = currDateStr;
 
         const formattedSlots = allSlots
           .filter(s => s.isAvailable)
           .filter(s => {
-             // Convert UTC start time to Customer Timezone Date String
-             const dateInTz = new Date(s.startTime).toLocaleDateString('en-CA', { // en-CA gives YYYY-MM-DD
-                 timeZone: customerTimezone
-             });
-             return dateInTz === targetDateStr;
+            const dateInTz = new Date(s.startTime).toLocaleDateString('en-CA', {
+              timeZone: customerTimezone
+            });
+            return dateInTz === targetDateStr;
           })
           .map(s => {
-             return new Date(s.startTime).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                timeZone: customerTimezone,
-                hour12: true
-             }).toLowerCase().replace(' ', '');
+            return new Date(s.startTime).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              timeZone: customerTimezone,
+              hour12: true
+            }).toLowerCase().replace(' ', '');
           });
           
-        // Remove duplicates (possible between days overlap if logic weird, or just safety)
         const uniqueSlots = Array.from(new Set(formattedSlots));
 
         setAvailableSlots(uniqueSlots);
@@ -442,7 +613,6 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
     setStep(step - 1);
   };
 
-  // Dynamic showPayLater based on meeting type and settings
   const canShowPayLater = meetingType === 'InPerson' && showPayLater;
 
   const getServicePrice = (): number => {
@@ -470,15 +640,10 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         throw new Error('Company not resolved');
       }
       
-      if (!companyId) {
-        throw new Error('Invalid company ID');
-      }
-      
       if (!selectedDate || !selectedTime) {
         throw new Error("Please select date and time");
       }
 
-      // Extract date components directly from the Date object to avoid timezone shifts
       const year = selectedDate.getFullYear();
       const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
       const day = String(selectedDate.getDate()).padStart(2, '0');
@@ -558,192 +723,233 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6 px-4">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
-          <div className="flex items-center justify-between">
-           <div className="flex items-center gap-4">
-              {companyLogo && (
-                <img src={companyLogo} alt="Company Logo" className="w-32 h-32 object-contain rounded-md" />
-              )}
-              <div>
-                <h1>Book Your Appointment</h1>
-                <p className="text-gray-600 mt-1">Complete the form to schedule your session</p>
-              </div>
+        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 mb-4 sm:mb-6 transition-all duration-300 hover:shadow-lg">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+            {companyLogo && (
+              <img 
+                src={companyLogo} 
+                alt="Company Logo" 
+                className="w-14 h-14 sm:w-20 sm:h-20 object-contain rounded-lg flex-shrink-0" 
+              />
+            )}
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mb-1">Book Your Appointment</h1>
+              <p className="text-slate-600 text-xs sm:text-sm">Complete the form to schedule your session</p>
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5 text-gray-600" />
-            </button>
           </div>
         </div>
 
-        {/* Progress Steps */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
-          <div className="flex items-center justify-between relative">
-            <div className="absolute top-5 left-0 right-0 h-0.5 bg-gray-200 -z-10">
+        {/* Enhanced Progress Steps */}
+        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 lg:p-8 mb-4 sm:mb-6">
+          <div className="relative">
+            {/* Progress Line */}
+            <div className="absolute top-4 sm:top-6 left-0 right-0 h-0.5 sm:h-1 bg-slate-200 -z-10">
               <div
-                className="h-full bg-indigo-600 transition-all duration-300"
+                className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 transition-all duration-500 ease-out"
                 style={{ width: `${((step - 1) / (STEPS.length - 1)) * 100}%` }}
               />
             </div>
 
-            {STEPS.map((s) => {
-              const isActive = step === s.number;
-              const isCompleted = step > s.number;
-              const Icon = s.icon;
+            {/* Steps */}
+            <div className="flex items-center justify-between">
+              {STEPS.map((s) => {
+                const isActive = step === s.number;
+                const isCompleted = step > s.number;
+                const Icon = s.icon;
 
-              return (
-                <div key={s.number} className="flex flex-col items-center relative z-10">
-                  <div
-                    className={`
-                      w-10 h-10 rounded-full flex items-center justify-center mb-2 transition-all border-2
-                      ${isCompleted 
-                        ? 'bg-green-600 border-green-600 text-white' 
-                        : isActive
-                        ? 'bg-indigo-600 border-indigo-600 text-white'
-                        : 'bg-white border-gray-300 text-gray-400'
-                      }
-                    `}
+                return (
+                  <div 
+                    key={s.number} 
+                    className="flex flex-col items-center relative z-10"
+                    role="progressbar"
+                    aria-valuenow={step}
+                    aria-valuemin={1}
+                    aria-valuemax={STEPS.length}
+                    aria-label={`Step ${s.number}: ${s.name}`}
                   >
-                    {isCompleted ? (
-                      <Check className="w-5 h-5" />
-                    ) : (
-                      <Icon className="w-5 h-5" />
-                    )}
+                    <div
+                      className={`
+                        w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center mb-1.5 sm:mb-3 transition-all duration-300 border-2
+                        ${isCompleted 
+                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-200 scale-105 sm:scale-110' 
+                          : isActive
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200 scale-105 sm:scale-110'
+                          : 'bg-white border-slate-300 text-slate-400'
+                        }
+                      `}
+                    >
+                      {isCompleted ? (
+                        <Check className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6" aria-hidden="true" />
+                      ) : (
+                        <Icon className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6" aria-hidden="true" />
+                      )}
+                    </div>
+                    <span 
+                      className={`
+                        text-[10px] sm:text-xs lg:text-sm font-medium transition-colors duration-300 text-center
+                        ${isActive ? 'text-indigo-700' : isCompleted ? 'text-emerald-700' : 'text-slate-500'}
+                      `}
+                    >
+                      {s.name}
+                    </span>
                   </div>
-                  <span className={`text-sm ${isActive ? 'text-indigo-600' : 'text-gray-600'}`}>
-                    {s.name}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* Form Content */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4">
+        <div 
+          className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 lg:p-8 mb-4 sm:mb-6"
+          role="main"
+          aria-live="polite"
+        >
+          {/* Step 1 - Service Selection */}
           {step === 1 && (
-            <div className="space-y-4">
+            <div className="space-y-6 animate-fadeIn">
               <div>
-                <label className="flex items-center gap-2 mb-2 text-gray-700">
-                  <Briefcase className="w-4 h-4 text-indigo-600" />
+                <label 
+                  htmlFor="service-select"
+                  className="flex items-center gap-2 mb-3 text-slate-900 font-semibold text-lg"
+                >
+                  <Briefcase className="w-5 h-5 text-indigo-600" aria-hidden="true" />
                   Select Service
                 </label>
-                <select
-                  value={selectedServiceId || ''}
-                  onChange={(e) => setSelectedServiceId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
-                  disabled={servicesLoading}
-                >
-                  {servicesLoading ? (
-                    <option value="">Loading services...</option>
-                  ) : servicesError ? (
-                    <option value="">{servicesError}</option>
-                  ) : (!Array.isArray(services) || services.length === 0) ? (
-                    <option value="">No services available</option>
-                  ) : (
-                    <>
-                      <option value="">Choose a service...</option>
-                      {Array.isArray(services) && services.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </>
-                  )}
-                </select>
+                <CustomSelect
+                  id="service-select"
+                  value={selectedServiceId}
+                  onChange={(val) => setSelectedServiceId(Number(val))}
+                  options={Array.isArray(services) ? services.map(s => ({
+                    value: s.id,
+                    label: s.name,
+                    subLabel: `${getCurrencySymbol(s.currency)}${s.price} (${s.serviceDuration} min)`
+                  })) : []}
+                  isLoading={servicesLoading}
+                  placeholder="Choose a service..."
+                  error={servicesError}
+                />
               </div>
 
               <div>
-                <label className="flex items-center gap-2 mb-2 text-gray-700">
-                  <Users className="w-4 h-4 text-indigo-600" />
+                <label 
+                  htmlFor="staff-select"
+                  className="flex items-center gap-2 mb-3 text-slate-900 font-semibold text-lg"
+                >
+                  <Users className="w-5 h-5 text-indigo-600" aria-hidden="true" />
                   Select Staff Member
                 </label>
-                <select
-                  value={selectedStaffId || ''}
-                  onChange={(e) => setSelectedStaffId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
-                  disabled={!selectedServiceId || staffLoading}
-                >
-                  {!selectedServiceId ? (
-                    <option value="">Please select a service first...</option>
-                  ) : staffLoading ? (
-                    <option value="">Loading staff...</option>
-                  ) : staffError ? (
-                    <option value="">{staffError}</option>
-                  ) : staffMembers.length === 0 ? (
-                    <option value="">No staff available for this service</option>
-                  ) : (
-                    <>
-                      <option value="-1">Any Staff</option>
-                      {staffMembers.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.fullName}{s.position ? ` - ${s.position}` : ''}
-                        </option>
-                      ))}
-                    </>
-                  )}
-                </select>
+                <CustomSelect
+                  id="staff-select"
+                  value={selectedStaffId}
+                  onChange={(val) => setSelectedStaffId(Number(val))}
+                  options={[
+                    ...(staffMembers.length > 0 ? [{ value: -1, label: "Any Available Staff", subLabel: "Maximum availability" }] : []),
+                    ...staffMembers.map(s => ({
+                      value: s.id,
+                      label: s.fullName,
+                      subLabel: s.position || undefined
+                    }))
+                  ]}
+                  isLoading={staffLoading}
+                  disabled={!selectedServiceId}
+                  placeholder={!selectedServiceId ? "Please select a service first..." : "Choose a staff member..."}
+                  error={staffError}
+                />
               </div>
             </div>
           )}
 
+          {/* Step 2 - Meeting Location */}
           {step === 2 && (
-            <div className="space-y-4">
-             
-
+            <div className="space-y-6 animate-fadeIn">
               <div>
-                <label className="flex items-center gap-2 mb-2 text-gray-700">
-                  <MapPin className="w-4 h-4 text-indigo-600" />
+                <label className="flex items-center gap-2 mb-4 text-slate-900 font-semibold text-lg">
+                  <MapPin className="w-5 h-5 text-indigo-600" aria-hidden="true" />
                   Meeting Location
                 </label>
-                <div className="grid grid-cols-3 gap-3">
-                  {availableLocations.map((loc) => (
-                    <button
-                      key={loc.value}
-                      onClick={() => {
-                        setMeetingType(loc.value);
-                        if (formErrors.meetingType) {
-                          const newErrors = { ...formErrors };
-                          delete newErrors.meetingType;
-                          setFormErrors(newErrors);
-                        }
-                      }}
-                      className={`
-                        p-3 rounded-lg border-2 transition-all text-center flex flex-col items-center justify-center gap-1
-                        ${meetingType === loc.value
-                          ? 'border-indigo-600 bg-indigo-50'
-                          : formErrors.meetingType
-                          ? 'border-red-500 hover:border-red-400'
-                          : 'border-gray-300 hover:border-indigo-300 bg-white'
-                        }
-                      `}
-                    >
-                      {loc.image ? (
-                        <img src={loc.image} alt={loc.label} className="w-8 h-8 object-contain mb-1" />
-                      ) : (
-                        <div className="text-2xl mb-1">{loc.icon}</div>
-                      )}
-                      <p className="text-sm text-gray-900">{loc.label}</p>
-                    </button>
-                  ))}
+                <div 
+                  className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+                  role="radiogroup"
+                  aria-label="Meeting location options"
+                >
+                  {availableLocations.map((loc) => {
+                    const Icon = loc.icon;
+                    return (
+                      <button
+                        key={loc.value}
+                        type="button"
+                        onClick={() => {
+                          setMeetingType(loc.value);
+                          if (formErrors.meetingType) {
+                            const newErrors = { ...formErrors };
+                            delete newErrors.meetingType;
+                            setFormErrors(newErrors);
+                          }
+                        }}
+                        role="radio"
+                        aria-checked={meetingType === loc.value}
+                        aria-label={`${loc.label}: ${loc.description}`}
+                        className={`
+                          relative p-6 rounded-xl border-2 transition-all duration-300 text-center flex flex-col items-center justify-center gap-3 min-h-[140px]
+                          focus:outline-none focus:ring-4 focus:ring-indigo-300
+                          ${meetingType === loc.value
+                            ? `border-indigo-600 bg-gradient-to-br ${loc.gradient} text-white shadow-lg scale-105`
+                            : formErrors.meetingType
+                            ? 'border-rose-500 hover:border-rose-400 bg-white'
+                            : 'border-slate-200 hover:border-indigo-300 bg-white hover:shadow-md'
+                          }
+                        `}
+                      >
+                        {meetingType === loc.value && (
+                          <div className="absolute top-3 right-3">
+                            <CheckCircle2 className="w-6 h-6" aria-hidden="true" />
+                          </div>
+                        )}
+                        
+                        <div className={`
+                          p-4 rounded-lg transition-all duration-300
+                          ${meetingType === loc.value
+                            ? 'bg-white/20 backdrop-blur-sm'
+                            : 'bg-slate-50'
+                          }
+                        `}>
+                          <Icon className={`w-8 h-8 ${meetingType === loc.value ? 'text-white' : 'text-indigo-600'}`} aria-hidden="true" />
+                        </div>
+                        
+                        <div>
+                          <p className={`font-bold text-base mb-1 ${meetingType === loc.value ? 'text-white' : 'text-slate-900'}`}>
+                            {loc.label}
+                          </p>
+                          <p className={`text-sm ${meetingType === loc.value ? 'text-white/90' : 'text-slate-600'}`}>
+                            {loc.description}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
                 {formErrors.meetingType && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.meetingType}</p>
+                  <p className="text-rose-600 text-sm mt-2" role="alert">
+                    {formErrors.meetingType}
+                  </p>
                 )}
               </div>
             </div>
           )}
 
+          {/* Step 3 - Schedule */}
           {step === 3 && (
-            <div>
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <label className="flex items-center gap-2 mb-2 text-gray-700 font-medium">
-                  <Globe className="w-4 h-4 text-indigo-600" />
+            <div className="animate-fadeIn">
+              <div className="mb-6 p-5 bg-slate-50 rounded-xl border border-slate-200">
+                <label 
+                  htmlFor="timezone-select"
+                  className="flex items-center gap-2 mb-3 text-slate-900 font-semibold"
+                >
+                  <Globe className="w-5 h-5 text-indigo-600" aria-hidden="true" />
                   Your Timezone
                 </label>
                 <div className="flex items-center gap-3">
@@ -753,7 +959,7 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                     className="flex-1"
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs text-slate-600 mt-2">
                   Times shown below are in your selected timezone. Current offset: {getTimezoneOffset(customerTimezone)}
                 </p>
               </div>
@@ -771,38 +977,40 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
             </div>
           )}
 
+          {/* Step 4 - Personal Details */}
           {step === 4 && (
-            <div className="space-y-6">
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                <h3 className="text-indigo-900 mb-3">You are booking:</h3>
-                <div className="space-y-1 text-sm">
-                  <p className="text-gray-900">
-                    <span className="text-gray-700">Date:</span> {selectedDate?.toLocaleDateString('en-US', { 
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-5">
+                <h3 className="text-indigo-900 font-semibold mb-3 text-lg">You are booking:</h3>
+                <div className="space-y-2 text-sm">
+                  <p className="text-slate-900">
+                    <span className="text-slate-700 font-medium">Date:</span> {selectedDate?.toLocaleDateString('en-US', { 
                       month: 'long', 
                       day: 'numeric', 
                       year: 'numeric' 
                     })}
                   </p>
-                  <p className="text-gray-900">
-                    <span className="text-gray-700">Time:</span> {selectedTime}
+                  <p className="text-slate-900">
+                    <span className="text-slate-700 font-medium">Time:</span> {selectedTime}
                   </p>
-                  <p className="text-gray-900">
-                    <span className="text-gray-700">Price:</span> {getCurrencySymbolForService()}{getServicePrice()}
+                  <p className="text-slate-900">
+                    <span className="text-slate-700 font-medium">Price:</span> {getCurrencySymbolForService()}{getServicePrice()}
                   </p>
                 </div>
               </div>
 
-              <p className="text-gray-600">
+              <p className="text-slate-700 font-medium">
                 Please provide your details in the form below to proceed with booking.
               </p>
 
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <div>
-                    <label className="block mb-2 text-gray-700">
-                      First Name <span className="text-red-500">*</span>
+                    <label htmlFor="first-name" className="block mb-2 text-slate-900 font-medium">
+                      First Name <span className="text-rose-600">*</span>
                     </label>
                     <input
+                      id="first-name"
                       type="text"
                       value={firstName}
                       onChange={(e) => {
@@ -814,19 +1022,26 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                         }
                       }}
                       placeholder="John"
-                      className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                        formErrors.firstName ? 'border-red-500' : 'border-gray-300'
+                      aria-invalid={!!formErrors.firstName}
+                      aria-describedby={formErrors.firstName ? "first-name-error" : undefined}
+                      className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
+                        formErrors.firstName 
+                          ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
+                          : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
                       }`}
                     />
                     {formErrors.firstName && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.firstName}</p>
+                      <p id="first-name-error" className="text-rose-600 text-sm mt-1" role="alert">
+                        {formErrors.firstName}
+                      </p>
                     )}
                   </div>
                   <div>
-                    <label className="block mb-2 text-gray-700">
-                      Last Name <span className="text-red-500">*</span>
+                    <label htmlFor="last-name" className="block mb-2 text-slate-900 font-medium">
+                      Last Name <span className="text-rose-600">*</span>
                     </label>
                     <input
+                      id="last-name"
                       type="text"
                       value={lastName}
                       onChange={(e) => {
@@ -838,21 +1053,28 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                         }
                       }}
                       placeholder="Doe"
-                      className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                        formErrors.lastName ? 'border-red-500' : 'border-gray-300'
+                      aria-invalid={!!formErrors.lastName}
+                      aria-describedby={formErrors.lastName ? "last-name-error" : undefined}
+                      className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
+                        formErrors.lastName 
+                          ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
+                          : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
                       }`}
                     />
                     {formErrors.lastName && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.lastName}</p>
+                      <p id="last-name-error" className="text-rose-600 text-sm mt-1" role="alert">
+                        {formErrors.lastName}
+                      </p>
                     )}
                   </div>
                 </div>
 
                 <div>
-                  <label className="block mb-2 text-gray-700">
-                    Phone <span className="text-red-500">*</span>
+                  <label htmlFor="phone" className="block mb-2 text-slate-900 font-medium">
+                    Phone <span className="text-rose-600">*</span>
                   </label>
                   <input
+                    id="phone"
                     type="tel"
                     value={phone}
                     onChange={(e) => {
@@ -864,20 +1086,27 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                       }
                     }}
                     placeholder="+1 (555) 123-4567"
-                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                      formErrors.phone ? 'border-red-500' : 'border-gray-300'
+                    aria-invalid={!!formErrors.phone}
+                    aria-describedby={formErrors.phone ? "phone-error" : undefined}
+                    className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
+                      formErrors.phone 
+                        ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
+                        : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
                     }`}
                   />
                   {formErrors.phone && (
-                    <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>
+                    <p id="phone-error" className="text-rose-600 text-sm mt-1" role="alert">
+                      {formErrors.phone}
+                    </p>
                   )}
                 </div>
 
                 <div>
-                  <label className="block mb-2 text-gray-700">
-                    Email <span className="text-red-500">*</span>
+                  <label htmlFor="email" className="block mb-2 text-slate-900 font-medium">
+                    Email <span className="text-rose-600">*</span>
                   </label>
                   <input
+                    id="email"
                     type="email"
                     value={email}
                     onChange={(e) => {
@@ -889,104 +1118,120 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
                       }
                     }}
                     placeholder="john.doe@example.com"
-                    className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                      formErrors.email ? 'border-red-500' : 'border-gray-300'
+                    aria-invalid={!!formErrors.email}
+                    aria-describedby={formErrors.email ? "email-error" : undefined}
+                    className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
+                      formErrors.email 
+                        ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
+                        : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
                     }`}
                   />
                   {formErrors.email && (
-                    <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
+                    <p id="email-error" className="text-rose-600 text-sm mt-1" role="alert">
+                      {formErrors.email}
+                    </p>
                   )}
                 </div>
 
-                 <div>
-                <label className="flex items-center gap-2 mb-2 text-gray-700">
-                  {/* <FileText className="w-4 h-4 text-indigo-600" /> */}
-                  Description (Optional)
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => {
-                    setDescription(e.target.value);
-                    if (formErrors.description) {
-                      const newErrors = { ...formErrors };
-                      delete newErrors.description;
-                      setFormErrors(newErrors);
-                    }
-                  }}
-                  placeholder="Tell us more about your requirements..."
-                  rows={3}
-                  maxLength={500}
-                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none ${
-                    formErrors.description ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {formErrors.description && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.description}</p>
-                )}
-                <p className="text-gray-500 text-xs mt-1">{description.length}/500 characters</p>
-              </div>
+                <div>
+                  <label htmlFor="description" className="flex items-center gap-2 mb-2 text-slate-900 font-medium">
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    id="description"
+                    value={description}
+                    onChange={(e) => {
+                      setDescription(e.target.value);
+                      if (formErrors.description) {
+                        const newErrors = { ...formErrors };
+                        delete newErrors.description;
+                        setFormErrors(newErrors);
+                      }
+                    }}
+                    placeholder="Tell us more about your requirements..."
+                    rows={3}
+                    maxLength={500}
+                    aria-invalid={!!formErrors.description}
+                    aria-describedby="description-counter"
+                    className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 resize-none ${
+                      formErrors.description 
+                        ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
+                        : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
+                    }`}
+                  />
+                  {formErrors.description && (
+                    <p className="text-rose-600 text-sm mt-1" role="alert">
+                      {formErrors.description}
+                    </p>
+                  )}
+                  <p id="description-counter" className="text-slate-500 text-xs mt-1">
+                    {description.length}/500 characters
+                  </p>
+                </div>
               </div>
             </div>
           )}
 
+          {/* Step 5 - Payment */}
           {step === 5 && (
-            <div className="space-y-4">
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+            <div className="space-y-6 animate-fadeIn">
+              <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-2 border-indigo-200 rounded-xl p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-600">Service Price</p>
-                    <p className="text-2xl mt-1 text-indigo-700">{getCurrencySymbolForService()}{getServicePrice()}</p>
+                    <p className="text-sm text-slate-700 font-medium mb-1">Service Price</p>
+                    <p className="text-3xl font-bold text-indigo-700">{getCurrencySymbolForService()}{getServicePrice()}</p>
                   </div>
-                  <div className="p-3 bg-white rounded-lg">
-                    <DollarSign className="w-6 h-6 text-indigo-600" />
+                  <div className="p-4 bg-white rounded-xl shadow-sm">
+                    <DollarSign className="w-8 h-8 text-indigo-600" aria-hidden="true" />
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="flex items-center gap-2 mb-2 text-gray-700">
-                  <CreditCard className="w-4 h-4 text-indigo-600" />
+                <label className="flex items-center gap-2 mb-4 text-slate-900 font-semibold text-lg">
+                  <CreditCard className="w-5 h-5 text-indigo-600" aria-hidden="true" />
                   When would you like to pay?
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <button
+                    type="button"
                     onClick={() => {
                       setPaymentTiming('now');
                       setPaymentMethod('');
                     }}
                     className={`
-                      py-3 px-4 rounded-lg border-2 transition-all
+                      py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-300
                       ${paymentTiming === 'now'
-                        ? 'border-indigo-600 bg-indigo-50'
-                        : 'border-gray-300 hover:border-indigo-300 bg-white'
+                        ? 'border-indigo-600 bg-indigo-50 shadow-md'
+                        : 'border-slate-300 hover:border-indigo-300 bg-white hover:shadow-sm'
                       }
                     `}
                   >
-                    <CreditCard className="w-5 h-5 mx-auto mb-1 text-indigo-600" />
-                    Pay Now
+                    <CreditCard className={`w-6 h-6 mx-auto mb-2 ${paymentTiming === 'now' ? 'text-indigo-600' : 'text-slate-600'}`} aria-hidden="true" />
+                    <span className={`font-semibold ${paymentTiming === 'now' ? 'text-indigo-900' : 'text-slate-900'}`}>Pay Now</span>
                   </button>
                   {canShowPayLater && (
                     <button
+                      type="button"
                       onClick={() => {
                         setPaymentTiming('later');
                         setPaymentMethod('');
                       }}
                       className={`
-                        py-3 px-4 rounded-lg border-2 transition-all
+                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-300
                         ${paymentTiming === 'later'
-                          ? 'border-indigo-600 bg-indigo-50'
-                          : 'border-gray-300 hover:border-indigo-300 bg-white'
+                          ? 'border-indigo-600 bg-indigo-50 shadow-md'
+                          : 'border-slate-300 hover:border-indigo-300 bg-white hover:shadow-sm'
                         }
                       `}
                     >
-                      <DollarSign className="w-5 h-5 mx-auto mb-1 text-indigo-600" />
-                      Pay Later
+                      <DollarSign className={`w-6 h-6 mx-auto mb-2 ${paymentTiming === 'later' ? 'text-indigo-600' : 'text-slate-600'}`} aria-hidden="true" />
+                      <span className={`font-semibold ${paymentTiming === 'later' ? 'text-indigo-900' : 'text-slate-900'}`}>Pay Later</span>
                     </button>
                   )}
                 </div>
                 {!canShowPayLater && (
-                  <p className="text-amber-600 text-sm mt-2 flex items-center gap-2 bg-amber-50 p-2 rounded border border-amber-200">
-                    <span>ℹ️</span>
+                  <p className="text-amber-700 text-sm mt-3 flex items-center gap-2 bg-amber-50 p-3 rounded-lg border border-amber-200">
                     <span>Pay Later option is only available for In Person appointments</span>
                   </p>
                 )}
@@ -994,67 +1239,71 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
 
               {paymentTiming === 'now' && (
                 <div>
-                  <label className="flex items-center gap-2 mb-2 text-gray-700">
-                    <CreditCard className="w-4 h-4 text-indigo-600" />
+                  <label className="flex items-center gap-2 mb-4 text-slate-900 font-semibold text-lg">
+                    <CreditCard className="w-5 h-5 text-indigo-600" aria-hidden="true" />
                     Select Payment Method
                   </label>
-                  <div className="grid grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     {availablePaymentMethods.map((method) => (
                       <button
                         key={method.name}
+                        type="button"
                         onClick={() => setPaymentMethod(method.name)}
                         className={`
-                          py-3 px-2 rounded-lg border-2 transition-all text-center
+                          py-4 px-3 rounded-xl border-2 transition-all duration-300 text-center focus:outline-none focus:ring-4 focus:ring-indigo-300
                           ${paymentMethod === method.name
-                            ? 'border-indigo-600 bg-indigo-50'
-                            : 'border-gray-300 hover:border-indigo-300 bg-white'
+                            ? 'border-indigo-600 bg-indigo-50 shadow-md scale-105'
+                            : 'border-slate-300 hover:border-indigo-300 bg-white hover:shadow-sm'
                           }
                         `}
                       >
-                        <div className="text-xl mb-1">{method.icon}</div>
-                        <p className="text-xs text-gray-900">{method.name}</p>
+                        <div className="text-2xl mb-2">{method.icon}</div>
+                        <p className={`text-sm font-semibold mb-1 ${paymentMethod === method.name ? 'text-indigo-900' : 'text-slate-900'}`}>
+                          {method.name}
+                        </p>
+                        <p className="text-xs text-slate-600">{method.description}</p>
                       </button>
                     ))}
                   </div>
                 </div>
               )}
 
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <h3 className="text-gray-900 mb-3">Booking Summary</h3>
-                <div className="space-y-2 text-sm">
-                    <div className="flex justify-between py-1 border-b border-gray-200">
-                      <span className="text-gray-600">Service:</span>
-                      <span className="text-gray-900">{getSelectedService()?.name || "Service not found"}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-gray-200">
-                      <span className="text-gray-600">Duration:</span>
-                      <span className="text-gray-900">{getSelectedService()?.serviceDuration || 60} mins</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-gray-200">
-                      <span className="text-gray-600">Staff:</span>
-                      <span className="text-gray-900">
-                        {selectedStaffId === -1 
-                          ? 'Any Staff' 
-                          : (staffMembers.find(s => s.id === selectedStaffId)?.fullName || 'No staff selected')}
-                      </span>
-                    </div>
-                  <div className="flex justify-between py-1 border-b border-gray-200">
-                    <span className="text-gray-600">Location:</span>
-                    <span className="text-gray-900">{meetingType}</span>
+              <div className="bg-slate-50 border-2 border-slate-200 rounded-xl p-6">
+                <h3 className="text-slate-900 font-bold mb-4 text-lg">Booking Summary</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between py-2 border-b border-slate-200">
+                    <span className="text-slate-700 font-medium">Service:</span>
+                    <span className="text-slate-900 font-semibold">{getSelectedService()?.name || "Service not found"}</span>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-gray-200">
-                    <span className="text-gray-600">Date:</span>
-                    <span className="text-gray-900">
+                  <div className="flex justify-between py-2 border-b border-slate-200">
+                    <span className="text-slate-700 font-medium">Duration:</span>
+                    <span className="text-slate-900 font-semibold">{getSelectedService()?.serviceDuration || 60} mins</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-slate-200">
+                    <span className="text-slate-700 font-medium">Staff:</span>
+                    <span className="text-slate-900 font-semibold">
+                      {selectedStaffId === -1 
+                        ? 'Any Staff' 
+                        : (staffMembers.find(s => s.id === selectedStaffId)?.fullName || 'No staff selected')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-slate-200">
+                    <span className="text-slate-700 font-medium">Location:</span>
+                    <span className="text-slate-900 font-semibold">{meetingType}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-slate-200">
+                    <span className="text-slate-700 font-medium">Date:</span>
+                    <span className="text-slate-900 font-semibold">
                       {selectedDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </span>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-gray-200">
-                    <span className="text-gray-600">Time:</span>
-                    <span className="text-gray-900">{selectedTime}</span>
+                  <div className="flex justify-between py-2 border-b border-slate-200">
+                    <span className="text-slate-700 font-medium">Time:</span>
+                    <span className="text-slate-900 font-semibold">{selectedTime}</span>
                   </div>
-                  <div className="flex justify-between py-2 mt-2 bg-white rounded px-2">
-                    <span className="text-gray-700">Total:</span>
-                    <span className="text-indigo-600">{getCurrencySymbolForService()}{getServicePrice()}</span>
+                  <div className="flex justify-between py-3 mt-3 bg-white rounded-lg px-3">
+                    <span className="text-slate-900 font-bold text-base">Total:</span>
+                    <span className="text-indigo-600 font-bold text-xl">{getCurrencySymbolForService()}{getServicePrice()}</span>
                   </div>
                 </div>
               </div>
@@ -1063,13 +1312,15 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
         </div>
 
         {/* Navigation */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between">
+        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 flex items-center justify-between gap-3">
           {step > 1 ? (
             <button
+              type="button"
               onClick={handleBack}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-300"
+              className="flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-slate-700 hover:bg-slate-100 rounded-lg transition-all duration-200 border-2 border-slate-300 font-medium focus:outline-none focus:ring-4 focus:ring-slate-300 min-h-[44px] sm:min-h-[48px] text-sm sm:text-base"
+              aria-label="Go back to previous step"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
               Back
             </button>
           ) : (
@@ -1078,46 +1329,49 @@ export function BookingForm({ onComplete, onClose }: BookingFormProps) {
 
           {step < 5 ? (
             <button
+              type="button"
               onClick={handleNext}
               disabled={!canProceed()}
+              aria-label="Continue to next step"
               className={`
-                flex items-center gap-2 px-6 py-2 rounded-lg transition-all
+                flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg transition-all duration-300 font-semibold min-h-[44px] sm:min-h-[48px] text-sm sm:text-base focus:outline-none focus:ring-4
                 ${canProceed()
-                  ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg focus:ring-indigo-300 transform hover:scale-105'
+                  : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
                 }
               `}
             >
               Next
-              <ChevronRight className="w-5 h-5" />
+              <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
             </button>
           ) : (
             <div className="flex flex-col items-end gap-2">
               {submitError && (
-                <p className="text-red-600 text-sm">{submitError}</p>
+                <p className="text-rose-600 text-sm" role="alert">
+                  {submitError}
+                </p>
               )}
               <button
+                type="button"
                 onClick={handleConfirm}
                 disabled={!canProceed() || isSubmitting}
+                aria-label={isSubmitting ? "Processing booking..." : "Confirm booking"}
                 className={`
-                  flex items-center gap-2 px-6 py-2 rounded-lg transition-all
+                  flex items-center gap-2 px-8 py-3 rounded-lg transition-all duration-300 font-semibold min-h-[48px] focus:outline-none focus:ring-4
                   ${canProceed() && !isSubmitting
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md hover:shadow-lg focus:ring-emerald-300 transform hover:scale-105'
+                    : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
                   }
                 `}
               >
                 {isSubmitting ? (
                   <>
-                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Booking...
+                    <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
+                    Processing...
                   </>
                 ) : (
                   <>
-                    <Check className="w-5 h-5" />
+                    <Check className="w-5 h-5" aria-hidden="true" />
                     {paymentTiming === 'now' ? 'Proceed to Payment' : 'Confirm Booking'}
                   </>
                 )}

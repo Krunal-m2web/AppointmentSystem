@@ -97,10 +97,10 @@ const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
   };
 
   return (
-    <div className="max-w-3xl mx-auto bg-white p-4 rounded-lg shadow-sm border border-gray-100 font-sans">
-      <div className="flex flex-col md:flex-row gap-6">
+    <div className="w-full max-w-3xl mx-auto bg-white p-3 sm:p-4 rounded-lg shadow-sm border border-gray-100 font-sans">
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
         {/* LEFT COLUMN: Calendar & Timezone */}
-        <div className="w-full md:w-80 flex-shrink-0">
+        <div className="w-full lg:w-80 flex-shrink-0">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">
             Select a Date & Time
           </h2>
@@ -212,14 +212,12 @@ const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
         </div>
 
         {/* RIGHT COLUMN: Time Slots */}
-        <div className="flex-1 min-w-[220px] border-t md:border-t-0 md:border-l border-gray-100 pt-4 md:pt-0 md:pl-6"
-        style={{paddingLeft: "60px"}}>
+        <div className="flex-1 min-w-0 border-t lg:border-t-0 lg:border-l border-gray-100 pt-4 lg:pt-0 lg:pl-6">
           {selectedDate ? (
             <motion.div
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className="h-full"
-              style={{width: "100%"}}
+              className="h-full w-full"
             >
               <h3 className="text-gray-600 font-medium mb-4 text-sm">
                 {selectedDate.toLocaleDateString("en-US", {
@@ -265,8 +263,7 @@ const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
               </div>
             </motion.div>
           ) : (
-            <div className="h-full flex items-center justify-center text-gray-400 text-xs italic"
-            style={{paddingRight:"47px", marginLeft:"-10px"}}>
+            <div className="h-full flex items-center justify-center text-gray-400 text-xs italic text-center px-4">
               Select a date to view available times
             </div>
           )}

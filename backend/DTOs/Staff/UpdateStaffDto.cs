@@ -31,7 +31,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Staff
         // Update services (will replace existing assignments)
         public List<int>? ServiceIds { get; set; }
 
-        [MinLength(6)]
+        [MinLength(6, ErrorMessage = "Your password must be at least 6 characters long")]
         public string? Password { get; set; }
     }
 }

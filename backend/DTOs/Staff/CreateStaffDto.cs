@@ -33,7 +33,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Staff
 
         // Password
         [Required]
-        [MinLength(6)]
+        [MinLength(6, ErrorMessage = "Your password must be at least 6 characters long")]
         [MaxLength(100)]
         public string Password { get; set; } = null!;
 

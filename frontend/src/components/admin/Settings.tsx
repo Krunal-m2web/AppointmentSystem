@@ -1,18 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Mail, Globe, Building, DollarSign, Bell, CheckCircle, Save, MapPin } from 'lucide-react';
+import { Mail, Globe, Building, DollarSign, Bell, CheckCircle, Save, MapPin, Phone as PhoneIcon, Edit, Clock, Search, ChevronDown } from 'lucide-react';
 import { EmailTemplateEditor } from './EmailTemplateEditor';
 import { useTimezone } from '../../context/TimezoneContext';
-import { getAuthHeaders } from '../../services/staffApi';
+import { getAuthHeaders, getTimeOffSettings, updateTimeOffSettings } from '../../services/staffApi';
 import { getMyCompany, updateMyCompany, uploadCompanyLogo } from '../../services/CompanyService';
 import { SettingsTab, NotificationConfig, TimingConfig, EmailTemplate } from './types/settings';
 import { GeneralSettings } from './settings/GeneralSettings';
 import { EmailNotificationSettings } from './settings/EmailNotificationSettings';
 import { PaymentSettings } from './PaymentSettings';
-import { MeetingLocationSettings } from './MeetingLocationSettings';
+import MeetingLocationSettings from './MeetingLocationSettings';
 import { TIMEZONES } from '../../utils/datetime';
 import { TimezoneSelect } from '../TimezoneSelect';
 import { getGeneralSettings, updateGeneralSettings, getNotificationSettings, updateNotificationSettings, GeneralSettingsData } from '../../services/settingsApi';
 import { getToken } from '../../utils/auth';
+import { toast } from 'sonner';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
@@ -23,6 +24,7 @@ export function Settings() {
   const [defaultSenderName, setDefaultSenderName] = useState('');
   const [defaultReplyEmail, setDefaultReplyEmail] = useState('');
   const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
+  const [requireTimeOffApproval, setRequireTimeOffApproval] = useState(true);
 
   // Company Profile State
   const [companyName, setCompanyName] = useState('My Business');
@@ -167,8 +169,12 @@ Best regards,
               setDefaultSenderName(data.defaultSenderName || '');
               setDefaultReplyEmail(data.defaultReplyToEmail || '');
               setEmailNotificationsEnabled(data.isEmailServiceEnabled);
+
+              // Load Time Off Settings
+              const timeOffData = await getTimeOffSettings();
+              setRequireTimeOffApproval(timeOffData.requireTimeOffApproval);
           } catch (e) {
-              console.error("Failed to load general settings", e);
+              console.error("Failed to load settings", e);
           }
       };
       if (activeTab === 'general') loadGeneral();
@@ -205,7 +211,29 @@ Best regards,
       if (activeTab === 'notifications') loadNotifications();
   }, [activeTab]);
 
-  // ... (Company load effect stays same)
+  // Load Company Profile
+  useEffect(() => {
+    const loadCompany = async () => {
+      try {
+        const data = await getMyCompany();
+        setCompanyName(data.companyName || '');
+        setBusinessEmail(data.email || '');
+        setBusinessPhone(data.phone || '');
+        setWebsiteUrl(data.websiteUrl || '');
+        if (data.logoUrl) {
+          setCompanyLogo(`${API_BASE_URL}${data.logoUrl}`);
+        } else {
+          setCompanyLogo('');
+        }
+      } catch (err) {
+        console.error("Failed to load company profile", err);
+      }
+    };
+
+    if (activeTab === 'company') {
+      loadCompany();
+    }
+  }, [activeTab]);
 
   // ... (Timezone sync effect stays same)
 
@@ -218,10 +246,13 @@ Best regards,
             defaultReplyToEmail: defaultReplyEmail,
             isEmailServiceEnabled: emailNotificationsEnabled
         }, token);
-        alert('General settings saved successfully!');
+        
+        await updateTimeOffSettings({ requireTimeOffApproval });
+        
+        toast.success('General settings saved successfully!');
     } catch (e) {
         console.error(e);
-        alert('Failed to save general settings');
+        toast.error('Failed to save general settings');
     }
   };
 
@@ -235,10 +266,16 @@ Best regards,
         logoUrl: companyLogo.replace(API_BASE_URL, ''),
       });
 
-      alert("Company profile saved successfully!");
+      // Update state with prefixed URL to ensure consistency
+      if (companyLogo && !companyLogo.startsWith('http')) {
+        const logoPath = companyLogo.startsWith('/') ? companyLogo : `/${companyLogo}`;
+        setCompanyLogo(`${API_BASE_URL}${logoPath}`);
+      }
+
+      toast.success("Company profile saved successfully!");
     } catch (err) {
       console.error(err);
-      alert("Failed to save company profile");
+      toast.error("Failed to save company profile");
     }
   };
 
@@ -251,7 +288,7 @@ Best regards,
       setCompanyLogo(`${API_BASE_URL}${res.logoUrl}`);
     } catch (err) {
       console.error(err);
-      alert("Logo upload failed");
+      toast.error("Logo upload failed");
     }
   };
 
@@ -307,10 +344,10 @@ Best regards,
              // We save all, or just this one? API takes dictionary.
              await updateNotificationSettings(newSettings, token);
         }
-        alert('Template saved successfully!');
+        toast.success('Template saved successfully!');
     } catch (e) {
         console.error(e);
-        alert('Failed to save template');
+        toast.error('Failed to save template');
     }
   };
 
@@ -363,10 +400,10 @@ Best regards,
       if (!res.ok) throw new Error("Failed to update timezone");
       
       await refreshTimezone();
-      alert("Timezone updated successfully!");
+      toast.success("Timezone updated successfully!");
     } catch (error) {
       console.error(error);
-      alert("Failed to update timezone.");
+      toast.error("Failed to update timezone.");
     } finally {
       setGlobalLoading(false);
     }
@@ -378,32 +415,30 @@ Best regards,
     { id: 'notifications' as SettingsTab, label: 'Email Notifications', icon: Mail },
     { id: 'payment' as SettingsTab, label: 'Payment Settings', icon: DollarSign },
     { id: 'locations' as SettingsTab, label: 'Meeting Locations', icon: MapPin },
-    { id: 'global' as SettingsTab, label: 'Timezone Settings', icon: Globe },
+    { id: 'global' as SettingsTab, label: 'Timezone', icon: Globe },
   ];
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1>Settings</h1>
-        <p className="text-gray-600 mt-1">Manage your system preferences and configuration</p>
-      </div>
+      
 
       {/* Tabs */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-4">
-        <div className="flex border-b border-gray-200">
+      <div className="mb-8 overflow-x-auto custom-scrollbar">
+        <div className="inline-flex p-1.5 bg-gray-100 rounded-2xl border border-gray-200">
           {tabs.map((tab) => {
             const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-6 py-4 border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                className={`flex items-center gap-2.5 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 whitespace-nowrap ${
+                  isActive
+                    ? 'bg-white text-indigo-600 shadow-sm border border-gray-100'
+                    : 'text-gray-500 hover:text-gray-800 hover:bg-white/40'
                 }`}
               >
-                <Icon className="w-5 h-5" />
+                <Icon className={`w-4.5 h-4.5 transition-colors ${isActive ? 'text-indigo-600' : 'text-gray-400'}`} />
                 {tab.label}
               </button>
             );
@@ -420,127 +455,122 @@ Best regards,
           setDefaultReplyEmail={setDefaultReplyEmail}
           emailNotificationsEnabled={emailNotificationsEnabled}
           setEmailNotificationsEnabled={setEmailNotificationsEnabled}
+          requireTimeOffApproval={requireTimeOffApproval}
+          setRequireTimeOffApproval={setRequireTimeOffApproval}
           onSave={handleSaveGeneral}
         />
       )}
 
       {/* Company Profile */}
       {activeTab === 'company' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="mb-6">
-            <h2>Company Profile</h2>
-            <p className="text-sm text-gray-600 mt-1">Update your business information</p>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+            <h2 className="text-xl font-semibold text-gray-900 tracking-tight flex items-center gap-2">
+              <Building className="w-5 h-5 text-indigo-600" />
+              Company Profile
+            </h2>
+            <p className="text-sm text-gray-500 mt-1 font-normal">Manage your public business information</p>
           </div>
 
-          <div className="space-y-6 max-w-2xl">
-            {/* Company Name */}
-            <div>
-              <label className="block text-sm text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <Building className="w-4 h-4 text-indigo-600" />
-                  Company name
-                </div>
-              </label>
-              <input
-                type="text"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="My Business"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Company Logo */}
-            <div>
-              <label className="block text-sm text-gray-700 mb-2">
-                Company Logo
-              </label>
-              <div className="flex items-start gap-4">
-                {companyLogo ? (
-                  <div className="w-24 h-24 border-2 border-gray-300 rounded-lg overflow-hidden">
-                    <img src={companyLogo} alt="Company Logo" className="w-full h-full object-cover" />
+          <div className="p-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+              {/* Logo Upload Section */}
+              <div className="lg:col-span-1 border-b lg:border-b-0 lg:border-r border-gray-100 pb-10 lg:pb-0 lg:pr-10">
+                <label className="block text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wider">Business Identity</label>
+                <div className="flex flex-col items-center gap-6">
+                  {companyLogo ? (
+                    <div className="group relative w-40 h-40 border-4 border-white shadow-xl rounded-2xl overflow-hidden ring-1 ring-gray-100 transition-transform hover:scale-[1.02]">
+                      <img src={companyLogo} alt="Company Logo" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <label className="cursor-pointer p-3 bg-white/20 backdrop-blur-md rounded-full text-white hover:bg-white/30 transition-colors">
+                          <Edit className="w-5 h-5" />
+                          <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-40 h-40 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center bg-gray-50 transition-colors hover:bg-gray-100 cursor-pointer" onClick={() => document.getElementById('logo-upload')?.click()}>
+                      <Building className="w-10 h-10 text-gray-300 mb-2" />
+                      <span className="text-xs font-bold text-gray-400 uppercase tracking-tight">Upload Logo</span>
+                      <input id="logo-upload" type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                    </div>
+                  )}
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 leading-relaxed max-w-[160px]">Recommended: 400x400px Square PNG or JPG</p>
                   </div>
-                ) : (
-                  <div className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
-                    <Building className="w-8 h-8 text-gray-400" />
-                  </div>
-                )}
-                <div className="flex-1">
-                  <label className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer w-fit">
-                    <CheckCircle className="w-4 h-4" />
-                    Upload Logo
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleLogoUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  <p className="text-xs text-gray-500 mt-2">Recommended size: 200x200px (PNG, JPG)</p>
                 </div>
               </div>
-            </div>
 
-            {/* Business Email */}
-            <div>
-              <label className="block text-sm text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-indigo-600" />
-                  Business email (used as sender)
+              {/* Form Fields Section */}
+              <div className="lg:col-span-2 space-y-6">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2 mt-2">Display Name</label>
+                  <div className="relative group">
+                    <Building className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                    <input
+                      type="text"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      placeholder="My Business"
+                      className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900"
+                    />
+                  </div>
                 </div>
-              </label>
-              <input
-                type="email"
-                value={businessEmail}
-                onChange={(e) => setBusinessEmail(e.target.value)}
-                placeholder="info@mybusiness.com"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
 
-            {/* Business Phone */}
-            <div>
-              <label className="block text-sm text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  {/* Phone icon usage */}
-                  Business phone number
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Business Email</label>
+                    <div className="relative group">
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                      <input
+                        type="email"
+                        value={businessEmail}
+                        onChange={(e) => setBusinessEmail(e.target.value)}
+                        placeholder="info@mybusiness.com"
+                        className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Business Phone</label>
+                    <div className="relative group">
+                      <PhoneIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                      <input
+                        type="tel"
+                        value={businessPhone}
+                        onChange={(e) => setBusinessPhone(e.target.value)}
+                        placeholder="+1 (555) 123-4567"
+                        className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900"
+                      />
+                    </div>
+                  </div>
                 </div>
-              </label>
-              <input
-                type="tel"
-                value={businessPhone}
-                onChange={(e) => setBusinessPhone(e.target.value)}
-                placeholder="+1 (555) 123-4567"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
 
-            {/* Website URL */}
-            <div>
-              <label className="block text-sm text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <Globe className="w-4 h-4 text-indigo-600" />
-                  Website URL
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Website URL</label>
+                  <div className="relative group">
+                    <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                    <input
+                      type="url"
+                      value={websiteUrl}
+                      onChange={(e) => setWebsiteUrl(e.target.value)}
+                      placeholder="https://www.mybusiness.com"
+                      className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900"
+                    />
+                  </div>
                 </div>
-              </label>
-              <input
-                type="url"
-                value={websiteUrl}
-                onChange={(e) => setWebsiteUrl(e.target.value)}
-                placeholder="https://www.mybusiness.com"
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
 
-            {/* Save Button */}
-            <div className="flex items-center justify-end pt-4 border-t border-gray-200">
-              <button
-                onClick={handleSaveCompany}
-                className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                <Save className="w-4 h-4" />
-                Save Changes
-              </button>
+                {/* Save Button */}
+                <div className="flex items-center justify-end pt-8 border-t border-gray-100 mt-6">
+                  <button
+                    onClick={handleSaveCompany}
+                    className="flex items-center gap-2.5 px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 hover:shadow-indigo-200 active:scale-[0.98]"
+                  >
+                    <Save className="w-4.5 h-4.5" />
+                    Save Profile
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -568,30 +598,59 @@ Best regards,
 
       {/* Global Settings (Timezone) */}
       {activeTab === 'global' && (
-         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="mb-6">
-              <h2>Global Settings</h2>
-              <p className="text-gray-600 text-sm">Manage timezone and regional preferences</p>
-            </div>
-            
-            <div className="mb-4">
-               <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
-               <TimezoneSelect 
-                 value={selectedTimezone}
-                 onChange={setSelectedTimezone}
-                 className="w-full"
-               />
-            </div>
-             <button
-                onClick={handleSaveGlobal}
-                disabled={globalLoading}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
-             >
-               {globalLoading ? 'Saving...' : 'Save Timezone'}
-             </button>
-         </div>
-      )}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+            <h2 className="text-xl font-semibold text-gray-900 tracking-tight flex items-center gap-2">
+              <Globe className="w-5 h-5 text-indigo-600" />
+              Regional & Timezone Settings
+            </h2>
+            <p className="text-sm text-gray-500 mt-1 font-normal">Standardize how time is calculated across your business</p>
+          </div>
 
+          <div className="p-8">
+            <div className="max-w-2xl space-y-8">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-indigo-500" />
+                  Business Timezone
+                </label>
+                
+                <div className="relative group">
+                  <TimezoneSelect 
+                    value={selectedTimezone}
+                    onChange={setSelectedTimezone}
+                    className="w-full pl-4 py-6 bg-gray-50 border-gray-200 rounded-2xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-semibold text-gray-900 shadow-sm hover:bg-white"
+                  />
+                </div>
+                
+                <div className="mt-6 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 flex gap-4">
+                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shrink-0 shadow-sm border border-indigo-50">
+                    <Bell className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <p className="text-xs text-indigo-900/70 font-medium leading-relaxed">
+                    <strong>Critical Note:</strong> All appointments and durations are calculated based on this setting. Ensure this matches your physical business location to prevent scheduling conflicts.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end pt-8 border-t border-gray-100">
+                <button
+                  onClick={handleSaveGlobal}
+                  disabled={globalLoading}
+                  className="flex items-center gap-2.5 px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 hover:shadow-indigo-200 active:scale-[0.98] disabled:opacity-50"
+                >
+                  {globalLoading ? (
+                    <div className="w-4.5 h-4.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Save className="w-4.5 h-4.5" />
+                  )}
+                  Update Regional Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Template Editor Modal */}
       {editingTemplate && notificationSettings[editingTemplate] && (
         <EmailTemplateEditor

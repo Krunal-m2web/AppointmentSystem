@@ -407,6 +407,36 @@ namespace Appointmentbookingsystem.Backend.Controllers
             await _context.SaveChangesAsync();
             return Ok(new { message = "Meeting location settings updated successfully" });
         }
+
+        // --- Time Off Settings ---
+
+        [HttpGet("timeoff")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult<TimeOffSettingsDto>> GetTimeOffSettings()
+        {
+            var companyId = int.Parse(User.FindFirst("CompanyId")!.Value);
+            var company = await _context.Companies.FindAsync(companyId);
+            if (company == null) return NotFound();
+
+            return Ok(new TimeOffSettingsDto
+            {
+                RequireTimeOffApproval = company.RequireTimeOffApproval
+            });
+        }
+
+        [HttpPut("timeoff")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UpdateTimeOffSettings([FromBody] TimeOffSettingsDto dto)
+        {
+            var companyId = int.Parse(User.FindFirst("CompanyId")!.Value);
+            var company = await _context.Companies.FindAsync(companyId);
+            if (company == null) return NotFound();
+
+            company.RequireTimeOffApproval = dto.RequireTimeOffApproval;
+
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Time off settings updated successfully" });
+        }
     }
 
     public class UpdateTimezoneDto
@@ -455,5 +485,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
     public class MeetingLocationSettingsDto
     {
         public List<string> EnabledMeetingLocations { get; set; } = new();
+    }
+
+    public class TimeOffSettingsDto
+    {
+        public bool RequireTimeOffApproval { get; set; } = true;
     }
 }

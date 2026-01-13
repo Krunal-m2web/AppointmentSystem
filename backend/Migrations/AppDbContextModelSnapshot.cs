@@ -256,6 +256,9 @@ namespace Backend.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<bool>("RequireTimeOffApproval")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("ShowPayLater")
                         .HasColumnType("bit");
 
@@ -620,6 +623,41 @@ namespace Backend.Migrations
                     b.ToTable("Staff");
                 });
 
+            modelBuilder.Entity("Appointmentbookingsystem.Backend.Models.Entities.StaffInvite", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CompanyId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Token")
+                        .IsUnique();
+
+                    b.ToTable("StaffInvites");
+                });
+
             modelBuilder.Entity("Appointmentbookingsystem.Backend.Models.Entities.StaffService", b =>
                 {
                     b.Property<int>("Id")
@@ -627,6 +665,9 @@ namespace Backend.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<int?>("CustomDuration")
                         .HasColumnType("int");
@@ -669,6 +710,15 @@ namespace Backend.Migrations
 
                     b.Property<DateTime>("EndDateTimeUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsFullDay")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsViewedByAdmin")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsViewedByStaff")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Reason")
                         .HasMaxLength(500)

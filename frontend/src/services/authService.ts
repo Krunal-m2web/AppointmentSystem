@@ -5,6 +5,7 @@ import type {
   StaffLoginDto,
   AuthResponse,
 } from "../types/auth.types";
+import { parseErrorMessage } from "../utils/error";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
@@ -24,7 +25,7 @@ export const adminRegister = async (
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || "Admin registration failed");
+    throw new Error(parseErrorMessage(text) || "Admin registration failed");
   }
 
   return await response.json();
@@ -43,7 +44,32 @@ export const adminLogin = async (
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || "Admin login failed");
+    throw new Error(parseErrorMessage(text) || "Admin login failed");
+  }
+
+  return await response.json();
+};
+
+export const changePassword = async (data: {
+  currentPassword: string;
+  newPassword: string;
+}): Promise<{ message: string }> => {
+  const token = getToken();
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/admin/change-password`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseErrorMessage(text) || "Failed to change password");
   }
 
   return await response.json();
@@ -64,7 +90,7 @@ export const staffRegister = async (
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || "Staff registration failed");
+    throw new Error(parseErrorMessage(text) || "Staff registration failed");
   }
 
   return await response.json();
@@ -83,7 +109,7 @@ export const staffLogin = async (
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || "Staff login failed");
+    throw new Error(parseErrorMessage(text) || "Staff login failed");
   }
 
   return await response.json();

@@ -4,6 +4,9 @@ import { Search, Plus, X, User, Mail, Phone, Briefcase, Clock, Save, Calendar, T
 import type { Staff, TimeSlot, StaffServiceInfo } from '../../types/types';
 import { fetchServices, ServiceListItem } from "../../services/serviceApi";
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
+import { toast } from 'sonner';
+import { ConfirmationModal } from '../../components/ConfirmationModal';
+import { InviteStaffModal } from './InviteStaffModal';
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -33,9 +36,13 @@ export function StaffMembers() {
     const [services, setServices] = useState<ServiceListItem[]>([]);
     const [timeOffs, setTimeOffs] = useState<TimeOff[]>([]);
     const [newTimeOff, setNewTimeOff] = useState({ start: '', end: '', reason: '' });
+    const [deleteStaffId, setDeleteStaffId] = useState<number | null>(null);
+    const [deleteTimeOffId, setDeleteTimeOffId] = useState<number | null>(null);
+
 
     // Validation State
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+    const [showInviteModal, setShowInviteModal] = useState(false);
 
     const validateForm = () => {
         if (!editedStaff) return false;
@@ -263,7 +270,7 @@ const handleSave = async () => {
     
     // validate overlaps locally
     if (checkOverlap(editedStaff.schedule)) {
-        alert("Error: The schedule contains overlapping time slots. Please correct them before saving.");
+        toast.error("Error: The schedule contains overlapping time slots. Please correct them before saving.");
         return;
     }
 
@@ -272,7 +279,7 @@ const handleSave = async () => {
     try {
         const companyId = getCompanyIdFromToken(getToken() || "");
         if (!companyId) {
-            alert("Error: Missing Company ID. Please log in again.");
+            toast.error("Error: Missing Company ID. Please log in again.");
             setIsSaving(false);
             return;
         }
@@ -373,12 +380,14 @@ const scheduleData = availability.map((a: any) => ({
         }
 
         if (editedStaff.id <= 0) {
-            alert("Staff and schedule saved successfully!");
+            toast.success("Staff and schedule saved successfully!");
+        } else {
+             toast.success("Staff and schedule updated successfully!");
         }
 
     } catch (err: any) {
         console.error("Save error:", err);
-        alert(`Failed to save staff: ${err.message}`);
+        toast.error(`Failed to save staff: ${err.message}`);
     } finally {
         setIsSaving(false);
     }
@@ -399,25 +408,29 @@ const scheduleData = availability.map((a: any) => ({
     {isSaving ? 'Saving...' : 'Save Changes'}
 </button>
 
-    const handleDeleteStaff = async () => {
-        if (!editedStaff || !confirm("Are you sure you want to remove this staff member? They will be marked as inactive.")) return;
+    const confirmDeleteStaff = async () => {
+        if (!editedStaff) return;
 
         try {
             await deleteStaff(editedStaff.id);
-            alert("Staff member removed successfully.");
+            toast.success("Staff member removed successfully.");
             
             // Refresh list
             const refreshed = await fetchStaff();
             setStaff(refreshed);
             setSelectedStaff(null);
             setEditedStaff(null);
+            setDeleteStaffId(null);
         } catch (err: any) {
             console.error("Delete error:", err);
             // Show specific error from backend if available
-            // err.message will contain "Failed to delete staff: <Backend Message>"
             const errorMessage = err.message || "Failed to remove staff member.";
-            alert(errorMessage);
+            toast.error(errorMessage);
         }
+    };
+
+    const handleDeleteStaff = () => {
+         if (editedStaff) setDeleteStaffId(editedStaff.id);
     };
 
     const toggleService = (serviceId: number) => {
@@ -462,7 +475,7 @@ const scheduleData = availability.map((a: any) => ({
 
     const handleSaveTimeOff = async () => {
         if (!editedStaff || !newTimeOff.start || !newTimeOff.end) {
-            alert("Please select start and end dates.");
+            toast.error("Please select start and end dates.");
             return;
         }
         
@@ -478,45 +491,54 @@ const scheduleData = availability.map((a: any) => ({
             const updated = await fetchTimeOff(editedStaff.id);
             setTimeOffs(updated);
             setNewTimeOff({ start: '', end: '', reason: '' });
-            alert("Time Off added successfully");
+            toast.success("Time Off added successfully");
         } catch (e: any) {
-             alert(e.message);
+             toast.error(e.message);
         }
     };
 
-    const handleDeleteTimeOff = async (id: number) => {
-        if (!confirm("Remove this time off entry?")) return;
+    const confirmDeleteTimeOff = async () => {
+        if (!deleteTimeOffId) return;
         try {
-            await deleteTimeOff(id);
+            await deleteTimeOff(deleteTimeOffId);
              // Refresh
              if (editedStaff) {
                  const updated = await fetchTimeOff(editedStaff.id);
                  setTimeOffs(updated);
              }
+             toast.success("Time Off removed successfully");
         } catch (e: any) {
-            alert(e.message);
+            toast.error(e.message);
+        } finally {
+            setDeleteTimeOffId(null);
         }
+    }
+
+    const handleDeleteTimeOff = (id: number) => {
+        setDeleteTimeOffId(id);
     }
 
     return (
         <div className="p-4 md:p-8">
-            <div className="mb-6 md:mb-8">
+            <InviteStaffModal isOpen={showInviteModal} onClose={() => setShowInviteModal(false)} />
+            {/* <div className="mb-6 md:mb-8">
                 <h1 className="text-2xl md:text-3xl font-bold">
-                    {getRoleFromToken(getToken() || '') === 'Staff' ? 'My Profile' : 'Staff Members'}
+                    {getRoleFromToken(getToken() || '') === 'Staff' ? 'My Profile' : 'Manage Staff Members'}
                 </h1>
                 <p className="text-gray-600 mt-1">
                     {getRoleFromToken(getToken() || '') === 'Staff' ? 'My profile and schedules' : 'Manage staff members and their schedules'}
                 </p>
-            </div>
+            </div> */}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className={`grid grid-cols-1 ${getRoleFromToken(getToken() || '') === 'Staff' ? '' : 'lg:grid-cols-3'} gap-6`}>
                 {/* Staff List */}
+                {getRoleFromToken(getToken() || '') !== 'Staff' && (
                 <div className="lg:col-span-1">
                     <div className="bg-white rounded-lg shadow">
                         {!(getRoleFromToken(getToken() || '') === 'Staff') && (
                             <div className="p-4 border-b border-gray-200">
                                 <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                     <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
                                     <input
                                         type="text"
                                         placeholder="Search staff..."
@@ -528,7 +550,7 @@ const scheduleData = availability.map((a: any) => ({
                             </div>
                         )}
 
-                        <div className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
+                        <div className="divide-y divide-gray-200 max-h-[360px] overflow-y-auto custom-scrollbar">
                             {filteredStaff.map((staffMember) => (
                                 <div
                                     key={staffMember.id}
@@ -549,22 +571,32 @@ const scheduleData = availability.map((a: any) => ({
                             ))}
                         </div>
 
-                        <div className="p-4 border-t border-gray-200">
+                         <div className="p-4 border-t border-gray-200 space-y-2">
                            {!(getRoleFromToken(getToken() || '') === 'Staff') && (
+                            <>
+                            <button 
+                                onClick={() => setShowInviteModal(true)}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                            >
+                                <Mail className="w-5 h-5" />
+                                Invite Staff
+                            </button>
                             <button 
                                 onClick={handleAddNewStaff}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
                             >
-                                <Plus className="w-5 h-5" />
-                                Add Staff Member
+                                <Plus className="w-4 h-4" />
+                                Add Manually
                             </button>
+                            </>
                            )}
                         </div>
                     </div>
                 </div>
+                )}
 
                 {/* Staff Details */}
-                <div className="lg:col-span-2">
+                <div className={getRoleFromToken(getToken() || '') === 'Staff' ? 'lg:col-span-3' : 'lg:col-span-2'}>
                     {selectedStaff && editedStaff ? (
                         <div className="bg-white rounded-lg shadow">
                             <div className="p-6 border-b border-gray-200">
@@ -763,7 +795,7 @@ const scheduleData = availability.map((a: any) => ({
       {!(getRoleFromToken(getToken() || '') === 'Staff') && (
         <button
           type="button"
-          onClick={() => alert("Reset password link will be implemented")}
+          onClick={() => toast.info("Reset password link functionality coming soon")}
           className="text-sm text-indigo-600 hover:text-indigo-700 underline"
         >
           Send a Reset Password Link to staff
@@ -1058,6 +1090,25 @@ const scheduleData = availability.map((a: any) => ({
                         </div>
                     )}
                 </div>
+                <ConfirmationModal
+                    isOpen={!!deleteStaffId}
+                    onClose={() => setDeleteStaffId(null)}
+                    onConfirm={confirmDeleteStaff}
+                    title="Remove Staff Member"
+                    description="Are you sure you want to remove this staff member? They will be marked as inactive."
+                    confirmText="Remove"
+                    variant="destructive"
+                />
+
+                <ConfirmationModal
+                    isOpen={!!deleteTimeOffId}
+                    onClose={() => setDeleteTimeOffId(null)}
+                    onConfirm={confirmDeleteTimeOff}
+                    title="Remove Time Off"
+                    description="Are you sure you want to remove this time off entry?"
+                    confirmText="Remove"
+                    variant="destructive"
+                />
             </div>
         </div>
     );

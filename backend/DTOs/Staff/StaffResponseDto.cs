@@ -36,5 +36,6 @@ namespace Appointmentbookingsystem.Backend.DTOs.Staff
         public decimal EffectivePrice { get; set; }
         public int EffectiveDuration { get; set; }
         public bool IsActive { get; set; }
+        public DateTime CreatedAt { get; set; }
     }
 }

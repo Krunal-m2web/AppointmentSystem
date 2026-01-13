@@ -22,7 +22,8 @@ export interface AdminLoginDto {
 
 // ============ STAFF AUTH ============
 export interface StaffRegisterDto {
-  companyId: number;
+  companyId?: number; // Optional, inferred from token
+  inviteToken?: string;
   firstName: string;
   lastName: string;
   email: string;

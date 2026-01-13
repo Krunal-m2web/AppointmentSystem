@@ -28,7 +28,9 @@ export interface PaginatedCustomerServiceResponse {
 
 export const fetchServices = async (
   companyId: number,
-  currency?: string
+  currency?: string,
+  page: number = 1,
+  pageSize: number = 10
 ): Promise<PaginatedCustomerServiceResponse> => {
   try {
     // If currency not provided, fetch default from backend
@@ -36,8 +38,8 @@ export const fetchServices = async (
       currency = await getDefaultCurrency();
     }
 
-    // Construct the full URL with companyId and currency query parameters
-    const url = `${API_BASE_URL}/api/services?companyId=${companyId}&currency=${currency}`;
+    // Construct the full URL with companyId, currency, and pagination query parameters
+    const url = `${API_BASE_URL}/api/services?companyId=${companyId}&currency=${currency}&page=${page}&pageSize=${pageSize}`;
 
     // Make the fetch request
     const response = await fetch(url, {

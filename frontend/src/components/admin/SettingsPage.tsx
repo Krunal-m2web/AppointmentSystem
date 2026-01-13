@@ -4,6 +4,7 @@ import { Save, Globe } from 'lucide-react';
 import { TIMEZONES } from '../../utils/datetime';
 import { useTimezone } from '../../context/TimezoneContext';
 import { getAuthHeaders } from '../../services/staffApi';
+import { toast } from 'sonner';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
@@ -29,10 +30,10 @@ export const SettingsPage: React.FC = () => {
             if (!res.ok) throw new Error("Failed to update timezone");
             
             await refreshTimezone();
-            alert("Timezone updated successfully!");
+            toast.success("Timezone updated successfully!");
         } catch (error) {
             console.error(error);
-            alert("Failed to update timezone.");
+            toast.error("Failed to update timezone.");
         } finally {
             setLoading(false);
         }

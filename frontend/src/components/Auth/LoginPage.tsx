@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { LogIn } from 'lucide-react';
 import { UserRole } from '../../App';
+import { parseErrorMessage } from '../../utils/error';
 
 
 interface LoginPageProps {
@@ -61,7 +62,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || 'Login failed');
+        throw new Error(parseErrorMessage(text) || 'Login failed');
       }
 
       const data = (await response.json()) as LoginResponse;
@@ -116,7 +117,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       });
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || 'Failed to register.');
+        throw new Error(parseErrorMessage(text) || 'Failed to register.');
       }
 
       setRegSuccess('User registered successfully. You can now log in.');

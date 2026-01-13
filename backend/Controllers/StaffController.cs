@@ -128,7 +128,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     CustomDuration = ss.CustomDuration,
                     EffectivePrice = ss.CustomPrice ?? ss.Service.Price,
                     EffectiveDuration = ss.CustomDuration ?? ss.Service.ServiceDuration,
-                    IsActive = ss.IsActive
+                    IsActive = ss.IsActive,
+                    CreatedAt = ss.CreatedAt
                 }).ToList(),
                 CreatedAt = s.CreatedAt,
                 UpdatedAt = s.UpdatedAt
@@ -181,7 +182,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
         /// PUT /api/staff/{id} - Update a staff member
         /// </summary>
         [HttpPut("{id}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Admin,Staff")]
         public async Task<IActionResult> UpdateStaff(int id, [FromBody] UpdateStaffDto dto)
         {
             if (!ModelState.IsValid)
@@ -200,6 +201,15 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             if (staff == null)
                 return NotFound($"Staff with ID {id} not found.");
+
+            // Check authorization: Staff can only update their own profile
+            var userRole = User.Claims.FirstOrDefault(c => c.Type == "http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value;
+            var userId = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value;
+
+            if (userRole == "Staff" && userId != null && int.Parse(userId) != id)
+            {
+                return Forbid(); // Staff can only update their own profile
+            }
 
             // Update fields if provided
             if (dto.FirstName != null) staff.FirstName = dto.FirstName;
@@ -360,7 +370,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     CustomDuration = ss.CustomDuration,
                     EffectivePrice = ss.CustomPrice ?? ss.Service.Price,
                     EffectiveDuration = ss.CustomDuration ?? ss.Service.ServiceDuration,
-                    IsActive = ss.IsActive
+                    IsActive = ss.IsActive,
+                    CreatedAt = ss.CreatedAt
                 }).ToList(),
                 CreatedAt = staff.CreatedAt,
                 UpdatedAt = staff.UpdatedAt

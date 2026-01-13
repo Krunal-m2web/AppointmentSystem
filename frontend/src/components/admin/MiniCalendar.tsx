@@ -145,6 +145,7 @@ export function Calendar({
       {/* View Toggle */}
       <div className="flex gap-2">
         <button
+          type="button"
           onClick={() => setView('month')}
           className={`flex-1 py-2 px-4 rounded-lg transition-colors ${view === 'month'
             ? 'bg-indigo-600 text-white'
@@ -154,6 +155,7 @@ export function Calendar({
           Month View
         </button>
         <button
+          type="button"
           onClick={() => setView('week')}
           className={`flex-1 py-2 px-4 rounded-lg transition-colors ${view === 'week'
             ? 'bg-indigo-600 text-white'
@@ -171,12 +173,14 @@ export function Calendar({
         </h3>
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={previousPeriod}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <button
+            type="button"
             onClick={nextPeriod}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
@@ -198,6 +202,7 @@ export function Calendar({
           {days.map((date, index) => (
             <button
               key={index}
+              type="button"
               onClick={() => date && !isPastDate(date) && onSelectDate(date)}
               disabled={!date || isPastDate(date)}
               className={`aspect-square p-2 rounded-lg transition-all ${!date
@@ -228,6 +233,7 @@ export function Calendar({
             {AVAILABLE_TIMES.map((time) => (
               <button
                 key={time}
+                type="button"
                 onClick={() => onSelectTime(time)}
                 className={`py-2 px-3 rounded-lg border-2 transition-all text-sm ${selectedTime === time
                   ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
@@ -304,6 +310,7 @@ export function MiniCalendar({ selectedDate, onSelectDate }: MiniCalendarProps) 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={previousMonth}
             className="p-1 hover:bg-gray-100 rounded transition-colors"
           >
@@ -313,6 +320,7 @@ export function MiniCalendar({ selectedDate, onSelectDate }: MiniCalendarProps) 
              {currentMonth.toLocaleDateString('en-US', { month: 'long' })}
           </span>
            <button
+            type="button"
             onClick={nextMonth}
             className="p-1 hover:bg-gray-100 rounded transition-colors"
           >
@@ -348,6 +356,7 @@ export function MiniCalendar({ selectedDate, onSelectDate }: MiniCalendarProps) 
           {days.map((date, index) => (
             <button
               key={index}
+              type="button"
               disabled={!date}
               onClick={() => date && onSelectDate?.(date)}
               className={`aspect-square flex items-center justify-center text-sm rounded transition-colors ${!date

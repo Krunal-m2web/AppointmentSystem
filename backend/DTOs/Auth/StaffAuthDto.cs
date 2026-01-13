@@ -4,11 +4,12 @@ namespace Appointmentbookingsystem.Backend.DTOs.Auth
 {
     public class StaffRegisterDto
     {
+        public string? InviteToken { get; set; }
+
         /// <summary>
-        /// CompanyId is required - staff must belong to an existing company
+        /// CompanyId is required - inferred from Token if present
         /// </summary>
-        [Required]
-        public int CompanyId { get; set; }
+        public int? CompanyId { get; set; }
 
         [Required]
         [MinLength(2), MaxLength(50)]

@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { MiniCalendar } from './MiniCalendar';
-import { AppointmentFormModal, NewAppointment, StaffOption, ServiceOption, CustomerOption } from './AppointmentFormModal ';
-import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Edit2, Save, XCircle, ChevronDown, Phone, Mail, User, Loader2, Globe, DollarSign, CalendarDays } from 'lucide-react';
+import { AppointmentFormModal, NewAppointment, StaffOption, ServiceOption, CustomerOption } from './AppointmentFormModal';
+import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Edit2, Save, XCircle, ChevronDown, Phone as PhoneIcon, Mail, User, Loader2, Globe, DollarSign, CalendarDays, Briefcase, FileText, Video, Download } from 'lucide-react';
+import { toast } from 'sonner';
+import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { useTimezone } from '../../context/TimezoneContext';
 import { formatDate, formatTime, formatDateTime, combineDateTimeToUTC, getTimezoneOffset, getDateString, getTimeString } from '../../utils/datetime';
 import type { Appointment } from '../../types/types';
@@ -24,6 +26,7 @@ export function AppointmentsPage() {
   const timezoneOffset = getTimezoneOffset(timezone);
   const [editingAppointmentId, setEditingAppointmentId] = useState<number | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [cancelAppointmentId, setCancelAppointmentId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'Confirmed' | 'Pending' | 'Cancelled'>('all');
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
@@ -78,6 +81,172 @@ export function AppointmentsPage() {
 
   // Fetch appointments on mount
 
+  // Calculate date range for filtering
+  const getDateRangeParams = () => {
+    const now = new Date();
+    let startDate: string | undefined;
+    let endDate: string | undefined;
+    
+    switch (dateRangeFilter) {
+      case 'yesterday': {
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        yesterday.setHours(0, 0, 0, 0);
+        const yesterdayEnd = new Date(yesterday);
+        yesterdayEnd.setHours(23, 59, 59, 999);
+        startDate = yesterday.toISOString();
+        endDate = yesterdayEnd.toISOString();
+        break;
+      }
+      case 'today': {
+        const todayStart = new Date(now);
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(now);
+        todayEnd.setHours(23, 59, 59, 999);
+        startDate = todayStart.toISOString();
+        endDate = todayEnd.toISOString();
+        break;
+      }
+      case 'this_week': {
+        const day = now.getDay();
+        const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+        const weekStart = new Date(now);
+        weekStart.setDate(diff);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        weekEnd.setHours(23, 59, 59, 999);
+        startDate = weekStart.toISOString();
+        endDate = weekEnd.toISOString();
+        break;
+      }
+      case 'this_month': {
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        startDate = monthStart.toISOString();
+        endDate = monthEnd.toISOString();
+        break;
+      }
+      case 'this_year': {
+        const yearStart = new Date(now.getFullYear(), 0, 1);
+        const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+        startDate = yearStart.toISOString();
+        endDate = yearEnd.toISOString();
+        break;
+      }
+      case 'custom': {
+        if (customStartDate && customEndDate) {
+          const customStart = new Date(customStartDate);
+          customStart.setHours(0, 0, 0, 0);
+          const customEnd = new Date(customEndDate);
+          customEnd.setHours(23, 59, 59, 999);
+          startDate = customStart.toISOString();
+          endDate = customEnd.toISOString();
+        } else {
+          startDate = new Date('2020-01-01').toISOString();
+        }
+        break;
+      }
+      case 'any_time':
+      default: {
+        startDate = new Date('2020-01-01').toISOString();
+        break;
+      }
+    }
+    
+    return { startDate, endDate };
+  };
+
+  const handleExportCSV = async () => {
+    try {
+        const token = getToken();
+        if (!token) {
+            toast.error('Authentication required');
+            return;
+        }
+
+        const toastId = toast.loading('Generating CSV...');
+        
+        const { startDate, endDate } = getDateRangeParams();
+        const role = getRoleFromToken(token);
+        const userId = getUserIdFromToken(token);
+        
+        let apiStaffIds: number[] | undefined = undefined;
+        if (role === 'Staff' && userId) {
+            apiStaffIds = [userId];
+        } else if (selectedStaff.length > 0) {
+            apiStaffIds = selectedStaff;
+        }
+
+        // Fetch all matching appointments for export (large pageSize)
+        const response = await getAppointments({
+            startDate,
+            endDate,
+            page: 1,
+            pageSize: 10000, 
+            sortBy: sortField,
+            sortDirection: sortOrder,
+            searchTerm: searchTerm,
+            status: filterStatus === 'all' ? undefined : filterStatus,
+            staffIds: apiStaffIds,
+        }, token);
+
+        if (!response.appointments || response.appointments.length === 0) {
+            toast.dismiss(toastId);
+            toast.info('No appointments to export');
+            return;
+        }
+
+        // Generate CSV content
+        const headers = ['ID', 'Customer Name', 'Email', 'Phone', 'Service', 'Staff', 'Date', 'Time', 'Duration', 'Type', 'Status', 'Price', 'Payment Method'];
+        const csvRows = response.appointments.map(apt => {
+            const dateObj = new Date(apt.startDateTime);
+            const dateStr = getDateString(dateObj, timezone);
+            const timeStr = getTimeString(dateObj, timezone);
+            
+            // Escape quotes in strings
+            const escape = (str: string | undefined | null) => `"${(str || '').toString().replace(/"/g, '""')}"`;
+            
+            return [
+                apt.id,
+                escape(apt.customerName),
+                escape(apt.customerEmail),
+                escape(apt.customerPhone),
+                escape(apt.serviceName),
+                escape(apt.staffName || 'Unassigned'),
+                escape(dateStr),
+                escape(timeStr),
+                apt.endDateTime ? Math.round((new Date(apt.endDateTime).getTime() - new Date(apt.startDateTime).getTime()) / 60000) + ' min' : '',
+                escape(apt.meetingType),
+                escape(apt.status),
+                escape(apt.price?.toString()),
+                escape(apt.paymentMethod)
+            ].join(',');
+        });
+
+        const csvContent = [headers.join(','), ...csvRows].join('\n');
+        
+        // Trigger download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `appointments_export_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast.dismiss(toastId);
+        toast.success(`Exported ${response.appointments.length} appointments`);
+        
+    } catch (err) {
+        console.error('Export failed:', err);
+        toast.error('Failed to export CSV');
+    }
+  };
+
+  // Fetch appointments on mount
   const loadData = async () => {
     // Wait for timezone to be fetched FIRST before loading appointments (only on first load if not ready)
     if (!timezoneReady) {
@@ -100,82 +269,6 @@ export function AppointmentsPage() {
         return;
       }
 
-      // Calculate date range for filtering
-      const getDateRangeParams = () => {
-        const now = new Date();
-        let startDate: string | undefined;
-        let endDate: string | undefined;
-        
-        switch (dateRangeFilter) {
-          case 'yesterday': {
-            const yesterday = new Date(now);
-            yesterday.setDate(yesterday.getDate() - 1);
-            yesterday.setHours(0, 0, 0, 0);
-            const yesterdayEnd = new Date(yesterday);
-            yesterdayEnd.setHours(23, 59, 59, 999);
-            startDate = yesterday.toISOString();
-            endDate = yesterdayEnd.toISOString();
-            break;
-          }
-          case 'today': {
-            const todayStart = new Date(now);
-            todayStart.setHours(0, 0, 0, 0);
-            const todayEnd = new Date(now);
-            todayEnd.setHours(23, 59, 59, 999);
-            startDate = todayStart.toISOString();
-            endDate = todayEnd.toISOString();
-            break;
-          }
-          case 'this_week': {
-            const day = now.getDay();
-            const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-            const weekStart = new Date(now);
-            weekStart.setDate(diff);
-            weekStart.setHours(0, 0, 0, 0);
-            const weekEnd = new Date(weekStart);
-            weekEnd.setDate(weekStart.getDate() + 6);
-            weekEnd.setHours(23, 59, 59, 999);
-            startDate = weekStart.toISOString();
-            endDate = weekEnd.toISOString();
-            break;
-          }
-          case 'this_month': {
-            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-            const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-            startDate = monthStart.toISOString();
-            endDate = monthEnd.toISOString();
-            break;
-          }
-          case 'this_year': {
-            const yearStart = new Date(now.getFullYear(), 0, 1);
-            const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-            startDate = yearStart.toISOString();
-            endDate = yearEnd.toISOString();
-            break;
-          }
-          case 'custom': {
-            if (customStartDate && customEndDate) {
-              const customStart = new Date(customStartDate);
-              customStart.setHours(0, 0, 0, 0);
-              const customEnd = new Date(customEndDate);
-              customEnd.setHours(23, 59, 59, 999);
-              startDate = customStart.toISOString();
-              endDate = customEnd.toISOString();
-            } else {
-              startDate = new Date('2020-01-01').toISOString();
-            }
-            break;
-          }
-          case 'any_time':
-          default: {
-            startDate = new Date('2020-01-01').toISOString();
-            break;
-          }
-        }
-        
-        return { startDate, endDate };
-      };
-      
       const { startDate: rangeStart, endDate: rangeEnd } = getDateRangeParams();
 
       const role = getRoleFromToken(token);
@@ -221,6 +314,7 @@ export function AppointmentsPage() {
         paymentMethod: apt.paymentMethod,
         paymentStatus: apt.paymentStatus,
         createdAt: apt.createdAt,
+        notes: apt.notes,
       }));
       
       setAppointments(mappedAppointments);
@@ -378,13 +472,29 @@ export function AppointmentsPage() {
     setEditedData(null);
   };
 
-  const handleCancelAppointment = (id: number) => {
-    if (confirm('Are you sure you want to cancel this appointment?')) {
-      setAppointments(
-        appointments.map((apt) => (apt.id === id ? { ...apt, status: 'Cancelled' as const } : apt))
-      );
+  const handleStatusUpdate = async (id: number, newStatus: Appointment['status']) => {
+    try {
+      const token = getToken() || '';
+      // Fetch the existing appointment to get name parts if needed, 
+      // but since UpdateAppointmentRequest handles optional fields, we try partial update first.
+      await updateAppointment(id, { status: newStatus }, token);
+      loadData(); // Refresh the list
       setSelectedAppointment(null);
+    } catch (err: any) {
+      console.error('Failed to update status:', err);
+      toast.error(`Failed to update status: ${err.message}`);
     }
+  };
+
+  const confirmCancelAppointment = () => {
+    if (cancelAppointmentId) {
+      handleStatusUpdate(cancelAppointmentId, 'Cancelled');
+      setCancelAppointmentId(null);
+    }
+  };
+
+  const handleCancelAppointment = (id: number) => {
+     setCancelAppointmentId(id);
   };
 
   const toggleStaff = (staffId: number) => {
@@ -479,7 +589,7 @@ export function AppointmentsPage() {
         // Note: staff might be 0/null if unassigned allowed? data.staffId is number.
         // If data.staffId is required and > 0 check:
          if (data.staffId > 0 && !staff) {
-             alert('Invalid staff selection');
+             toast.error('Invalid staff selection');
              return;
          }
     }
@@ -518,7 +628,7 @@ export function AppointmentsPage() {
         setEditingAppointmentId(null);
         resetNewAppointmentForm();
       } catch (err: any) {
-        alert(`Failed to update appointment: ${err.message}`);
+        toast.error(`Failed to update appointment: ${err.message}`);
       }
       return;
     }
@@ -585,11 +695,11 @@ export function AppointmentsPage() {
         loadData(); // Reload
         setShowAddModal(false);
         resetNewAppointmentForm();
-        alert('Appointment(s) created successfully');
+        toast.success('Appointment(s) created successfully');
 
     } catch (err: any) {
         console.error(err);
-        alert(`Failed to create appointment: ${err.message}`);
+        toast.error(`Failed to create appointment: ${err.message}`);
     }
   };
 
@@ -661,11 +771,10 @@ export function AppointmentsPage() {
   }
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="px-8 md:px-8">
       <div className="mb-6 md:mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Appointments</h1>
-          <p className="text-gray-600 mt-1">View and manage all appointments</p>
+           
           {/* Timezone Indicator */}
           {/* <div className="flex items-center gap-2 mt-2 text-sm text-gray-500">
             <Globe className="w-4 h-4" />
@@ -864,6 +973,16 @@ export function AppointmentsPage() {
                 )}
               </div>
             )}
+            {/* Export CSV Button */}
+            <button 
+              onClick={handleExportCSV}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              title="Export filtered appointments to CSV"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Export</span>
+            </button>
+
             <button style={{ width: "fit-content" }}
               onClick={() => setShowAddModal(true)}
               className="flex  items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors w-full sm:w-auto justify-center"
@@ -1063,109 +1182,183 @@ export function AppointmentsPage() {
 
       {/* Appointment Detail Modal */}
       {selectedAppointment && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl md:text-2xl font-bold">Appointment Details</h2>
-              <button
-                onClick={() => setSelectedAppointment(null)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="relative bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-5 border-b border-emerald-600/20">
+              <div className="flex items-center justify-between">
                 <div>
-                  <label className="text-sm text-gray-600 flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    Customer Name
-                  </label>
-                  <p className="mt-1 font-medium">{selectedAppointment.customerName}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600 flex items-center gap-2">
-                    <Mail className="w-4 h-4" />
-                    Email
-                  </label>
-                  <p className="mt-1 font-medium">{selectedAppointment.customerEmail}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600 flex items-center gap-2">
-                    <Phone className="w-4 h-4" />
-                    Phone
-                  </label>
-                  <p className="mt-1 font-medium">{selectedAppointment.customerPhone}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Service</label>
-                  <p className="mt-1 font-medium">{selectedAppointment.serviceName}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Staff</label>
-                  <p className="mt-1 font-medium">{selectedAppointment.staffName}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Status</label>
-                  <p className="mt-1">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-xl md:text-2xl font-semibold text-white">
+                      Appointment Details
+                    </h2>
                     <span
-                      className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${selectedAppointment.status === 'Confirmed'
-                        ? 'bg-green-100 text-green-700'
-                        : selectedAppointment.status === 'Pending'
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-red-100 text-red-700'
-                        }`}
+                      className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm ${
+                        selectedAppointment.status === 'Confirmed'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : selectedAppointment.status === 'Pending'
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-red-50 text-red-700'
+                      }`}
                     >
                       {selectedAppointment.status}
                     </span>
+                  </div>
+                  <p className="text-emerald-50 text-sm mt-0.5">
+                    View complete information about this scheduled appointment
                   </p>
                 </div>
-                <div>
-                  <label className="text-sm text-gray-600 flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    Date & Time
-                  </label>
-                  <p className="mt-1 font-medium">
-                     {formatDate(selectedAppointment.startDateTime, timezone)} at {formatTime(selectedAppointment.startDateTime, timezone)}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Duration</label>
-                  <p className="mt-1 font-medium">{selectedAppointment.duration || 60} minutes</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600 flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
-                    Meeting Type
-                  </label>
-                  <p className="mt-1 font-medium capitalize">{selectedAppointment.meetingType}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Price</label>
-                  <p className="mt-1 font-medium">
-                    ${selectedAppointment.price} {selectedAppointment.currencyCode}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-600">Payment Method</label>
-                  <p className="mt-1 font-medium capitalize">{selectedAppointment.paymentMethod.replace('-', ' ')}</p>
-                </div>
+                <button
+                  onClick={() => setSelectedAppointment(null)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-white hover:rotate-90"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-
-
             </div>
 
-            <div className="p-6 border-t border-gray-200 flex gap-3">
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-6 py-6 bg-gray-50/50">
+              <div className="space-y-6">
+                {/* Customer Information Section */}
+                <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden text-sm">
+                  <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <div className="p-1.5 bg-emerald-100 rounded-lg">
+                        <User className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      Customer Information
+                    </h3>
+                  </div>
+                  <div className="p-5">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Full Name</p>
+                        <p className="text-base font-semibold text-gray-900">{selectedAppointment.customerName}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Email Address</p>
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <Mail className="w-4 h-4 text-gray-400" />
+                          <p className="text-base font-semibold text-gray-900">{selectedAppointment.customerEmail}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Number</p>
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <PhoneIcon className="w-4 h-4 text-gray-400" />
+                          <p className="text-base font-semibold text-gray-900">{selectedAppointment.customerPhone}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Appointment Info Section */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Service & Staff */}
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden text-sm">
+                    <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                      <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <div className="p-1.5 bg-blue-100 rounded-lg">
+                          <Briefcase className="w-4 h-4 text-blue-600" />
+                        </div>
+                        Service Details
+                      </h3>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                        <span className="text-gray-500">Service</span>
+                        <span className="font-semibold text-gray-900">{selectedAppointment.serviceName}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                        <span className="text-gray-500">Staff Member</span>
+                        <div className="flex items-center gap-2">
+                         
+                          <span className="font-semibold text-gray-900">{selectedAppointment.staffName}</span>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center py-2">
+                        <span className="text-gray-500">Meeting Type</span>
+                        <div className="flex items-center gap-2">
+                          {selectedAppointment.meetingType === 'Zoom' && <div className="p-1.5 bg-indigo-100 rounded-lg"><Video className="w-4 h-4 text-indigo-600" /></div>}
+                          {selectedAppointment.meetingType === 'InPerson' && <div className="p-1.5 bg-blue-100 rounded-lg"><MapPin className="w-4 h-4 text-blue-600" /></div>}
+                          {selectedAppointment.meetingType === 'Phone' && <div className="p-1.5 bg-green-100 rounded-lg"><PhoneIcon className="w-4 h-4 text-green-600" /></div>}
+                          <span className="font-semibold text-gray-900 capitalize">{selectedAppointment.meetingType}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Schedule & Payment */}
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden text-sm">
+                    <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                      <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <div className="p-1.5 bg-amber-100 rounded-lg">
+                          <DollarSign className="w-4 h-4 text-amber-600" />
+                        </div>
+                        Schedule & Payment
+                      </h3>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                        <span className="text-gray-500">Date & Time</span>
+                        <div className="text-right">
+                          <p className="font-semibold text-gray-900">{formatDate(selectedAppointment.startDateTime, timezone)}</p>
+                          <p className="text-xs text-gray-500">{formatTime(selectedAppointment.startDateTime, timezone)} ({selectedAppointment.duration || 60} min)</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-50">
+                        <span className="text-gray-500">Price</span>
+                        <span className="font-bold text-emerald-600 text-lg">
+                          ${selectedAppointment.price} <span className="text-xs text-gray-400 font-normal underline decoration-dotted">{selectedAppointment.currencyCode}</span>
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center py-2">
+                        <span className="text-gray-500">Payment</span>
+                        <div className="flex flex-col items-end">
+                          <span className="font-semibold text-gray-900 capitalize">{selectedAppointment.paymentMethod.replace('-', ' ')}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-md font-bold uppercase mt-1">
+                            {selectedAppointment.paymentStatus || 'Awaiting'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Additional Details Section if needed */}
+                {selectedAppointment.notes && (
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden text-sm">
+                    <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                      <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <div className="p-1.5 bg-indigo-100 rounded-lg">
+                          <FileText className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        Additional Notes
+                      </h3>
+                    </div>
+                    <div className="p-5">
+                      <p className="text-gray-700 leading-relaxed italic">
+                        "{selectedAppointment.notes || 'No additional notes provided for this appointment.'}"
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-white flex gap-3">
               <button
-                onClick={() => setSelectedAppointment(null)}
-                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                onClick={() => handleStatusUpdate(selectedAppointment.id, 'Confirmed')}
+                className="flex-1 px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-medium uppercase tracking-wide text-xs shadow-sm hover:shadow-md"
               >
-                Close
+                Confirm Appointment
               </button>
               <button
                 onClick={() => handleCancelAppointment(selectedAppointment.id)}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                className="flex-1 px-5 py-2.5 bg-red-50 border-2 border-red-200 text-red-600 rounded-lg hover:bg-red-600 hover:text-white hover:border-red-600 transition-all font-medium uppercase tracking-wide text-xs"
               >
                 Cancel Appointment
               </button>
@@ -1196,6 +1389,16 @@ export function AppointmentsPage() {
           email: c.email,
           phone: c.phone || undefined
         }))}
+      />
+      
+       <ConfirmationModal
+        isOpen={!!cancelAppointmentId}
+        onClose={() => setCancelAppointmentId(null)}
+        onConfirm={confirmCancelAppointment}
+        title="Cancel Appointment"
+        description="Are you sure you want to cancel this appointment?"
+        confirmText="Yes, Cancel"
+        variant="destructive"
       />
     </div>
   );

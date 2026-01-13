@@ -9,6 +9,9 @@ import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken }
 import { combineDateTimeToUTC, formatTime, getDateString } from '../../utils/datetime';
 import { useTimezone } from '../../context/TimezoneContext';
 import { MiniCalendar } from './MiniCalendar';
+import { AppointmentFormModal, NewAppointment } from './AppointmentFormModal'; // Note: file has space in name on disk
+import { toast } from 'sonner';
+import { ConfirmationModal } from '../../components/ConfirmationModal';
 
 const TIME_SLOTS = [
   '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
@@ -47,27 +50,6 @@ interface CalendarStaff extends Staff {
   color: string; // UI color
 }
 
-interface NewAppointment {
-  id?: number; // for edit
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string;
-  serviceId: number;
-  staffId: number;
-  date: string;
-  time: string;
-  duration: number;
-  meetingType: 'InPerson' | 'Phone' | 'Zoom';
-  paymentMethod: string;
-  status: 'Pending' | 'Confirmed' | 'Cancelled' | 'Completed';
-  notes: string;
-  price: string;
-
-  // 🔁 Recurrence (UI-only)
-  isRecurring: boolean;
-  recurrenceType: RecurrenceType;
-  repeatEndDate: string;
-}
 
 export function CalendarPage() {
   const { timezone, refreshTimezone } = useTimezone();
@@ -77,6 +59,7 @@ export function CalendarPage() {
   const [selectedStaff, setSelectedStaff] = useState<number | null>(null);
   const [selectedService, setSelectedService] = useState<string>('all');
   const [showBookingForm, setShowBookingForm] = useState(false);
+  const [cancelAppointmentId, setCancelAppointmentId] = useState<number | null>(null);
   
   // Real Data State
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
@@ -133,62 +116,6 @@ export function CalendarPage() {
   });
 
   // Validation State
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-
-  const resetNewAppointmentForm = () => {
-    setNewAppointment({
-        customerName: '',
-        customerEmail: '',
-        customerPhone: '',
-        serviceId: 0,
-        staffId: 0,
-        date: '',
-        time: '',
-        duration: 60,
-        meetingType: 'InPerson',
-        paymentMethod: 'credit-card',
-        status: 'Pending',
-        notes: '',
-        price: '',
-        isRecurring: false,
-        recurrenceType: 'none',
-        repeatEndDate: '',
-    });
-    setSearchClient('');
-    setShowClientDropdown(false);
-    setFormErrors({});
-  };
-
-  const validateForm = () => {
-    const errors: Record<string, string> = {};
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!newAppointment.customerName.trim()) errors.customerName = "Customer Name is required";
-    if (!newAppointment.customerEmail.trim()) {
-        errors.customerEmail = "Email is required";
-    } else if (!emailRegex.test(newAppointment.customerEmail)) {
-        errors.customerEmail = "Invalid email format";
-    }
-   if (!newAppointment.customerPhone.trim()) errors.customerPhone = "Phone number is required";
-
-    if (newAppointment.serviceId === 0) errors.serviceId = "Please select a service";
-    if (newAppointment.staffId === 0) errors.staffId = "Please select a staff member";
-    if (!newAppointment.date) errors.date = "Date is required";
-    if (!newAppointment.time) errors.time = "Time is required";
-    if (!newAppointment.price) errors.price = "Price is required";
-    
-    if (newAppointment.isRecurring) {
-        if (!newAppointment.recurrenceType || newAppointment.recurrenceType === 'none') {
-            errors.recurrenceType = "Frequency is required";
-        }
-        if (!newAppointment.repeatEndDate) {
-            errors.repeatEndDate = "End date is required";
-        }
-    }
-
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
 
   const addDays = (date: Date, days: number) => {
     const d = new Date(date);
@@ -462,7 +389,6 @@ export function CalendarPage() {
     });
     setSearchClient('');
     setShowClientDropdown(false);
-    setFormErrors({}); // Clear errors on close
   };
 
   const handleClientSelect = (client: CustomerResponse) => {
@@ -481,13 +407,7 @@ export function CalendarPage() {
     client.email.toLowerCase().includes(searchClient.toLowerCase())
   );
 
-  const handleSubmitAppointment = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validateForm()) {
-        return;
-    }
-
+  const handleSubmitAppointment = async (formData: NewAppointment) => {
     try {
        // 🛡️ Ensure we have the latest timezone before computing times
        let activeTimezone = timezone;
@@ -502,14 +422,14 @@ export function CalendarPage() {
 
        const companyId = getCompanyIdFromToken(getToken() || "");
 
-       const nameParts = newAppointment.customerName.trim().split(' ');
+       const nameParts = formData.customerName.trim().split(' ');
        const firstName = nameParts[0] || 'Customer';
        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'Unknown';
 
        // Map frontend payment method to backend enum
        let apiPaymentMethod: "Card" | "Cash" | "PayPal" = "Card";
-       if (newAppointment.paymentMethod === 'Cash') apiPaymentMethod = 'Cash';
-       else if (newAppointment.paymentMethod === 'paypal' || newAppointment.paymentMethod === 'PayPal') apiPaymentMethod = 'PayPal';
+       if (formData.paymentMethod === 'Cash') apiPaymentMethod = 'Cash';
+       else if (formData.paymentMethod === 'paypal' || formData.paymentMethod === 'PayPal') apiPaymentMethod = 'PayPal';
        // 'credit-card', 'debit-card', 'pay-later' default to 'Card'
 
        // Common Payload Data
@@ -517,28 +437,28 @@ export function CalendarPage() {
            companyId: companyId || 0,
            firstName: firstName,
            lastName: lastName,
-           email: newAppointment.customerEmail,
-           phone: newAppointment.customerPhone,
-           serviceId: newAppointment.serviceId,
-           staffId: newAppointment.staffId === 0 ? null : newAppointment.staffId,
-           meetingType: newAppointment.meetingType,
+           email: formData.customerEmail,
+           phone: formData.customerPhone,
+           serviceId: formData.serviceId,
+           staffId: formData.staffId === 0 ? null : formData.staffId,
+           meetingType: formData.meetingType,
            paymentMethod: apiPaymentMethod,
-           notes: newAppointment.notes,
+           notes: formData.notes,
        };
 
        // Use date strings to avoid timezone issues with Date objects
        const appointmentDates: string[] = [];
-       const baseDateStr = newAppointment.date; // Already YYYY-MM-DD format
+       const baseDateStr = formData.date; // Already YYYY-MM-DD format
        
-       if (!newAppointment.isRecurring) {
+       if (!formData.isRecurring) {
            appointmentDates.push(baseDateStr);
        } else {
-           if (!newAppointment.repeatEndDate) throw new Error("End date required for recurring appointment");
+           if (!formData.repeatEndDate) throw new Error("End date required for recurring appointment");
            
            // For recurrence, we need Date objects to calculate next occurrence
            const [baseY, baseM, baseD] = baseDateStr.split('-').map(Number);
            let curr = new Date(Date.UTC(baseY, baseM - 1, baseD));
-           const endDate = new Date(newAppointment.repeatEndDate + 'T23:59:59');
+           const endDate = new Date(formData.repeatEndDate + 'T23:59:59');
            let count = 0;
            
            while(curr <= endDate && count < 50) { // Safety limit
@@ -546,9 +466,9 @@ export function CalendarPage() {
                const dateStr = curr.toISOString().split('T')[0];
                appointmentDates.push(dateStr);
                
-               if (newAppointment.recurrenceType === 'daily') curr = addDays(curr, 1);
-               else if (newAppointment.recurrenceType === 'weekly') curr = addDays(curr, 7);
-               else if (newAppointment.recurrenceType === 'monthly') curr = addMonths(curr, 1);
+               if (formData.recurrenceType === 'daily') curr = addDays(curr, 1);
+               else if (formData.recurrenceType === 'weekly') curr = addDays(curr, 7);
+               else if (formData.recurrenceType === 'monthly') curr = addMonths(curr, 1);
                else break;
                
                count++;
@@ -556,32 +476,38 @@ export function CalendarPage() {
        }
 
        // Execute Creation Loop
-       for (const datePart of appointmentDates) {
-           // DEBUG: Log all timezone-related values
-           console.log('📅 CalendarPage - Creating appointment:', {
-               inputDate: datePart,
-               inputTime: newAppointment.time,
-               companyTimezone: timezone,
-               browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-           });
-           
-           // Use combineDateTimeToUTC with company timezone for correct conversion
-           // This ensures 15:30 in company timezone (e.g., Asia/Kolkata) is correctly converted to UTC
-           const startTimeUtc = combineDateTimeToUTC(
-               datePart,
-               newAppointment.time,
-               timezone  // Use company timezone, not local browser time
-           );
-           
-           console.log('📅 CalendarPage - Converted to UTC:', startTimeUtc);
-
-           await createAppointment({
-               ...basePayload,
-               startTime: startTimeUtc,
-           });
+       if (formData.id) {
+           // Update existing appointment (Handle single update for now)
+           // If it's an edit, we typically only update one unless we implement recurring update logic
+            const startTimeUtc = combineDateTimeToUTC(
+                baseDateStr,
+                formData.time,
+                timezone 
+            );
+            await updateAppointment(formData.id, {
+                ...basePayload,
+                startTime: startTimeUtc,
+                status: formData.status as any
+            }, getToken() || "");
+            
+            toast.success("Appointment updated successfully!");
+       } else {
+           // Create new
+            for (const datePart of appointmentDates) {
+                const startTimeUtc = combineDateTimeToUTC(
+                    datePart,
+                    formData.time,
+                    timezone 
+                );
+                
+                await createAppointment({
+                    ...basePayload,
+                    startTime: startTimeUtc,
+                });
+            }
+            toast.success("Appointment(s) created successfully!");
        }
        
-       alert("Appointment(s) created successfully!");
        
        // Auto-navigate to the date of the appointment/first occurrence
        if (appointmentDates.length > 0) {
@@ -601,7 +527,7 @@ export function CalendarPage() {
 
     } catch (error: any) {
         console.error(error);
-        alert(`Failed to save appointment: ${error.message || error}`);
+        toast.error(`Failed to save appointment: ${error.message || error}`);
     }
   };
 
@@ -647,20 +573,27 @@ export function CalendarPage() {
       }, 300);
   };
 
-  const handleCancelAppointment = async (id: number) => {
-      if (!window.confirm("Are you sure you want to cancel this appointment?")) return;
-      try {
-          const token = getToken();
-          if (token) {
-              await updateAppointment(id, { status: "Cancelled" }, token);
-              // Optimistic update
-              setAppointments(prev => prev.map(a => a.id === id ? { ...a, status: 'cancelled' } : a));
-              setHoveredAppointment(null); // Close popover
-          }
-      } catch(err) {
-          console.error(err);
-          alert("Failed to cancel appointment");
-      }
+  const confirmCancelAppointment = async () => {
+    if (!cancelAppointmentId) return;
+    try {
+        const token = getToken();
+        if (token) {
+            await updateAppointment(cancelAppointmentId, { status: "Cancelled" }, token);
+            // Optimistic update
+            setAppointments(prev => prev.map(a => a.id === cancelAppointmentId ? { ...a, status: 'cancelled' } : a));
+            setHoveredAppointment(null); // Close popover
+            toast.success("Appointment cancelled successfully");
+        }
+    } catch(err) {
+        console.error(err);
+        toast.error("Failed to cancel appointment");
+    } finally {
+        setCancelAppointmentId(null);
+    }
+  };
+
+  const handleCancelAppointment = (id: number) => {
+    setCancelAppointmentId(id);
   };
 
   const handleEditAppointment = (apt: CalendarAppointment) => {
@@ -719,37 +652,85 @@ export function CalendarPage() {
 
   return (
     <div className="p-6 calendar-container relative">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          {viewMode === 'list' ? (
-            <>
-              <h1>
-                {(() => {
-                  // Calculate week range for List view
-                  const curr = new Date(currentDate);
-                  const first = curr.getDate() - curr.getDay(); // Sunday of the week
-                  const startDate = new Date(curr);
-                  startDate.setDate(first);
-                  const endDate = new Date(curr);
-                  endDate.setDate(first + 6);
-                  
-                  const startMonth = startDate.toLocaleDateString('en-US', { month: 'short' });
-                  const startDay = startDate.getDate();
-                  const endDay = endDate.getDate();
-                  const year = endDate.getFullYear();
-                  
-                  return `${startMonth} ${startDay} – ${endDay}, ${year}`;
-                })()}
-              </h1>
-              <p className="text-gray-600 mt-1">Weekly appointment list</p>
-            </>
-          ) : (
-            <>
-              <h1>Calendar</h1>
-              <p className="text-gray-600 mt-1">View and manage appointments</p>
-            </>
-          )}
-          {/* <p className="text-xs text-gray-500 mt-1">Timezone: {timezone}</p> */}
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
+        <div className="flex flex-wrap items-center gap-4 md:gap-8">
+          <div className="flex items-center gap-2 relative">
+            {/* Navigation arrows */}
+            <button
+              onClick={previousPeriod}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
+              title="Previous"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            
+            {/* Date Picker Trigger */}
+            <div className="relative" ref={datePickerRef}>
+              <button 
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className="flex items-center justify-between gap-2 text-base font-semibold hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm min-w-[220px]"
+              >
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4 text-indigo-600" />
+                  {getPeriodLabel()}
+                </div>
+                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showDatePicker ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Mini Calendar Popover */}
+              {showDatePicker && (
+                <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-50 w-[300px]">
+                  <MiniCalendar 
+                    selectedDate={currentDate} 
+                    onSelectDate={(date) => {
+                      setCurrentDate(date);
+                      setSelectedDate(date);
+                      setShowDatePicker(false);
+                    }} 
+                  />
+                </div>
+              )}
+            </div>
+            
+            {/* Next arrow */}
+            <button
+              onClick={nextPeriod}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
+              title="Next"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+
+            {/* Today button */}
+            <button
+              onClick={() => {
+                setCurrentDate(new Date());
+                setSelectedDate(new Date());
+              }}
+              className="ml-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
+            >
+              Today
+            </button>
+          </div>
+
+          <div className="h-8 w-px bg-gray-200 hidden md:block"></div>
+
+          {/* View Modes (Month filter block) */}
+          <div className="flex items-center bg-gray-100 p-1 rounded-xl">
+            {['Month', 'Week', 'Day', 'List'].map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode.toLowerCase() as ViewMode)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${
+                  viewMode === mode.toLowerCase()
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
         </div>
         
         {/* Filters */}
@@ -769,28 +750,17 @@ export function CalendarPage() {
               ))}
             </select>
           </div>
-          
-          {/* <button 
-            onClick={() => {
-              setSelectedStaff(null);
-              setSelectedService('all');
-            }}
-            className="p-2.5 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 transition-colors text-gray-500"
-            title="Reset Filters"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button> */}
         </div>
       </div>
 
       {/* Staff Avatars */}
       {!(getRoleFromToken(getToken() || '') === 'Staff') && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
-            <div className="flex items-center gap-3 overflow-x-auto pb-2">
+        <div className="bg-blue-50/50 rounded-lg shadow-sm border border-indigo-200/50 p-4 mb-4">
+            <div className="flex items-center gap-3 overflow-x-auto pb-2 custom-scrollbar">
             <button
                 onClick={() => setSelectedStaff(null)}
                 className={`flex-shrink-0 flex flex-col items-center gap-2 p-2 rounded-lg transition-all ${
-                selectedStaff === null ? 'bg-indigo-600 text-white' : 'hover:bg-gray-100'
+                selectedStaff === null ? 'bg-indigo-600 text-white' : 'hover:bg-blue-100/50'
                 }`}
             >
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${
@@ -806,7 +776,7 @@ export function CalendarPage() {
                 key={staff.id}
                 onClick={() => setSelectedStaff(staff.id)}
                 className={`flex-shrink-0 flex flex-col items-center gap-2 p-2 rounded-lg transition-all ${
-                    selectedStaff === staff.id ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                    selectedStaff === staff.id ? 'bg-blue-100/80 shadow-sm' : 'hover:bg-blue-100/50'
                 }`}
                 >
                 <div
@@ -830,82 +800,6 @@ export function CalendarPage() {
       )}
 
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-2 relative">
-            {/* Navigation arrows */}
-            <button
-              onClick={previousPeriod}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Previous"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            
-            {/* Today button */}
-            <button
-              onClick={() => {
-                setCurrentDate(new Date());
-                setSelectedDate(new Date());
-              }}
-              className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-               
-            </button>
-            
-            {/* Next arrow */}
-            <button
-              onClick={nextPeriod}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Next"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
-            
-            {/* Date Picker Trigger */}
-            <div className="relative ml-2" ref={datePickerRef}>
-                <button 
-                    onClick={() => setShowDatePicker(!showDatePicker)}
-                    className="flex items-center gap-2 text-base font-medium hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors"
-                >
-                    {getPeriodLabel()}
-                    <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform ${showDatePicker ? 'rotate-180' : ''}`} />
-                </button>
-
-                {/* Mini Calendar Popover */}
-                {showDatePicker && (
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-50 w-[300px]">
-                        <MiniCalendar 
-                            selectedDate={currentDate} 
-                            onSelectDate={(date) => {
-                                setCurrentDate(date);
-                                setSelectedDate(date);
-                                setShowDatePicker(false);
-                            }} 
-                        />
-                    </div>
-                )}
-            </div>
-
-          </div>
-
-          <div className="flex items-center gap-2">
-            {['Month', 'Week', 'Day', 'List'].map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode.toLowerCase() as ViewMode)}
-                className={`px-4 py-2 text-sm rounded-lg transition-all ${
-                  viewMode === mode.toLowerCase()
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
 
       {/* Calendar Views */}
       {viewMode === 'month' && (
@@ -1059,365 +953,36 @@ export function CalendarPage() {
       )}
 
       {/* Booking Form Modal */}
-      {showBookingForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl 
-                  max-h-[90vh] flex flex-col overflow-hidden">
+      <AppointmentFormModal 
+        isOpen={showBookingForm}
+        onClose={handleCloseForm}
+        onSubmit={handleSubmitAppointment}
+        initialData={newAppointment}
+        editMode={!!newAppointment.id}
+        staffList={staffList}
+        servicesList={services.map(s => ({
+            id: s.id,
+            name: s.name,
+            price: s.price,
+            duration: s.serviceDuration || 60
+        }))}
+        customersList={customers.map(c => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone || undefined
+        }))}
+      />
 
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className=" text-xl md:text-2xl font-bold">{newAppointment.id ? 'Edit Appointment' : 'Add New Appointment'}</h2>
-              <button
-                onClick={handleCloseForm}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 max-h-[60vh] overflow-y-auto">
-              <div className="space-y-6">
-                {/* Customer Information Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <User className="w-5 h-5 text-indigo-600" />
-                    Customer Information
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Searchable Client Input */}
-                    <div className="md:col-span-2 relative">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Search or Enter Customer <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-                        <input
-                          type="text"
-                          value={searchClient}
-                          onChange={(e) => {
-                            setSearchClient(e.target.value);
-                            setNewAppointment({ ...newAppointment, customerName: e.target.value });
-                            setShowClientDropdown(true);
-                            if (formErrors.customerName) setFormErrors({ ...formErrors, customerName: '' });
-                          }}
-                          onFocus={() => setShowClientDropdown(true)}
-                          placeholder="Search existing clients or type new name..."
-                          className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.customerName ? 'border-red-500' : 'border-gray-300'}`}
-                        />
-                      </div>
-                      {showClientDropdown && filteredClients.length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                          {filteredClients.slice(0, 10).map((client) => (
-                            <button
-                              key={client.id}
-                              type="button"
-                              onClick={() => {
-                                handleClientSelect(client);
-                                if (formErrors.customerName) setFormErrors({ ...formErrors, customerName: '' });
-                                if (formErrors.customerEmail) setFormErrors({ ...formErrors, customerEmail: '' });
-                              }}
-                              className="w-full px-4 py-2 text-left hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0"
-                            >
-                              <p className="text-sm text-gray-900">{client.name}</p>
-                              <p className="text-xs text-gray-600">{client.email}</p>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {formErrors.customerName && <p className="text-red-500 text-xs mt-1">{formErrors.customerName}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Email <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="email"
-                        value={newAppointment.customerEmail}
-                        onChange={(e) => {
-                            setNewAppointment({ ...newAppointment, customerEmail: e.target.value });
-                            if (formErrors.customerEmail) setFormErrors({ ...formErrors, customerEmail: '' });
-                        }}
-                        placeholder="john@example.com"
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.customerEmail ? 'border-red-500' : 'border-gray-300'}`}
-                      />
-                      {formErrors.customerEmail && <p className="text-red-500 text-xs mt-1">{formErrors.customerEmail}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Phone Number <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="tel"
-                        value={newAppointment.customerPhone}
-                        onChange={(e) => {
-                            setNewAppointment({ ...newAppointment, customerPhone: e.target.value });
-                            if (formErrors.customerPhone) setFormErrors({ ...formErrors, customerPhone: '' });
-                        }}
-                        placeholder="+1 234-567-8900"
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.customerPhone ? 'border-red-500' : 'border-gray-300'}`}
-                      />
-                      {formErrors.customerPhone && <p className="text-red-500 text-xs mt-1">{formErrors.customerPhone}</p>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Service & Staff Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 text-gray-800">Service & Staff</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Service <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={newAppointment.serviceId}
-                        onChange={(e) => {
-                            handleServiceChange(Number(e.target.value));
-                            if (formErrors.serviceId) setFormErrors({ ...formErrors, serviceId: '' });
-                        }}
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.serviceId ? 'border-red-500' : 'border-gray-300'}`}
-                      >
-                        <option value={0}>Select a service</option>
-                        {services.map((service) => (
-                          <option key={service.id} value={service.id}>
-                            {service.name} (${service.price} - {service.serviceDuration || 60} min)
-                          </option>
-                        ))}
-                      </select>
-                      {formErrors.serviceId && <p className="text-red-500 text-xs mt-1">{formErrors.serviceId}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Staff Member <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={newAppointment.staffId}
-                        onChange={(e) => {
-                            setNewAppointment({ ...newAppointment, staffId: Number(e.target.value) });
-                            if (formErrors.staffId) setFormErrors({ ...formErrors, staffId: '' });
-                        }}
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.staffId ? 'border-red-500' : 'border-gray-300'}`}
-                      >
-                        <option value={0}>Select staff member</option>
-                        {staffList.map((staff) => (
-                          <option key={staff.id} value={staff.id}>
-                            {staff.name}
-                          </option>
-                        ))}
-                      </select>
-                      {formErrors.staffId && <p className="text-red-500 text-xs mt-1">{formErrors.staffId}</p>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Date & Time Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <CalendarIcon className="w-5 h-5 text-indigo-600" />
-                    Date & Time
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Date <span className="text-red-500">*</span>
-                      </label>
-                        <div className="relative" ref={datePickerRef}>
-                          <button
-                            type="button"
-                            onClick={() => setShowDatePicker(!showDatePicker)}
-                            className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-left flex items-center justify-between bg-white ${formErrors.date ? 'border-red-500' : 'border-gray-300'}`}
-                          >
-                            <span className={newAppointment.date ? 'text-gray-900' : 'text-gray-500'}>
-                              {newAppointment.date 
-                                ? (() => {
-                                    const [y, m, d] = newAppointment.date.split('-');
-                                    return `${m}/${d}/${y}`;
-                                  })()
-                                : 'mm/dd/yyyy'}
-                            </span>
-                            <CalendarIcon className="w-4 h-4 text-gray-400" />
-                          </button>
-                          
-                          {showDatePicker && (
-                            <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-3 w-72">
-                              <MiniCalendar
-                                selectedDate={newAppointment.date ? new Date(newAppointment.date) : new Date()}
-                                onSelectDate={(date) => {
-                                  const year = date.getFullYear();
-                                  const month = String(date.getMonth() + 1).padStart(2, '0');
-                                  const day = String(date.getDate()).padStart(2, '0');
-                                  setNewAppointment({ ...newAppointment, date: `${year}-${month}-${day}` });
-                                  setShowDatePicker(false);
-                                  if (formErrors.date) setFormErrors({ ...formErrors, date: '' });
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                        {formErrors.date && <p className="text-red-500 text-xs mt-1">{formErrors.date}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Time <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="time"
-                        value={newAppointment.time}
-                        onChange={(e) => {
-                            setNewAppointment({ ...newAppointment, time: e.target.value });
-                            if (formErrors.time) setFormErrors({ ...formErrors, time: '' });
-                        }}
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.time ? 'border-red-500' : 'border-gray-300'}`}
-                      />
-                      {formErrors.time && <p className="text-red-500 text-xs mt-1">{formErrors.time}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Duration (minutes)
-                      </label>
-                      <input
-                        type="number"
-                        value={newAppointment.duration}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, duration: Number(e.target.value) })}
-                        min="15"
-                        step="15"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Price <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <DollarSign className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-                        <input
-                            type="text"
-                            value={newAppointment.price}
-                            onChange={(e) => {
-                                setNewAppointment({ ...newAppointment, price: e.target.value });
-                                if (formErrors.price) setFormErrors({ ...formErrors, price: '' });
-                            }}
-                            placeholder="150.00"
-                            className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.price ? 'border-red-500' : 'border-gray-300'}`}
-                        />
-                      </div>
-                      {formErrors.price && <p className="text-red-500 text-xs mt-1">{formErrors.price}</p>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Repeat / Recurring Section */}
-       
-
-                {/* Meeting Type Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <MapPin className="w-5 h-5 text-indigo-600" />
-                    Meeting Type
-                  </h3>
-                  <div className="flex flex-wrap gap-3">
-                    {[
-                      { value: 'Zoom', label: 'Zoom', icon: '📹' },
-                      { value: 'InPerson', label: 'In Person', icon: '🏢' },
-                      { value: 'Phone', label: 'Phone Call', icon: '📞' },
-                    ].map((type) => (
-                      <label
-                        key={type.value}
-                        className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 px-4 py-3 border-2 rounded-lg cursor-pointer transition-all ${newAppointment.meetingType === type.value
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                          }`}
-                      >
-                        <input
-                          type="radio"
-                          name="meetingType"
-                          value={type.value}
-                          checked={newAppointment.meetingType === type.value}
-                          onChange={(e) => setNewAppointment({ ...newAppointment, meetingType: e.target.value as any })}
-                          className="sr-only"
-                        />
-                        <span className="text-xl">{type.icon}</span>
-                        <span className="font-medium">{type.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Payment & Status Section */}
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Payment & Status</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Payment Method
-                      </label>
-                      <select
-                        value={newAppointment.paymentMethod}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, paymentMethod: e.target.value as any })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="credit-card">Credit Card</option>
-                        <option value="debit-card">Debit Card</option>
-                        <option value="paypal">PayPal</option>
-                        <option value="pay-later">Pay Later</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Status
-                      </label>
-                      <select
-                        value={newAppointment.status}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, status: e.target.value as any })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="Pending">Pending</option>
-                        <option value="Confirmed">Confirmed</option>
-                        <option value="Cancelled">Cancelled</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-
-
-                {/* Description Section */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description / Notes
-                  </label>
-                  <textarea
-                    value={newAppointment.notes}
-                    onChange={(e) => setNewAppointment({ ...newAppointment, notes: e.target.value })}
-                    placeholder="Add any additional notes or requirements..."
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-                  />
-                </div>
-
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="p-6 border-t border-gray-200 flex gap-3 bg-gray-50">
-               <button
-                  type="button"
-                  onClick={handleCloseForm}
-                  className="flex-1 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSubmitAppointment}
-                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                >
-                  {newAppointment.id ? 'Save Changes' : 'Create Appointment'}
-                </button>
-            </div>
-
-          </div>
-        </div>
-      )}
+      <ConfirmationModal
+        isOpen={!!cancelAppointmentId}
+        onClose={() => setCancelAppointmentId(null)}
+        onConfirm={confirmCancelAppointment}
+        title="Cancel Appointment"
+        description="Are you sure you want to cancel this appointment?"
+        confirmText="Yes, Cancel"
+        variant="destructive"
+      />
     </div>
   );
 }

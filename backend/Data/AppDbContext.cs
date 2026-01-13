@@ -27,6 +27,7 @@ namespace Appointmentbookingsystem.Backend.Data
         public DbSet<Service> Services { get; set; } = null!;
         public DbSet<ServicePrice> ServicePrices { get; set; } = null!;
         public DbSet<EmailLog> EmailLogs { get; set; } = null!;
+        public DbSet<StaffInvite> StaffInvites { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -261,6 +262,12 @@ namespace Appointmentbookingsystem.Backend.Data
                       .WithMany()
                       .HasForeignKey(e => e.ReservedByCustomerId)
                       .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // ==================== STAFF INVITE ====================
+            modelBuilder.Entity<StaffInvite>(entity =>
+            {
+                 entity.HasIndex(si => si.Token).IsUnique();
             });
         }
 

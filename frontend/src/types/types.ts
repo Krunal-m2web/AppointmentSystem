@@ -66,6 +66,7 @@ export interface StaffServiceInfo {
   effectivePrice: number;
   effectiveDuration: number;
   isActive: boolean;
+  createdAt?: string;
 }
 
 // ==================== STAFF ====================
@@ -141,6 +142,7 @@ export interface Appointment {
   paymentStatus: PaymentStatus;
   createdAt: string;
   updatedAt?: string;
+  notes?: string;
 }
 
 export interface AppointmentFormData {

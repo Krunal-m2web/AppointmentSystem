@@ -52,6 +52,7 @@ export interface AppointmentResponse {
   paymentMethod: "Card" | "Cash" | "PayPal";
   paymentStatus: "Unpaid" | "Paid" | "Refunded";
   createdAt: string;
+  notes?: string;
 }
 
 export interface GetAppointmentsQuery {

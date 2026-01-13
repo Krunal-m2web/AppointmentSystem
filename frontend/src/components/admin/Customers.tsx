@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Search, Download, Upload, Plus, Edit, Trash2, X, Mail, Phone, User, Loader2, ChevronLeft, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, Download, Upload, Plus, Edit, Trash2, X, Mail, Phone, User, Loader2, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, FileText } from 'lucide-react';
 import { 
   fetchCustomers, 
   createCustomer, 
   updateCustomer, 
-  deleteCustomer, 
+  deleteCustomer,
   CustomerResponse 
 } from '../../services/customerApi';
+import { toast } from 'sonner';
+import { ConfirmationModal } from '../../components/ConfirmationModal';
 
 export function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
@@ -18,6 +20,7 @@ export function CustomersPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [deleteCustomerId, setDeleteCustomerId] = useState<number | null>(null);
 
   // Pagination & Sorting State
   const [currentPage, setCurrentPage] = useState(1);
@@ -40,14 +43,14 @@ export function CustomersPage() {
     
     if (!formData.firstName.trim()) {
       errors.firstName = 'First name is required';
-    } else if (formData.firstName.trim().length < 2) {
-      errors.firstName = 'First name must be at least 2 characters';
+    } else if (formData.firstName.trim().length < 3) {
+      errors.firstName = 'First name must be at least 3 characters';
     }
 
     if (!formData.lastName.trim()) {
       errors.lastName = 'Last name is required';
-    } else if (formData.lastName.trim().length < 2) {
-      errors.lastName = 'Last name must be at least 2 characters';
+    } else if (formData.lastName.trim().length < 3) {
+      errors.lastName = 'Last name must be at least 3 characters';
     }
 
     if (!formData.email.trim()) {
@@ -163,17 +166,22 @@ export function CustomersPage() {
     setShowNewCustomerForm(true);
   };
 
-  const handleDeleteCustomer = async (id: number) => {
-    if (confirm('Are you sure you want to delete this customer?')) {
-      try {
-        await deleteCustomer(id);
-        // Reload current page
-        loadCustomers();
-        setSelectedCustomers(selectedCustomers.filter((cId) => cId !== id));
-      } catch (err: any) {
-        alert(err.message || 'Failed to delete customer');
-      }
+  const confirmDeleteCustomer = async () => {
+    if (!deleteCustomerId) return;
+    try {
+      await deleteCustomer(deleteCustomerId);
+      toast.success('Customer deleted successfully');
+      loadCustomers();
+      setSelectedCustomers(selectedCustomers.filter((cId) => cId !== deleteCustomerId));
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete customer');
+    } finally {
+      setDeleteCustomerId(null);
     }
+  };
+
+  const handleDeleteCustomer = (id: number) => {
+    setDeleteCustomerId(id);
   };
 
   const handleCloseForm = () => {
@@ -219,8 +227,9 @@ export function CustomersPage() {
       }
       handleCloseForm();
       loadCustomers(); // Reload list
+      toast.success(editingCustomer ? 'Customer updated successfully' : 'Customer created successfully');
     } catch (err: any) {
-      alert(err.message || 'Failed to save customer');
+      toast.error(err.message || 'Failed to save customer');
     } finally {
       setIsSaving(false);
     }
@@ -302,10 +311,7 @@ export function CustomersPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Customers</h1>
-        <p className="text-gray-600 mt-1">Manage your customer database</p>
-      </div>
+       
 
       {/* Search and Actions Bar */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
@@ -334,7 +340,7 @@ export function CustomersPage() {
             
             <button
               onClick={handleNewCustomer}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm shadow-sm"
             >
               <Plus className="w-4 h-4" />
               New customer...
@@ -530,188 +536,254 @@ export function CustomersPage() {
 
       {/* Customer Form Modal */}
       {showNewCustomerForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold">{editingCustomer ? 'Edit Customer' : 'New Customer'}</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  {editingCustomer ? 'Update customer information' : 'Add a new customer  '}
-                </p>
+            <div className="relative bg-gradient-to-r from-indigo-400 to-indigo-500 px-6 py-5 border-b border-indigo-600/20">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl md:text-2xl font-semibold text-white">
+                    {editingCustomer ? 'Edit Customer' : 'New Customer'}
+                  </h2>
+                  <p className="text-indigo-100 text-sm mt-0.5">
+                    {editingCustomer ? 'Update customer profile information' : 'Add a new customer to your database'}
+                  </p>
+                </div>
+                <button
+                  onClick={handleCloseForm}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-white hover:rotate-90"
+                  type="button"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button
-                onClick={handleCloseForm}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
-            {/* Modal Body */}
-            <form onSubmit={handleSubmitForm} className="p-6 space-y-4">
-              {/* First Name */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-indigo-600" />
-                    First Name <span className="text-red-500">*</span>
+            {/* Modal Content */}
+            <form onSubmit={handleSubmitForm} className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto px-6 py-6 bg-gray-50/50">
+                <div className="space-y-6">
+                  {/* Personal Information Section */}
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                      <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <div className="p-1.5 bg-indigo-100 rounded-lg">
+                          <User className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        Personal Information
+                      </h3>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            First Name <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <User className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={formData.firstName}
+                              onChange={(e) => {
+                                setFormData({ ...formData, firstName: e.target.value });
+                                if (formErrors.firstName) {
+                                  const newErrors = { ...formErrors };
+                                  delete newErrors.firstName;
+                                  setFormErrors(newErrors);
+                                }
+                              }}
+                              placeholder="John"
+                              className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
+                                formErrors.firstName ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
+                              }`}
+                            />
+                          </div>
+                          {formErrors.firstName && (
+                            <p className="text-red-600 text-xs mt-1.5">
+                              {formErrors.firstName}
+                            </p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Last Name <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <User className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={formData.lastName}
+                              onChange={(e) => {
+                                setFormData({ ...formData, lastName: e.target.value });
+                                if (formErrors.lastName) {
+                                  const newErrors = { ...formErrors };
+                                  delete newErrors.lastName;
+                                  setFormErrors(newErrors);
+                                }
+                              }}
+                              placeholder="Doe"
+                              className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
+                                formErrors.lastName ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
+                              }`}
+                            />
+                          </div>
+                          {formErrors.lastName && (
+                            <p className="text-red-600 text-xs mt-1.5">
+                              {formErrors.lastName}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </label>
-                <input
-                  type="text"
-                  value={formData.firstName}
-                  onChange={(e) => {
-                    setFormData({ ...formData, firstName: e.target.value });
-                    if (formErrors.firstName) {
-                      const newErrors = { ...formErrors };
-                      delete newErrors.firstName;
-                      setFormErrors(newErrors);
-                    }
-                  }}
-                  placeholder="John"
-                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                    formErrors.firstName ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {formErrors.firstName && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.firstName}</p>
-                )}
-              </div>
 
-              {/* Last Name */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Last Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.lastName}
-                  onChange={(e) => {
-                    setFormData({ ...formData, lastName: e.target.value });
-                    if (formErrors.lastName) {
-                      const newErrors = { ...formErrors };
-                      delete newErrors.lastName;
-                      setFormErrors(newErrors);
-                    }
-                  }}
-                  placeholder="Doe"
-                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                    formErrors.lastName ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {formErrors.lastName && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.lastName}</p>
-                )}
-              </div>
+                  {/* Contact Details & Notes Section */}
+                  <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
+                      <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                        <div className="p-1.5 bg-emerald-100 rounded-lg">
+                          <Mail className="w-4 h-4 text-emerald-600" />
+                        </div>
+                        Contact & Notes
+                      </h3>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Email <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <Mail className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
+                            <input
+                              type="email"
+                              value={formData.email}
+                              onChange={(e) => {
+                                setFormData({ ...formData, email: e.target.value });
+                                if (formErrors.email) {
+                                  const newErrors = { ...formErrors };
+                                  delete newErrors.email;
+                                  setFormErrors(newErrors);
+                                }
+                              }}
+                              placeholder="john.doe@example.com"
+                              className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
+                                formErrors.email ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
+                              }`}
+                            />
+                          </div>
+                          {formErrors.email && (
+                            <p className="text-red-600 text-xs mt-1.5">
+                              {formErrors.email}
+                            </p>
+                          )}
+                        </div>
 
-              {/* Phone */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-indigo-600" />
-                    Phone <span className="text-red-500">*</span>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Phone <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <Phone className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
+                            <input
+                              type="tel"
+                              value={formData.phone}
+                              onChange={(e) => {
+                                setFormData({ ...formData, phone: e.target.value });
+                                if (formErrors.phone) {
+                                  const newErrors = { ...formErrors };
+                                  delete newErrors.phone;
+                                  setFormErrors(newErrors);
+                                }
+                              }}
+                              placeholder="+1 (555) 000-0000"
+                              className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
+                                formErrors.phone ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
+                              }`}
+                            />
+                          </div>
+                          {formErrors.phone && (
+                            <p className="text-red-600 text-xs mt-1.5">
+                              {formErrors.phone}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Internal Notes
+                        </label>
+                        <div className="relative">
+                          <FileText className="w-4 h-4 text-gray-400 absolute left-3.5 top-3 pointer-events-none" />
+                          <textarea
+                            value={formData.notes}
+                            onChange={(e) => {
+                              setFormData({ ...formData, notes: e.target.value });
+                              if (formErrors.notes) {
+                                const newErrors = { ...formErrors };
+                                delete newErrors.notes;
+                                setFormErrors(newErrors);
+                              }
+                            }}
+                            placeholder="Add private notes about preferences, history, etc..."
+                            rows={3}
+                            className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none transition-all ${
+                              formErrors.notes ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
+                            }`}
+                          />
+                        </div>
+                        {formErrors.notes && (
+                          <p className="text-red-600 text-xs mt-1.5">
+                            {formErrors.notes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => {
-                    setFormData({ ...formData, phone: e.target.value });
-                    if (formErrors.phone) {
-                      const newErrors = { ...formErrors };
-                      delete newErrors.phone;
-                      setFormErrors(newErrors);
-                    }
-                  }}
-                  placeholder="+1 (555) 123-4567"
-                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                    formErrors.phone ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {formErrors.phone && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>
-                )}
+                </div>
               </div>
 
-              {/* Email */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-indigo-600" />
-                    Email <span className="text-red-500">*</span>
-                  </div>
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => {
-                    setFormData({ ...formData, email: e.target.value });
-                    if (formErrors.email) {
-                      const newErrors = { ...formErrors };
-                      delete newErrors.email;
-                      setFormErrors(newErrors);
-                    }
-                  }}
-                  placeholder="john.doe@example.com"
-                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
-                    formErrors.email ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {formErrors.email && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>
-                )}
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Notes (Optional)
-                </label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => {
-                    setFormData({ ...formData, notes: e.target.value });
-                    if (formErrors.notes) {
-                      const newErrors = { ...formErrors };
-                      delete newErrors.notes;
-                      setFormErrors(newErrors);
-                    }
-                  }}
-                  placeholder="Add any notes about this customer..."
-                  rows={4}
-                  className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none ${
-                    formErrors.notes ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {formErrors.notes && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.notes}</p>
-                )}
-              </div>
-
-              {/* Form Actions */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+              {/* Modal Footer */}
+              <div className="px-6 py-4 border-t border-gray-200 bg-white flex gap-3">
                 <button
                   type="button"
                   onClick={handleCloseForm}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                  className="flex-1 px-5 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium"
                   disabled={isSaving}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2"
                   disabled={isSaving}
+                  className="flex-1 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all font-medium shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {editingCustomer ? 'Update Customer' : 'Add Customer'}
+                  {isSaving ? (
+                    <span className="flex items-center justify-center gap-2">
+                       <Loader2 className="w-4 h-4 animate-spin" />
+                       Saving...
+                    </span>
+                  ) : (
+                    editingCustomer ? 'Update Customer' : 'Add Customer'
+                  )}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+      
+      <ConfirmationModal
+        isOpen={!!deleteCustomerId}
+        onClose={() => setDeleteCustomerId(null)}
+        onConfirm={confirmDeleteCustomer}
+        title="Delete Customer"
+        description="Are you sure you want to delete this customer? This action cannot be undone."
+        confirmText="Delete"
+        variant="destructive"
+      />
     </div>
   );
 }

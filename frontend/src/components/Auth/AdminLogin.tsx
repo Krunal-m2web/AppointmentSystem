@@ -1,9 +1,16 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Building2, ShieldCheck } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { adminLogin, saveToken, saveCompanyId, saveUserRole } from '../../services/authService';
+import { getToken, isTokenExpired } from '../../utils/auth';
+import { parseApiError } from '../../utils/error';
 import type { AdminLoginDto } from '../../types/auth.types';
+
+interface FieldErrors {
+  email?: string;
+  password?: string;
+}
 
 const AdminLogin = () => {
   const navigate = useNavigate();
@@ -11,13 +18,65 @@ const AdminLogin = () => {
   // LOGIN STATE
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [loginError, setLoginError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [generalError, setGeneralError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
+
+  // CHECK AUTH ON MOUNT
+  useEffect(() => {
+    const token = getToken();
+    if (token && !isTokenExpired(token)) {
+      navigate('/appointment/staff', { replace: true });
+    }
+  }, [navigate]);
+
+  // VALIDATE FORM (client-side)
+  const validateForm = (): boolean => {
+    const errors: FieldErrors = {};
+    
+    if (!loginEmail.trim()) {
+      errors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginEmail)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    
+    if (!loginPassword) {
+      errors.password = 'Password is required';
+    } else if (loginPassword.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    }
+    
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // Clear field error when user starts typing
+  const handleEmailChange = (value: string) => {
+    setLoginEmail(value);
+    if (fieldErrors.email) {
+      setFieldErrors(prev => ({ ...prev, email: undefined }));
+    }
+    setGeneralError(null);
+  };
+
+  const handlePasswordChange = (value: string) => {
+    setLoginPassword(value);
+    if (fieldErrors.password) {
+      setFieldErrors(prev => ({ ...prev, password: undefined }));
+    }
+    setGeneralError(null);
+  };
 
   // LOGIN HANDLER
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoginError(null);
+    setGeneralError(null);
+    
+    // Validate form first
+    if (!validateForm()) {
+      return;
+    }
+
     setLoginLoading(true);
 
     try {
@@ -33,13 +92,19 @@ const AdminLogin = () => {
       if (response.companyId) saveCompanyId(response.companyId);
       saveUserRole(response.role);
 
-      console.log('Admin login successful:', response);
-
       // Redirect to admin dashboard
-      navigate('/appointment/staff');
+      navigate('/appointment/staff', { replace: true });
     } catch (err: any) {
-      console.error('Login error:', err);
-      setLoginError(err.message || 'Invalid email or password');
+      // Parse the API error
+      const apiError = parseApiError(err.message || '');
+      
+      // If there's a field specified, show error under that field
+      if (apiError.field) {
+        setFieldErrors(prev => ({ ...prev, [apiError.field!]: apiError.message }));
+      } else {
+        // Otherwise show as general error
+        setGeneralError(apiError.message || 'Invalid email or password');
+      }
     } finally {
       setLoginLoading(false);
     }
@@ -63,10 +128,10 @@ const AdminLogin = () => {
             Sign in to manage your company
         </p>
 
-        {/* ERROR MESSAGE */}
-        {loginError && (
+        {/* GENERAL ERROR MESSAGE */}
+        {generalError && (
             <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-4 py-3">
-            {loginError}
+            {generalError}
             </div>
         )}
           
@@ -76,11 +141,17 @@ const AdminLogin = () => {
               <input
                 type="email"
                 value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                onChange={(e) => handleEmailChange(e.target.value)}
+                className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 bg-gray-50 ${
+                  fieldErrors.email 
+                    ? 'border-red-400 focus:ring-red-500' 
+                    : 'border-gray-200 focus:ring-indigo-500'
+                }`}
                 placeholder="admin@company.com"
-                required
               />
+              {fieldErrors.email && (
+                <p className="mt-1 text-sm text-red-500">{fieldErrors.email}</p>
+              )}
             </div>
 
             <div>
@@ -88,11 +159,17 @@ const AdminLogin = () => {
               <input
                 type="password"
                 value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                onChange={(e) => handlePasswordChange(e.target.value)}
+                className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 bg-gray-50 ${
+                  fieldErrors.password 
+                    ? 'border-red-400 focus:ring-red-500' 
+                    : 'border-gray-200 focus:ring-indigo-500'
+                }`}
                 placeholder="••••••••"
-                required
               />
+              {fieldErrors.password && (
+                <p className="mt-1 text-sm text-red-500">{fieldErrors.password}</p>
+              )}
             </div>
 
             <button

@@ -2,6 +2,7 @@ using System.Text;
 using Appointmentbookingsystem.Backend.Data;
 using Appointmentbookingsystem.Backend.Services;
 using Appointmentbookingsystem.Backend.Converters;
+using Appointmentbookingsystem.Backend.Middleware;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -75,7 +76,7 @@ var key = Encoding.UTF8.GetBytes(jwtSettings["Key"]!);
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IEmailService, DatabaseEmailService>();
-builder.Services.AddHostedService<NotificationBackgroundService>();
+// builder.Services.AddHostedService<NotificationBackgroundService>();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -109,6 +110,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Global exception handling middleware - must be early in pipeline
+app.UseExceptionMiddleware();
 
 
 

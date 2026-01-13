@@ -15,5 +15,8 @@ namespace Appointmentbookingsystem.Backend.DTOs.Staff
 
         [MaxLength(500)]
         public string? Reason { get; set; }
+
+        // True for full day, false for specific hours
+        public bool IsFullDay { get; set; } = true;
     }
 }

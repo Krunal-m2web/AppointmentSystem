@@ -9,7 +9,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
 {
     [ApiController]
     [Route("api/companies")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Staff")]
     public class CompanyController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -19,6 +19,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             _context = context;
         }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost("me/logo")]
 public async Task<IActionResult> UploadLogo(IFormFile file)
 {
@@ -91,6 +92,7 @@ public async Task<IActionResult> UploadLogo(IFormFile file)
             });
         }
 
+        [Authorize(Roles = "Admin")]
         [HttpPut("me")]
         public async Task<IActionResult> UpdateMyCompany(UpdateCompanyDto dto)
         {
@@ -103,20 +105,38 @@ public async Task<IActionResult> UploadLogo(IFormFile file)
                 
                 if (dto.CompanyName != null)
                 {
-                    // Check if name is already taken by ANOTHER company
-                    if (await _context.Companies.AnyAsync(c => c.CompanyName == dto.CompanyName && c.Id != companyId))
+                    var normalizedNewName = dto.CompanyName.Trim().ToLowerInvariant();
+                    var normalizedOldName = (company.CompanyName ?? "").Trim().ToLowerInvariant();
+
+                    if (normalizedNewName != normalizedOldName)
                     {
-                        return BadRequest(new { error = "Company Name is already taken. Please choose a different name." });
-                    }
-                    
-                    // Only update and regenerate slug if the name actually changed
-                    if (company.CompanyName != dto.CompanyName)
-                    {
-                        company.CompanyName = dto.CompanyName;
-                        company.Slug = await GenerateUniqueSlugAsync(dto.CompanyName, company.Id);
+                        // Check if name is already taken by ANOTHER company
+                        if (await _context.Companies.AnyAsync(c => c.CompanyName.ToLower() == normalizedNewName && c.Id != companyId))
+                        {
+                            return BadRequest(new { error = "Company Name is already taken. Please choose a different name." });
+                        }
+                        
+                        company.CompanyName = dto.CompanyName.Trim();
+                        company.Slug = await GenerateUniqueSlugAsync(company.CompanyName, company.Id);
                     }
                 }
-                if (dto.Email != null) company.Email = dto.Email;
+
+                if (dto.Email != null)
+                {
+                    var normalizedNewEmail = dto.Email.Trim().ToLowerInvariant();
+                    var normalizedOldEmail = (company.Email ?? "").Trim().ToLowerInvariant();
+
+                    if (normalizedNewEmail != normalizedOldEmail)
+                    {
+                        // Check if email is already taken by ANOTHER company
+                        if (await _context.Companies.AnyAsync(c => c.Email.ToLower() == normalizedNewEmail && c.Id != companyId))
+                        {
+                            return BadRequest(new { error = "This company email is already registered." });
+                        }
+                        company.Email = dto.Email.Trim();
+                    }
+                }
+
                 if (dto.Phone != null) company.Phone = dto.Phone;
                 if (dto.Address != null) company.Address = dto.Address;
                 if (dto.Currency != null) company.Currency = dto.Currency;
