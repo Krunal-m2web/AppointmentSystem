@@ -327,7 +327,7 @@ export function DashboardHome() {
       });
   };
 
-  // Helper to get API params
+   // Helper to get API params
   const getApiParams = () => {
       const token = getToken();
       if (!token) throw new Error("Not authenticated");
