@@ -31,6 +31,49 @@ export const adminRegister = async (
   return await response.json();
 };
 
+export const checkEmailAvailability = async (email: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/admin/check-email?email=${encodeURIComponent(email)}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseErrorMessage(text) || "Email check failed");
+  }
+};
+
+export const sendOtp = async (email: string): Promise<{ message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/admin/send-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseErrorMessage(text) || "Failed to send verification code");
+  }
+  return response.json();
+};
+
+export const verifyOtp = async (
+  email: string,
+  otpCode: string
+): Promise<{ message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/admin/verify-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, otpCode }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseErrorMessage(text) || "Invalid verification code");
+  }
+  return response.json();
+};
+
 export const adminLogin = async (
   data: AdminLoginDto
 ): Promise<AuthResponse> => {

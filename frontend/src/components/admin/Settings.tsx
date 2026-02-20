@@ -31,7 +31,6 @@ export function Settings() {
   const [companyLogo, setCompanyLogo] = useState('');
   const [businessEmail, setBusinessEmail] = useState('info@mybusiness.com');
   const [businessPhone, setBusinessPhone] = useState('+1 (555) 123-4567');
-  const [websiteUrl, setWebsiteUrl] = useState('https://www.mybusiness.com');
 
   // Template Editor State
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
@@ -219,7 +218,6 @@ Best regards,
         setCompanyName(data.companyName || '');
         setBusinessEmail(data.email || '');
         setBusinessPhone(data.phone || '');
-        setWebsiteUrl(data.websiteUrl || '');
         if (data.logoUrl) {
           setCompanyLogo(`${API_BASE_URL}${data.logoUrl}`);
         } else {
@@ -262,7 +260,6 @@ Best regards,
         companyName,
         email: businessEmail,
         phone: businessPhone,
-        websiteUrl,
         logoUrl: companyLogo.replace(API_BASE_URL, ''),
       });
 
@@ -543,20 +540,6 @@ Best regards,
                         className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900"
                       />
                     </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Website URL</label>
-                  <div className="relative group">
-                    <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
-                    <input
-                      type="url"
-                      value={websiteUrl}
-                      onChange={(e) => setWebsiteUrl(e.target.value)}
-                      placeholder="https://www.mybusiness.com"
-                      className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900"
-                    />
                   </div>
                 </div>
 

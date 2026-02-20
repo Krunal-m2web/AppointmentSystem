@@ -84,10 +84,15 @@ export async function createStaff(data: {
   notes?: string;
   serviceIds?: number[];
 }): Promise<Staff> {
+  const payload = {
+    ...data,
+    phone: data.phone?.trim() ? data.phone.trim() : undefined,
+  };
+
   const response = await fetch(`${API_BASE_URL}/api/staff`, {
     method: "POST",
     headers: getAuthHeaders(),
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -108,7 +113,7 @@ export async function updateStaff(staff: Staff): Promise<Staff> {
     firstName: staff.firstName,
     lastName: staff.lastName,
     email: staff.email,
-    phone: staff.phone || "",
+    phone: staff.phone?.trim() ? staff.phone.trim() : null,
     address: staff.address || "",
     notes: staff.notes || "",
     isActive: staff.isActive,

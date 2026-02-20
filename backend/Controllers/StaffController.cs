@@ -51,7 +51,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 FirstName = dto.FirstName,
                 LastName = dto.LastName,
                 Email = dto.Email.ToLowerInvariant(),
-                Phone = dto.Phone,
+                Phone = string.IsNullOrWhiteSpace(dto.Phone) ? null : dto.Phone,
                 Address = dto.Address,
                 PasswordHash = hashedPassword,
                 Notes = dto.Notes,
@@ -214,7 +214,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             // Update fields if provided
             if (dto.FirstName != null) staff.FirstName = dto.FirstName;
             if (dto.LastName != null) staff.LastName = dto.LastName;
-            if (dto.Phone != null) staff.Phone = dto.Phone;
+            if (dto.Phone != null) staff.Phone = string.IsNullOrWhiteSpace(dto.Phone) ? null : dto.Phone;
             if (dto.Address != null) staff.Address = dto.Address;
             if (dto.Notes != null) staff.Notes = dto.Notes;
             if (dto.IsActive.HasValue) staff.IsActive = dto.IsActive.Value;

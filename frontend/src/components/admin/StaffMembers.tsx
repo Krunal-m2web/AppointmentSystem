@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { fetchStaff, updateStaff, fetchStaffAvailability, createAvailability, deleteAllAvailabilityForStaff, deleteStaff, createStaff, fetchTimeOff, createTimeOff, deleteTimeOff, TimeOff } from '../../services/staffApi';
-import { Search, Plus, X, User, Mail, Phone, Briefcase, Clock, Save, Calendar, Trash2 } from 'lucide-react';
+import { Search, Plus, X, User, Mail, Briefcase, Clock, Save, Calendar, Trash2 } from 'lucide-react';
+import PhoneInput, { isValidPhoneNumber } from '../ui/PhoneInput';
+import { Phone as PhoneIcon } from 'lucide-react';
 import type { Staff, TimeSlot, StaffServiceInfo } from '../../types/types';
 import { fetchServices, ServiceListItem } from "../../services/serviceApi";
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
@@ -56,7 +58,9 @@ export function StaffMembers() {
         } else if (!emailRegex.test(editedStaff.email)) {
             errors.email = "Invalid email format";
         }
-        if (!editedStaff.phone?.trim()) errors.phone = "Phone number is required";
+        if (editedStaff.phone?.trim() && !isValidPhoneNumber(editedStaff.phone)) {
+            errors.phone = "Invalid phone format";
+        }
         
         // Password validation for new staff
         if (editedStaff.id <= 0 && !editedStaff.password) {
@@ -266,7 +270,11 @@ const handleSave = async () => {
     if (!editedStaff || isSaving) return;
     
     // Client-side validation
-    if (!validateForm()) return;
+    if (!validateForm()) {
+        setActiveTab('details'); // Automatically switch to details tab to show errors
+        toast.error("Please fix the errors in the Details tab before saving.");
+        return;
+    }
     
     // validate overlaps locally
     if (checkOverlap(editedStaff.schedule)) {
@@ -439,6 +447,31 @@ const scheduleData = availability.map((a: any) => ({
             ? editedStaff.services.filter((id) => id !== serviceId)
             : [...editedStaff.services, serviceId];
         setEditedStaff({ ...editedStaff, services });
+    };
+
+    const filteredServices = services.filter(s =>
+        s.name.toLowerCase().includes(serviceSearchTerm.toLowerCase())
+    );
+
+    const isAllFilteredSelected = filteredServices.length > 0 && 
+        filteredServices.every(s => editedStaff?.services.includes(s.id));
+
+    const handleToggleAllServices = () => {
+        if (!editedStaff) return;
+        
+        let newServices;
+        if (isAllFilteredSelected) {
+            // Unselect all in current filter
+            const filteredIds = filteredServices.map(s => s.id);
+            newServices = editedStaff.services.filter(id => !filteredIds.includes(id));
+        } else {
+            // Select all in current filter
+            const currentSelected = new Set(editedStaff.services);
+            filteredServices.forEach(s => currentSelected.add(s.id));
+            newServices = Array.from(currentSelected);
+        }
+        
+        setEditedStaff({ ...editedStaff, services: newServices });
     };
 
     const addTimeSlot = (dayOfWeek: number) => {
@@ -619,12 +652,15 @@ const scheduleData = availability.map((a: any) => ({
                                 <div className="flex overflow-x-auto">
                                     <button
                                         onClick={() => setActiveTab('details')}
-                                        className={`px-6 py-3 font-medium whitespace-nowrap ${activeTab === 'details'
+                                        className={`px-6 py-3 font-medium whitespace-nowrap flex items-center gap-2 ${activeTab === 'details'
                                                 ? 'border-b-2 border-indigo-600 text-indigo-600'
                                                 : 'text-gray-600 hover:text-gray-800'
                                             }`}
                                     >
                                         Details
+                                        {(formErrors.firstName || formErrors.lastName || formErrors.email || formErrors.phone || formErrors.password) && (
+                                            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" title="Validation errors in this tab" />
+                                        )}
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('services')}
@@ -670,8 +706,13 @@ const scheduleData = availability.map((a: any) => ({
                                                     type="text"
                                                     value={editedStaff.firstName ?? ''}
                                                     onChange={(e) => {
-                                                        setEditedStaff({ ...editedStaff, firstName: e.target.value });
-                                                        if (formErrors.firstName) setFormErrors({ ...formErrors, firstName: '' });
+                                                        const val = e.target.value;
+                                                        setEditedStaff({ ...editedStaff, firstName: val });
+                                                        
+                                                        // Real-time validation
+                                                        let error = '';
+                                                        if (!val.trim()) error = "First name is required";
+                                                        setFormErrors(prev => ({ ...prev, firstName: error }));
                                                     }}
                                                     className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.firstName ? 'border-red-500' : 'border-gray-300'}`}
                                                 />
@@ -686,8 +727,13 @@ const scheduleData = availability.map((a: any) => ({
                                                     type="text"
                                                     value={editedStaff.lastName ?? ''}
                                                     onChange={(e) => {
-                                                        setEditedStaff({ ...editedStaff, lastName: e.target.value });
-                                                        if (formErrors.lastName) setFormErrors({ ...formErrors, lastName: '' });
+                                                        const val = e.target.value;
+                                                        setEditedStaff({ ...editedStaff, lastName: val });
+                                                        
+                                                        // Real-time validation
+                                                        let error = '';
+                                                        if (!val.trim()) error = "Last name is required";
+                                                        setFormErrors(prev => ({ ...prev, lastName: error }));
                                                     }}
                                                     className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.lastName ? 'border-red-500' : 'border-gray-300'}`}
                                                 />
@@ -704,8 +750,18 @@ const scheduleData = availability.map((a: any) => ({
                                                 type="email"
                                                 value={editedStaff.email ?? ''}
                                                 onChange={(e) => {
-                                                    setEditedStaff({ ...editedStaff, email: e.target.value });
-                                                    if (formErrors.email) setFormErrors({ ...formErrors, email: '' });
+                                                    const val = e.target.value;
+                                                    setEditedStaff({ ...editedStaff, email: val });
+                                                    
+                                                    // Real-time validation
+                                                    let error = '';
+                                                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                                                    if (!val.trim()) {
+                                                        error = "Email is required";
+                                                    } else if (!emailRegex.test(val)) {
+                                                        error = "Invalid email format";
+                                                    }
+                                                    setFormErrors(prev => ({ ...prev, email: error }));
                                                 }}
                                                 className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.email ? 'border-red-500' : 'border-gray-300'}`}
                                             />
@@ -714,19 +770,25 @@ const scheduleData = availability.map((a: any) => ({
 
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                <Phone className="w-4 h-4 inline mr-2" />
-                                                Phone <span className="text-red-500">*</span>
+                                                <PhoneIcon className="w-4 h-4 inline mr-2" />
+                                                Phone
                                             </label>
-                                            <input
-                                                type="tel"
+                                            <PhoneInput
                                                 value={editedStaff.phone ?? ''}
-                                                onChange={(e) => {
-                                                    setEditedStaff({ ...editedStaff, phone: e.target.value.replace(/[^\d+]/g, '') });
-                                                    if (formErrors.phone) setFormErrors({ ...formErrors, phone: '' });
+                                                onChange={(val) => {
+                                                    setEditedStaff({ ...editedStaff, phone: val });
+                                                    
+                                                    // Real-time validation
+                                                    let error = '';
+                                                    if (val?.trim() && !isValidPhoneNumber(val)) {
+                                                        error = "Invalid phone format";
+                                                    }
+                                                    setFormErrors(prev => ({ ...prev, phone: error }));
                                                 }}
-                                                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${formErrors.phone ? 'border-red-500' : 'border-gray-300'}`}
+                                                placeholder="Enter phone number"
+                                                error={formErrors.phone}
+                                                prefixIcon={<PhoneIcon className="w-4 h-4 text-gray-400" />}
                                             />
-                                            {formErrors.phone && <p className="text-red-500 text-xs mt-1">{formErrors.phone}</p>}
                                         </div>
 
                                         <div>
@@ -831,33 +893,54 @@ const scheduleData = availability.map((a: any) => ({
     <input
       type="text"
       placeholder="Search services..."
-      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 mb-2"
       onChange={(e) => setServiceSearchTerm(e.target.value)}
       value={serviceSearchTerm}
     />
 
-    {/* Scrollable service list */}
-    <div className="border border-gray-200 rounded-lg max-h-[300px] overflow-y-auto divide-y">
-      {services
-        .filter(s =>
-          s.name.toLowerCase().includes(serviceSearchTerm.toLowerCase())
-        )
-        .map(service => (
-          <label
-            key={service.id}
-            className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer"
-          >
+    <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+      {/* Select All Header */}
+      {filteredServices.length > 0 && (
+        <div className="bg-gray-50/80 px-4 py-2.5 border-b border-gray-200">
+          <label className="flex items-center gap-3 cursor-pointer w-fit group">
             <input
               type="checkbox"
-              checked={editedStaff.services.includes(service.id)}
-              onChange={() => toggleService(service.id)}
-              className="w-4 h-4 text-indigo-600 rounded"
+              checked={isAllFilteredSelected}
+              onChange={handleToggleAllServices}
+              className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 transition-all cursor-pointer"
             />
-            <span className="text-sm text-gray-800">
-              {service.name}
+            <span className="text-sm font-semibold text-gray-700 select-none group-hover:text-indigo-600 transition-colors">
+              Select All Services
             </span>
           </label>
-        ))}
+        </div>
+      )}
+
+      {/* Scrollable service list */}
+      <div className="max-h-[300px] overflow-y-auto divide-y bg-white custom-scrollbar">
+        {filteredServices.length > 0 ? (
+          filteredServices.map(service => (
+            <label
+              key={service.id}
+              className="flex items-center gap-3 px-4 py-3 hover:bg-indigo-50/30 cursor-pointer transition-colors group"
+            >
+              <input
+                type="checkbox"
+                checked={editedStaff.services.includes(service.id)}
+                onChange={() => toggleService(service.id)}
+                className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 transition-all cursor-pointer"
+              />
+              <span className="text-sm text-gray-800 select-none group-hover:text-gray-900">
+                {service.name}
+              </span>
+            </label>
+          ))
+        ) : (
+          <div className="p-8 text-center text-gray-500">
+            No services found matching "{serviceSearchTerm}"
+          </div>
+        )}
+      </div>
     </div>
 
     {/* Selected count */}

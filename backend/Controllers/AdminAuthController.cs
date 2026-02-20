@@ -15,11 +15,13 @@ namespace Appointmentbookingsystem.Backend.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IJwtTokenService _jwt;
+        private readonly IEmailService _emailService;
 
-        public AdminAuthController(AppDbContext context, IJwtTokenService jwt)
+        public AdminAuthController(AppDbContext context, IJwtTokenService jwt, IEmailService emailService)
         {
             _context = context;
             _jwt = jwt;
+            _emailService = emailService;
         }
 
         /// <summary>
@@ -67,7 +69,26 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (await _context.Companies.AnyAsync(c => c.Email.ToLower() == normalizedEmail))
                 throw new ConflictException(BusinessErrors.DUPLICATE_EMAIL, "This company email is already registered.", "email");
 
-            // Generate unique slug
+            // Validate OTP before doing anything else
+            var normalizedEmailForOtp = dto.Email.Trim().ToLowerInvariant();
+            var latestOtpRecord = await _context.EmailVerifications
+                .Where(ev => ev.Email == normalizedEmailForOtp && !ev.IsUsed)
+                .OrderByDescending(ev => ev.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (latestOtpRecord == null)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Invalid verification code. Please check your email and try again.", "otpCode");
+
+            if (latestOtpRecord.ExpiresAt < DateTime.UtcNow)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Your verification code has expired. Please request a new one.", "otpCode");
+
+            if (!string.Equals(latestOtpRecord.OtpCode, dto.OtpCode, StringComparison.Ordinal))
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Invalid verification code. Please check your email and try again.", "otpCode");
+
+            // Mark OTP as used
+            latestOtpRecord.IsUsed = true;
+            await _context.SaveChangesAsync();
+
             var baseSlug = SlugHelper.GenerateSlug(dto.CompanyName);
             if (string.IsNullOrEmpty(baseSlug)) baseSlug = "company";
             
@@ -79,51 +100,192 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 counter++;
             }
 
-            // Create the company first
-            var company = new Company
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                CompanyName = dto.CompanyName,
-                Slug = slug,
+                // Create the company first
+                var company = new Company
+                {
+                    CompanyName = dto.CompanyName,
+                    Slug = slug,
+                    Email = normalizedEmail,
+                    Country = dto.CompanyCountry,
+                    Currency = dto.Currency,
+                    IsActive = true
+                };
+
+                _context.Companies.Add(company);
+                await _context.SaveChangesAsync();
+
+                // Create the admin user
+                var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+
+                var user = new User
+                {
+                    CompanyId = company.Id,
+                    Email = normalizedEmail,
+                    FirstName = dto.FirstName,
+                    LastName = dto.LastName,
+                    PasswordHash = passwordHash,
+                    Position = "Owner",
+                    IsActive = true
+                };
+
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync();
+
+                // Update company with the created UserId
+                company.UserId = user.Id;
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return Ok(new
+                {
+                    Message = "Admin registered successfully.",
+                    CompanyId = company.Id,
+                    UserId = user.Id
+                });
+            }
+            catch (DbUpdateException ex)
+            {
+                await transaction.RollbackAsync();
+                
+                // Inspect innermost exception for detail
+                var innerMessage = ex.InnerException?.Message ?? ex.Message;
+                
+                // Handle unique constraint violations
+                if (innerMessage.Contains("unique") || innerMessage.Contains("duplicate"))
+                {
+                    if (innerMessage.Contains("PK_"))
+                        throw new ConflictException(BusinessErrors.DUPLICATE_RECORD, "System error: Database sequence out of sync. Please contact support or run maintenance.", "");
+                        
+                    throw new ConflictException(BusinessErrors.DUPLICATE_RECORD, 
+                        "A record with this value already exists. Please check your inputs.", "");
+                }
+                throw;
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Check if an email is already registered.
+        /// </summary>
+        [HttpGet("check-email")]
+        public async Task<IActionResult> CheckEmail([FromQuery] string email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                return BadRequest(new { Message = "Email is required." });
+
+            var normalizedEmail = email.Trim().ToLowerInvariant();
+
+            var userExists = await _context.Users.AnyAsync(u => u.Email.ToLower() == normalizedEmail);
+            var companyExists = await _context.Companies.AnyAsync(c => c.Email.ToLower() == normalizedEmail);
+
+            if (userExists || companyExists)
+            {
+                return Conflict(new { Message = "This email is already registered.", Field = "email" });
+            }
+
+            return Ok(new { Message = "Email is available." });
+        }
+
+        /// <summary>
+        /// Send a 6-digit OTP to the given email for registration verification.
+        /// </summary>
+        [HttpPost("send-otp")]
+        public async Task<IActionResult> SendOtp([FromBody] SendOtpDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Email))
+                return BadRequest(new { Message = "Email is required.", Field = "email" });
+
+            var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
+
+            // Check if email is already registered
+            var userExists = await _context.Users.AnyAsync(u => u.Email.ToLower() == normalizedEmail);
+            var companyExists = await _context.Companies.AnyAsync(c => c.Email.ToLower() == normalizedEmail);
+            if (userExists || companyExists)
+                return Conflict(new { Message = "This email is already registered.", Field = "email" });
+
+            // Invalidate ANY existing OTPs for this email — mark used AND expired
+            // This ensures resend immediately kills old codes on BOTH checks
+            var existingOtps = await _context.EmailVerifications
+                .Where(ev => ev.Email == normalizedEmail && !ev.IsUsed)
+                .ToListAsync();
+            foreach (var oldOtp in existingOtps)
+            {
+                oldOtp.IsUsed = true;
+                oldOtp.ExpiresAt = DateTime.UtcNow.AddSeconds(-1); // force-expire immediately
+            }
+            await _context.SaveChangesAsync(); // flush invalidations before creating new OTP
+
+            // Generate new 6-digit OTP
+            var otp = new Random().Next(100000, 999999).ToString();
+
+            var verification = new EmailVerification
+            {
                 Email = normalizedEmail,
-                Phone = dto.CompanyPhone,
-                Address = dto.CompanyAddress,
-                Country = dto.CompanyCountry,
-                Currency = dto.Currency,
-                IsActive = true
+                OtpCode = otp,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+                IsUsed = false,
+                CreatedAt = DateTime.UtcNow
             };
-
-            _context.Companies.Add(company);
+            _context.EmailVerifications.Add(verification);
             await _context.SaveChangesAsync();
 
-            // Create the admin user
-            var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+            // Send OTP email via Mailgun
+            var emailBody = $@"
+                <div style='font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #f9fafb; border-radius: 12px;'>
+                    <div style='text-align: center; margin-bottom: 24px;'>
+                        <div style='display: inline-block; background: #ede9fe; border-radius: 50%; padding: 16px;'>
+                            <span style='font-size: 28px;'>📧</span>
+                        </div>
+                    </div>
+                    <h2 style='text-align: center; color: #1f2937; font-size: 22px; margin: 0 0 8px;'>Please check your email</h2>
+                    <p style='text-align: center; color: #6b7280; margin: 0 0 32px;'>We've sent a verification code to <strong>{normalizedEmail}</strong></p>
+                    <div style='text-align: center; margin: 24px 0;'>
+                        <span style='display: inline-block; letter-spacing: 12px; font-size: 36px; font-weight: bold; color: #4f46e5; background: #eef2ff; padding: 16px 24px; border-radius: 12px; font-family: monospace;'>{otp}</span>
+                    </div>
+                    <p style='text-align: center; color: #6b7280; font-size: 14px; margin-top: 24px;'>This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+                </div>";
 
-            var user = new User
-            {
-                CompanyId = company.Id,
-                Email = normalizedEmail,
-                FirstName = dto.FirstName,
-                LastName = dto.LastName,
-                PasswordHash = passwordHash,
-                Phone = dto.UserPhone,
-                Country = dto.UserCountry,
-                Position = "Owner",
-                IsActive = true
-            };
+            await _emailService.SendEmailAsync(
+                normalizedEmail,
+                "Your Verification Code",
+                emailBody,
+                "Appointment System"
+            );
 
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
+            return Ok(new { Message = "Verification code sent to your email." });
+        }
 
-            // Update company with the created UserId
-            company.UserId = user.Id;
-            await _context.SaveChangesAsync();
+        /// <summary>
+        /// Verify a 6-digit OTP for the given email.
+        /// This checks only the latest active OTP and does not consume it.
+        /// </summary>
+        [HttpPost("verify-otp")]
+        public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpDto dto)
+        {
+            var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
+            var latestOtpRecord = await _context.EmailVerifications
+                .Where(ev => ev.Email == normalizedEmail && !ev.IsUsed)
+                .OrderByDescending(ev => ev.CreatedAt)
+                .FirstOrDefaultAsync();
 
-            return Ok(new
-            {
-                Message = "Admin registered successfully.",
-                CompanyId = company.Id,
-                UserId = user.Id
-            });
+            if (latestOtpRecord == null)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Invalid verification code. Please check your email and try again.", "otpCode");
+
+            if (latestOtpRecord.ExpiresAt < DateTime.UtcNow)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Your verification code has expired. Please request a new one.", "otpCode");
+
+            if (!string.Equals(latestOtpRecord.OtpCode, dto.OtpCode, StringComparison.Ordinal))
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Invalid verification code. Please check your email and try again.", "otpCode");
+
+            return Ok(new { Message = "Verification code verified successfully." });
         }
 
         /// <summary>
@@ -204,6 +366,45 @@ namespace Appointmentbookingsystem.Backend.Controllers
             await _context.SaveChangesAsync();
 
             return Ok(new { Message = "Password changed successfully." });
+        }
+
+        /// <summary>
+        /// Maintenance: Fix database sequences
+        /// Call this if you get "PK" violation errors
+        /// </summary>
+        [HttpPost("maintenance/fix-sequences")]
+        public async Task<IActionResult> FixSequences()
+        {
+            try 
+            {
+                // Fix sequences for ALL tables to prevent future PK errors
+                await _context.Database.ExecuteSqlRawAsync(@"
+                    SELECT setval(pg_get_serial_sequence('""Users""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""Users"";
+                    SELECT setval(pg_get_serial_sequence('""Companies""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""Companies"";
+                    SELECT setval(pg_get_serial_sequence('""Customers""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""Customers"";
+                    SELECT setval(pg_get_serial_sequence('""Appointments""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""Appointments"";
+                    SELECT setval(pg_get_serial_sequence('""Staff""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""Staff"";
+                    SELECT setval(pg_get_serial_sequence('""Services""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""Services"";
+                    SELECT setval(pg_get_serial_sequence('""ServicePrices""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""ServicePrices"";
+                    SELECT setval(pg_get_serial_sequence('""StaffServices""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""StaffServices"";
+                    SELECT setval(pg_get_serial_sequence('""RecurrenceRules""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""RecurrenceRules"";
+                    SELECT setval(pg_get_serial_sequence('""TimeOffs""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""TimeOffs"";
+                    SELECT setval(pg_get_serial_sequence('""NotificationConfigs""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""NotificationConfigs"";
+                    SELECT setval(pg_get_serial_sequence('""AppointmentReservations""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""AppointmentReservations"";
+                    SELECT setval(pg_get_serial_sequence('""EmailLogs""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""EmailLogs"";
+                    SELECT setval(pg_get_serial_sequence('""SMSLogs""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""SMSLogs"";
+                    SELECT setval(pg_get_serial_sequence('""StaffInvites""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""StaffInvites"";
+                    SELECT setval(pg_get_serial_sequence('""StaffGoogleCalendars""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""StaffGoogleCalendars"";
+                    SELECT setval(pg_get_serial_sequence('""AppointmentCalendarSyncs""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""AppointmentCalendarSyncs"";
+                    SELECT setval(pg_get_serial_sequence('""ExternalCalendarEvents""', 'Id'), COALESCE(MAX(""Id""), 0) + 1, false) FROM ""ExternalCalendarEvents"";
+                ");
+                
+                return Ok(new { Message = "Database sequences synchronized successfully." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = "Failed to fix sequences", Error = ex.Message });
+            }
         }
     }
 }

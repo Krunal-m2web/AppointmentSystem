@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 
+using Appointmentbookingsystem.Backend.Attributes;
+
 namespace Appointmentbookingsystem.Backend.DTOs.Auth
 {
     public class AdminRegisterDto
@@ -25,14 +27,6 @@ namespace Appointmentbookingsystem.Backend.DTOs.Auth
         [MaxLength(100)]
         public string CompanyName { get; set; } = null!;
 
-        [Required]
-        [Phone]
-        [MaxLength(20)]
-        public string CompanyPhone { get; set; } = null!;
-
-        [MaxLength(500)]
-        public string? CompanyAddress { get; set; }
-
         [MaxLength(3)]
         public string Currency { get; set; } = "USD";
 
@@ -41,13 +35,8 @@ namespace Appointmentbookingsystem.Backend.DTOs.Auth
         public string CompanyCountry { get; set; } = null!;
 
         [Required]
-        [Phone]
-        [MaxLength(20)]
-        public string UserPhone { get; set; } = null!;
-
-        [Required]
-        [MaxLength(100)]
-        public string UserCountry { get; set; } = null!;
+        [StringLength(6, MinimumLength = 6)]
+        public string OtpCode { get; set; } = null!;
     }
 
     public class AdminLoginDto
@@ -58,5 +47,23 @@ namespace Appointmentbookingsystem.Backend.DTOs.Auth
 
         [Required]
         public string Password { get; set; } = null!;
+    }
+
+    public class SendOtpDto
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = null!;
+    }
+
+    public class VerifyOtpDto
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = null!;
+
+        [Required]
+        [StringLength(6, MinimumLength = 6)]
+        public string OtpCode { get; set; } = null!;
     }
 }
