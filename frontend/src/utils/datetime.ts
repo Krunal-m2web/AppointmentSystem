@@ -197,3 +197,29 @@ export const TIMEZONES = Intl.supportedValuesOf("timeZone").map((tz) => ({
   offset: getTimezoneOffset(tz),
   keywords: getTimezoneKeywords(tz),
 }));
+
+/**
+ * Format duration in minutes to human readable string
+ * e.g. 60 -> "1h", 90 -> "1h 30m", 10080 -> "7d"
+ */
+export function formatDuration(minutes: number): string {
+  if (!minutes) return "0m";
+  
+  const days = Math.floor(minutes / 1440);
+  const remainingMinutesAfterDays = minutes % 1440;
+  
+  if (days > 0) {
+    if (remainingMinutesAfterDays === 0) return `${days}d`;
+    const hours = Math.floor(remainingMinutesAfterDays / 60);
+    return `${days}d ${hours > 0 ? `${hours}h` : ''}`;
+  }
+  
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  
+  if (hours > 0) {
+    return `${hours}h ${mins > 0 ? `${mins}m` : ''}`;
+  }
+  
+  return `${mins}min`;
+}

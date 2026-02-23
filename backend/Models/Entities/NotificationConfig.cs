@@ -14,6 +14,7 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         public string Type { get; set; } = null!; // appointmentConfirmation, appointmentReminder, etc.
 
         public bool IsEnabled { get; set; } = true;
+        public bool IsPushEnabled { get; set; } = false;
 
         public string Subject { get; set; } = "";
         public string Body { get; set; } = "";

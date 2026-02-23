@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, X, Clock, Search, ChevronLeft, ChevronRight, Loader2, DollarSign, Briefcase, FileText } from 'lucide-react';
-import { fetchServices, createService, updateService, deleteService } from '../../services/serviceApi';
+import { Plus, Pencil, Trash2, X, Clock, Search, ChevronLeft, ChevronRight, Loader2, DollarSign, Briefcase, FileText } from 'lucide-react';
+import { fetchServices, createService, updateService, deleteService, bulkDeleteServices } from '../../services/serviceApi';
 import { Service } from '../../types/types';
 import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { getToken, getCompanyIdFromToken, getRoleFromToken } from '../../utils/auth';
 import { getDefaultCurrency } from '../../services/settingsService';
 import { getCurrencySymbol } from '../../utils/currency';
+import { Skeleton } from '../ui/skeleton';
 
 export function ManageServices() {
   const [services, setServices] = useState<Service[]>([]);
@@ -24,6 +25,9 @@ export function ManageServices() {
   const [searchQuery, setSearchQuery] = useState('');
   const [totalPages, setTotalPages] = useState(0);
   const [deleteServiceId, setDeleteServiceId] = useState<number | null>(null);
+  const [selectedServices, setSelectedServices] = useState<number[]>([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
@@ -42,8 +46,8 @@ export function ManageServices() {
 
     if (!editingService.serviceDuration) {
       errors.serviceDuration = 'Duration is required';
-    } else if (editingService.serviceDuration < 5) {
-      errors.serviceDuration = 'Minimum duration is 5 minutes';
+    } else if (editingService.serviceDuration < 1) {
+      errors.serviceDuration = 'Minimum duration is 1 minute';
     }
 
     if (editingService.description && editingService.description.length > 500) {
@@ -117,8 +121,24 @@ export function ManageServices() {
         else loadServices();
     }, 500); 
     return () => clearTimeout(timeoutId);
+
      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
+
+  const handleSelectAll = () => {
+    if (selectedServices.length === services.length && services.length > 0) {
+      setSelectedServices([]);
+    } else {
+      setSelectedServices(services.map((s) => s.id));
+    }
+  };
+
+  const handleSelectService = (id: number) => {
+    setSelectedServices((prev) =>
+      prev.includes(id) ? prev.filter((sId) => sId !== id) : [...prev, id]
+    );
+  };
+
 
 
   const handleEdit = (service: Service) => {
@@ -130,7 +150,7 @@ export function ManageServices() {
     setEditingService({
       name: '',
       description: '',
-      price: 0,
+      price: undefined,
       serviceDuration: 30,
       isActive: true,
       currency: defaultCurrency // Use the default currency
@@ -190,6 +210,24 @@ export function ManageServices() {
       setDeleteServiceId(null);
     }
   };
+
+  const confirmBulkDelete = async () => {
+    if (selectedServices.length === 0) return;
+    try {
+      setIsBulkDeleting(true);
+      await bulkDeleteServices(selectedServices);
+      toast.success(`${selectedServices.length} services deleted successfully`);
+      setSelectedServices([]);
+      loadServices();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete services');
+      console.error(err);
+    } finally {
+      setIsBulkDeleting(false);
+      setShowBulkDeleteConfirm(false);
+    }
+  };
+
 
   const handleDelete = (id: number) => {
     setDeleteServiceId(id);
@@ -355,8 +393,8 @@ export function ManageServices() {
                             <Clock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                             <input
                               type="number"
-                              min="5"
-                              step="5"
+                              min="1"
+                              step="1"
                               value={editingService.serviceDuration ?? ''}
                               onChange={e => {
                                 setEditingService({...editingService, serviceDuration: e.target.value === '' ? undefined : parseInt(e.target.value)});
@@ -442,50 +480,99 @@ export function ManageServices() {
         </div>
       </div>
 
-            <div className="bg-white rounded-lg shadow">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             {loading ? (
-                <div className="p-8 text-center text-gray-500 flex flex-col items-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-2" />
-                    Loading services...
+                <div className="divide-y divide-gray-100">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="px-6 py-4">
+                      <div className="grid grid-cols-12 gap-4 items-center">
+                        <Skeleton className="col-span-4 h-4 w-32 bg-gray-200" />
+                        <Skeleton className="col-span-4 h-4 w-40 bg-gray-200" />
+                        <Skeleton className="col-span-2 h-4 w-16 bg-gray-200" />
+                        <Skeleton className="col-span-1 h-4 w-12 bg-gray-200" />
+                        <Skeleton className="col-span-1 h-4 w-8 bg-gray-200 ml-auto" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
             ) : services?.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
                     {searchQuery ? 'No services found matching your search.' : 'No services found. Add one to get started.'}
                 </div>
             ) : (
-                <>
+            <>
+                    {/* Table Header */}
+                    <div className="px-6 py-3 bg-gray-50/80 border-b border-gray-200">
+                        <div className="flex items-center justify-between">
+                          {/* px-4 py-3 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-100 */}
+                            <div className="flex-1 grid grid-cols-12 gap-4 text-left text-sm font-medium text-gray-700 items-center">
+                                <div className="col-span-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedServices.length === services.length && services.length > 0}
+                                        onChange={handleSelectAll}
+                                        disabled={services.length === 0}
+                                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                </div>
+                                <div className="col-span-3 cursor-pointer hover:bg-gray-100">Service Name</div>
+                                <div className="col-span-4 cursor-pointer hover:bg-gray-100">Description</div>
+                                <div className="col-span-2 cursor-pointer hover:bg-gray-100">Duration</div>
+                                <div className="col-span-1 cursor-pointer hover:bg-gray-100">Price</div>
+                                <div className="col-span-1 text-right">Actions</div>
+                            </div>
+                        </div>
+                    </div>
                     <div className="divide-y divide-gray-200">
                         {services.map(service => (
-                        <div key={service.id} className="p-6 flex items-start justify-between hover:bg-gray-50 transition-colors">
-                            <div>
-                                <h3 className="text-lg font-medium text-gray-900">{service.name}</h3>
-                                <p className="text-gray-600 mt-1">{service.description}</p>
-                                <div className="flex gap-4 mt-2 text-sm text-gray-500">
-                                    <span className="flex items-center gap-1">
-                                    <Clock className="w-4 h-4" /> {service.serviceDuration} min
-                                    </span>
-                                    <span className="flex items-center gap-1 font-medium text-indigo-600">
-                                    {currencySymbol}{service.price}
+                        <div key={service.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
+                            <div className="grid grid-cols-12 gap-4 items-center">
+                                <div className="col-span-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedServices.includes(service.id)}
+                                        onChange={() => handleSelectService(service.id)}
+                                        className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                </div>
+                                <div className="col-span-3">
+                                    <h3 className="text-sm font-large text-gray-900">{service.name}</h3>
+                                </div>
+                                <div className="col-span-4">
+                                    <p className="text-sm text-gray-500 line-clamp-2">{service.description || '-'}</p>
+                                </div>
+                                <div className="col-span-2">
+                                    <span className="inline-flex items-center gap-1 text-sm text-gray-600">
+                                        <Clock className="w-4 h-4 text-gray-400" /> {service.serviceDuration} min
                                     </span>
                                 </div>
+                                <div className="col-span-1">
+                                    <span className="text-sm text-gray-600">
+                                        {currencySymbol}{service.price}
+                                    </span>
+                                </div>
+                                <div className="col-span-1 flex justify-end">
+                                    {/* Edit/Delete Actions - Restricted */}
+                                    {!(getRoleFromToken(getToken() || '') === 'Staff') && (
+                                      <div className="flex items-center gap-1">
+                                          <button 
+                                              onClick={() => handleEdit(service)}
+                                              className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                                              title="Edit Service"
+                                          >
+                                              <Pencil className="w-4 h-4" />
+                                          </button>
+                                          <button 
+                                              onClick={() => handleDelete(service.id)}
+                                              className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                                              title="Delete Service"
+                                          >
+                                              <Trash2 className="w-4 h-4" />
+                                          </button>
+                                      </div>
+                                    )}
+                                </div>
                             </div>
-                            {/* Edit/Delete Actions - Restricted */}
-                            {!(getRoleFromToken(getToken() || '') === 'Staff') && (
-                              <div className="flex gap-2">
-                                  <button 
-                                      onClick={() => handleEdit(service)}
-                                      className="p-2 text-gray-600 hover:bg-white hover:shadow rounded-lg transition-all"
-                                  >
-                                      <Edit2 className="w-5 h-5" />
-                                  </button>
-                                  <button 
-                                      onClick={() => handleDelete(service.id)}
-                                      className="p-2 text-red-600 hover:bg-white hover:shadow rounded-lg transition-all"
-                                  >
-                                      <Trash2 className="w-5 h-5" />
-                                  </button>
-                              </div>
-                            )}
                         </div>
                         ))}
                     </div>
@@ -511,6 +598,20 @@ export function ManageServices() {
                         </div>
                         
                         <div className="flex items-center gap-2">
+                            {selectedServices.length > 1 && (
+                                <button
+                                    onClick={() => setShowBulkDeleteConfirm(true)}
+                                    disabled={isBulkDeleting}
+                                    className="flex items-center gap-2 px-4 py-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-all text-sm shadow-sm active:scale-95 font-medium disabled:opacity-50"
+                                >
+                                    {isBulkDeleting ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <Trash2 className="w-4 h-4" />
+                                    )}
+                                    Delete {selectedServices.length} selected
+                                </button>
+                            )}
                             <button
                                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                 disabled={currentPage === 1 || loading}
@@ -540,6 +641,16 @@ export function ManageServices() {
         onConfirm={confirmDeleteService}
         title="Delete Service"
         description="Are you sure you want to delete this service? This action cannot be undone."
+        confirmText="Delete"
+        variant="destructive"
+      />
+
+      <ConfirmationModal
+        isOpen={showBulkDeleteConfirm}
+        onClose={() => setShowBulkDeleteConfirm(false)}
+        onConfirm={confirmBulkDelete}
+        title="Delete Multiple Services"
+        description={`Are you sure you want to delete these ${selectedServices.length} services? This action cannot be undone.`}
         confirmText="Delete"
         variant="destructive"
       />

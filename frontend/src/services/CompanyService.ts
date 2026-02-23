@@ -9,6 +9,10 @@ export interface CompanyResponse {
   websiteUrl?: string;
   logoUrl?: string;
   slug?: string;
+  // Booking Form Customization
+  bookingFormPrimaryColor?: string;
+  bookingFormSecondaryColor?: string;
+  bookingFormLabels?: string;
 }
 
 export async function getMyCompany() {
@@ -33,7 +37,7 @@ export async function updateMyCompany(payload: Partial<CompanyResponse>) {
   if (!res.ok) {
     const errorData = await res.json().catch(() => null);
     throw new Error(
-      errorData?.error || errorData?.inner || "Failed to update company"
+      errorData?.error || errorData?.inner || "Failed to update company",
     );
   }
 }

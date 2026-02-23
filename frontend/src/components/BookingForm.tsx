@@ -31,8 +31,10 @@ import { fetchAvailableSlots, fetchStaffTimeOffs, fetchAnyStaffSlots } from '../
 import { getPublicCompanyProfile, getPublicCompanyProfileBySlug } from '../services/CompanyService';
 import { useParams } from 'react-router-dom';
 import { TimezoneSelect } from './TimezoneSelect';
+import PhoneInput, { isValidPhoneNumber } from './ui/PhoneInput';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
+// Use widget API URL if available, otherwise fall back to env/default
+const API_BASE_URL = (window as any).__BOOKING_WIDGET_API_URL__ || import.meta.env.VITE_API_BASE_URL || "http://localhost:5289";
 
 // Detect browser timezone
 function getBrowserTimezone(): string {
@@ -45,6 +47,7 @@ function getBrowserTimezone(): string {
 
 interface BookingFormProps {
   onComplete: (details: any) => void;
+  companySlug?: string;
 }
  
 const LOCATIONS = [
@@ -53,22 +56,27 @@ const LOCATIONS = [
     value: 'InPerson', 
     icon: MapPin,
     description: 'Meet at our office',
-    gradient: 'from-blue-500 to-blue-600'
+    gradient: 'from-blue-500 to-blue-600',
+    isComingSoon: false
   },
   { 
     label: 'Phone Call', 
     value: 'Phone', 
     icon: PhoneIcon,
     description: 'Call on your phone',
-    gradient: 'from-emerald-500 to-emerald-600'
+    gradient: 'from-emerald-500 to-emerald-600',
+    isComingSoon: false
   },
+  /*
   { 
     label: 'Zoom', 
     value: 'Zoom', 
     icon: Video,
     description: 'Video conference',
-    gradient: 'from-indigo-500 to-indigo-600'
+    gradient: 'from-indigo-500 to-indigo-600',
+    isComingSoon: true
   },
+  */
 ];
 
 const PAYMENT_METHODS = [
@@ -101,6 +109,7 @@ interface CustomSelectProps {
   placeholder?: string;
   disabled?: boolean;
   error?: string | null;
+  primaryColor?: string;
 }
 
 const CustomSelect = ({ 
@@ -111,7 +120,8 @@ const CustomSelect = ({
   isLoading = false,
   placeholder = "Select an option...", 
   disabled = false,
-  error = null
+  error = null,
+  primaryColor = '#6366f1' // Default indigo
 }: CustomSelectProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -191,9 +201,13 @@ const CustomSelect = ({
         className={`w-full px-4 py-3 border-2 rounded-lg text-left flex items-center justify-between transition-all duration-200 bg-white ${
           disabled ? 'bg-slate-100 cursor-not-allowed border-slate-200 text-slate-400' :
           error ? 'border-rose-300 hover:border-rose-400' :
-          isOpen ? 'border-indigo-500 ring-4 ring-indigo-500/10' :
+          isOpen ? 'ring-4' :
           'border-slate-300 hover:border-slate-400'
         }`}
+        style={isOpen && !error ? { 
+          borderColor: primaryColor, 
+          boxShadow: `0 0 0 4px ${primaryColor}1a` // 10% opacity for ring
+        } : undefined}
       >
         <span className={`block truncate ${!selectedOption?.label ? 'text-slate-500' : 'text-slate-900'}`}>
           {isLoading ? "Loading..." : selectedOption?.label || placeholder}
@@ -212,7 +226,14 @@ const CustomSelect = ({
               <ul className="py-1 group/list">
                 {/* Optional: Show search indicator if typing */}
                 {searchTerm && (
-                  <li className="px-4 py-1 text-xs text-indigo-500 font-medium bg-indigo-50 border-b border-indigo-100">
+                  <li 
+                    className="px-4 py-1 text-xs font-medium border-b"
+                    style={{
+                      color: primaryColor,
+                      backgroundColor: `${primaryColor}0d`, // 5% opacity
+                      borderColor: `${primaryColor}1a` // 10% opacity
+                    }}
+                  >
                     Filtering: "{searchTerm}"
                   </li>
                 )}
@@ -228,17 +249,30 @@ const CustomSelect = ({
                       className={`
                         w-full px-4 py-2.5 text-left text-sm transition-colors duration-150 group/item
                         ${option.value === value 
-                          ? 'bg-indigo-600 text-white group-hover/list:bg-white group-hover/list:text-slate-700 hover:!bg-indigo-600 hover:!text-white' 
-                          : 'text-slate-700 hover:bg-indigo-600 hover:text-white'
+                          ? 'text-white' 
+                          : 'text-slate-700 hover:text-white'
                         }
                       `}
+                      style={{
+                        backgroundColor: option.value === value ? primaryColor : undefined,
+                      }}
+                      onMouseEnter={(e) => {
+                        if (option.value !== value) {
+                          e.currentTarget.style.backgroundColor = primaryColor;
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (option.value !== value) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
                     >
                       <span className="font-medium block">{option.label}</span>
                       {option.subLabel && (
                         <span className={`text-xs block mt-0.5 ${
                           option.value === value 
-                            ? 'text-indigo-200 group-hover/list:text-slate-500 hover:!text-indigo-200' 
-                            : 'text-slate-500 group-hover/item:text-indigo-200'
+                            ? 'text-indigo-100' // Keep light text for contrast
+                            : 'text-slate-500 group-hover/item:text-indigo-100'
                         }`}>
                           {option.subLabel}
                         </span>
@@ -264,7 +298,7 @@ const CustomSelect = ({
   );
 };
 
-export function BookingForm({ onComplete }: BookingFormProps) {
+export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
   const [step, setStep] = useState(1);
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<number | null>(null);
@@ -311,6 +345,18 @@ export function BookingForm({ onComplete }: BookingFormProps) {
   const [showPayNow, setShowPayNow] = useState(true);
   const [showPayLater, setShowPayLater] = useState(true);
 
+  // Custom labels from company settings
+  const [customLabels, setCustomLabels] = useState({
+    serviceLabel: 'Service',
+    staffLabel: 'Staff Member',
+  });
+
+  // Custom colors from company settings
+  const [customColors, setCustomColors] = useState({
+    primaryColor: '#6366f1',
+    secondaryColor: '#10b981',
+  });
+
   const validateStep = () => {
     const errors: Record<string, string> = {};
     
@@ -328,16 +374,23 @@ export function BookingForm({ onComplete }: BookingFormProps) {
           errors.lastName = 'Must be at least 3 characters';
         }
         
-        if (!email.trim()) {
-          errors.email = 'Email is required';
-        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-          errors.email = 'Please enter a valid email';
-        }
+        // Require at least one contact method (email OR phone)
+        const hasEmail = email.trim().length > 0;
+        const hasPhone = phone.trim().length > 0;
         
-        if (!phone.trim()) {
-          errors.phone = 'Phone number is required';
-        } else if (!/^[\d\s\-()+]{7,20}$/.test(phone.trim())) {
-          errors.phone = 'Please enter a valid phone number';
+        if (!hasEmail && !hasPhone) {
+          errors.email = 'Please provide either email or phone';
+          errors.phone = 'Please provide either email or phone';
+        } else {
+          // Validate email if provided
+          if (hasEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            errors.email = 'Please enter a valid email';
+          }
+          
+          // Validate phone if provided
+          if (hasPhone && !isValidPhoneNumber(phone)) {
+            errors.phone = 'Please enter a valid phone number';
+          }
         }
         break;
       
@@ -357,7 +410,8 @@ export function BookingForm({ onComplete }: BookingFormProps) {
   };
 
   // Fetch services
-  const { slug } = useParams<{ slug: string }>();
+  const params = useParams<{ slug: string }>();
+  const slug = companySlug || params.slug;
 
   useEffect(() => {
     const loadServices = async () => {
@@ -375,6 +429,22 @@ export function BookingForm({ onComplete }: BookingFormProps) {
           if (company.logoUrl) {
             setCompanyLogo(`${API_BASE_URL}${company.logoUrl}`);
           }
+          
+          // Load custom labels
+          if (company.bookingFormLabels) {
+            try {
+              const parsedLabels = JSON.parse(company.bookingFormLabels);
+              setCustomLabels(prev => ({ ...prev, ...parsedLabels }));
+            } catch { /* Keep defaults */ }
+          }
+          
+          // Load custom colors
+          if (company.bookingFormPrimaryColor) {
+            setCustomColors(prev => ({ ...prev, primaryColor: company.bookingFormPrimaryColor }));
+          }
+          if (company.bookingFormSecondaryColor) {
+            setCustomColors(prev => ({ ...prev, secondaryColor: company.bookingFormSecondaryColor }));
+          }
         } else {
           const queryParams = new URLSearchParams(window.location.search);
           const companyIdParam = queryParams.get('companyId');
@@ -385,6 +455,22 @@ export function BookingForm({ onComplete }: BookingFormProps) {
             const profile = await getPublicCompanyProfile(cid);
             if (profile.logoUrl) {
               setCompanyLogo(`${API_BASE_URL}${profile.logoUrl}`);
+            }
+            
+            // Load custom labels
+            if (profile.bookingFormLabels) {
+              try {
+                const parsedLabels = JSON.parse(profile.bookingFormLabels);
+                setCustomLabels(prev => ({ ...prev, ...parsedLabels }));
+              } catch { /* Keep defaults */ }
+            }
+            
+            // Load custom colors
+            if (profile.bookingFormPrimaryColor) {
+              setCustomColors(prev => ({ ...prev, primaryColor: profile.bookingFormPrimaryColor }));
+            }
+            if (profile.bookingFormSecondaryColor) {
+              setCustomColors(prev => ({ ...prev, secondaryColor: profile.bookingFormSecondaryColor }));
             }
           }
         }
@@ -415,13 +501,20 @@ export function BookingForm({ onComplete }: BookingFormProps) {
       try {
         if (companyId) {
           try {
-            const paymentSettings = await getPaymentSettings();
+            const paymentSettings = await getPaymentSettings(companyId);
             const filteredMethods = PAYMENT_METHODS.filter(method => 
               paymentSettings.enabledPaymentMethods.includes(method.name)
             );
             setAvailablePaymentMethods(filteredMethods);
             setShowPayNow(paymentSettings.showPayNow);
             setShowPayLater(paymentSettings.showPayLater);
+
+            // Initialize paymentTiming based on available options
+            if (!paymentSettings.showPayNow && paymentSettings.showPayLater) {
+              setPaymentTiming('later');
+            } else {
+              setPaymentTiming('now');
+            }
           } catch (err) {
             console.log('Using default payment settings');
           }
@@ -594,7 +687,8 @@ export function BookingForm({ onComplete }: BookingFormProps) {
       case 3:
         return selectedDate && selectedTime;
       case 4:
-        return firstName && lastName && phone && email;
+        // Require first name, last name, and at least one contact method (email OR phone)
+        return firstName && lastName && (phone || email);
       case 5:
         return paymentTiming === 'later' || paymentMethod;
       default:
@@ -671,16 +765,17 @@ export function BookingForm({ onComplete }: BookingFormProps) {
       
       const request: CreateAppointmentRequest = {
         companyId,
-        firstName,
-        lastName,
-        email,
-        phone,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
         serviceId: selectedServiceId!,
         staffId: selectedStaffId === -1 ? null : selectedStaffId,
         startTime: startTimeUtc,
         meetingType: mapMeetingType(meetingType),
         paymentMethod: mapPaymentMethod(paymentMethod),
-        notes: description || undefined,
+        timezone: customerTimezone,
+        notes: description.trim() || undefined,
       };
       
       const response = await createAppointment(request);
@@ -711,6 +806,7 @@ export function BookingForm({ onComplete }: BookingFormProps) {
         paymentMethod: paymentTiming === "later" ? "Pay Later" : paymentMethod,
         paymentTiming,
         status: response.status,
+        colors: customColors, // Pass colors to success screen
       };
       
       onComplete(details);
@@ -723,91 +819,100 @@ export function BookingForm({ onComplete }: BookingFormProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div 
+      className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 py-8 px-4 sm:px-6 lg:px-8"
+      style={{
+        '--brand-primary': customColors.primaryColor,
+        '--brand-secondary': customColors.secondaryColor,
+        '--brand-primary-ring': `${customColors.primaryColor}1a`, // 10% opacity
+      } as React.CSSProperties}
+    >
       <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 mb-4 sm:mb-6 transition-all duration-300 hover:shadow-lg">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+        {/* Header - Centered Logo */}
+        <div className="bg-white rounded-xl shadow-md border border-slate-200  mb-4 sm:mb-6 transition-all duration-300 hover:shadow-lg">
+          <div className="flex flex-col items-center text-center gap-3">
             {companyLogo && (
               <img 
                 src={companyLogo} 
                 alt="Company Logo" 
-                className="w-14 h-14 sm:w-20 sm:h-20 object-contain rounded-lg flex-shrink-0" 
+                className="w-14 h-14 sm:w-20 sm:h-20 object-contain rounded-lg" 
               />
             )}
-            <div>
+            {/* <div>
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mb-1">Book Your Appointment</h1>
               <p className="text-slate-600 text-xs sm:text-sm">Complete the form to schedule your session</p>
-            </div>
+            </div> */}
           </div>
         </div>
 
-        {/* Enhanced Progress Steps */}
-        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 lg:p-8 mb-4 sm:mb-6">
-          <div className="relative">
-            {/* Progress Line */}
-            <div className="absolute top-4 sm:top-6 left-0 right-0 h-0.5 sm:h-1 bg-slate-200 -z-10">
-              <div
-                className="h-full bg-gradient-to-r from-indigo-500 to-indigo-600 transition-all duration-500 ease-out"
-                style={{ width: `${((step - 1) / (STEPS.length - 1)) * 100}%` }}
-              />
-            </div>
+        {/* Main Container with Side Steps and Content */}
+        <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">
+          {/* Side Menu Steps */}
+          <div className="lg:w-56 flex-shrink-0">
+            <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4 lg:sticky lg:top-4">
+              <div className="flex lg:flex-col gap-2 lg:gap-1 overflow-x-auto lg:overflow-visible">
+                {STEPS.map((s) => {
+                  const isActive = step === s.number;
+                  const isCompleted = step > s.number;
+                  const Icon = s.icon;
 
-            {/* Steps */}
-            <div className="flex items-center justify-between">
-              {STEPS.map((s) => {
-                const isActive = step === s.number;
-                const isCompleted = step > s.number;
-                const Icon = s.icon;
-
-                return (
-                  <div 
-                    key={s.number} 
-                    className="flex flex-col items-center relative z-10"
-                    role="progressbar"
-                    aria-valuenow={step}
-                    aria-valuemin={1}
-                    aria-valuemax={STEPS.length}
-                    aria-label={`Step ${s.number}: ${s.name}`}
-                  >
-                    <div
-                      className={`
-                        w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center mb-1.5 sm:mb-3 transition-all duration-300 border-2
-                        ${isCompleted 
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-200 scale-105 sm:scale-110' 
-                          : isActive
-                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200 scale-105 sm:scale-110'
-                          : 'bg-white border-slate-300 text-slate-400'
-                        }
-                      `}
+                  return (
+                    <div 
+                      key={s.number} 
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 min-w-max lg:min-w-0 ${
+                        isActive
+                          ? 'bg-[var(--brand-primary-ring)] border-l-4 border-[var(--brand-primary)]'
+                          : isCompleted
+                          ? 'bg-emerald-50'
+                          : 'hover:bg-slate-50'
+                      }`}
+                      role="progressbar"
+                      aria-valuenow={step}
+                      aria-valuemin={1}
+                      aria-valuemax={STEPS.length}
+                      aria-label={`Step ${s.number}: ${s.name}`}
                     >
-                      {isCompleted ? (
-                        <Check className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6" aria-hidden="true" />
-                      ) : (
-                        <Icon className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6" aria-hidden="true" />
-                      )}
+                      <div
+                        className={`
+                          w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 flex-shrink-0
+                          ${isCompleted 
+                            ? 'bg-emerald-600 text-white' 
+                            : isActive
+                            ? 'text-white'
+                            : 'bg-slate-200 text-slate-500'
+                          }
+                        `}
+                        style={isActive && !isCompleted ? { backgroundColor: customColors.primaryColor } : undefined}
+                      >
+                        {isCompleted ? (
+                          <Check className="w-4 h-4" aria-hidden="true" />
+                        ) : (
+                          <Icon className="w-4 h-4" aria-hidden="true" />
+                        )}
+                      </div>
+                      <span 
+                        className={`
+                          text-sm font-medium transition-colors duration-300 whitespace-nowrap
+                          ${isCompleted ? 'text-emerald-700' : 'text-slate-600'}
+                        `}
+                        style={isActive && !isCompleted ? { color: customColors.primaryColor } : undefined}
+                      >
+                        {s.name}
+                      </span>
                     </div>
-                    <span 
-                      className={`
-                        text-[10px] sm:text-xs lg:text-sm font-medium transition-colors duration-300 text-center
-                        ${isActive ? 'text-indigo-700' : isCompleted ? 'text-emerald-700' : 'text-slate-500'}
-                      `}
-                    >
-                      {s.name}
-                    </span>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Form Content */}
-        <div 
-          className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 lg:p-8 mb-4 sm:mb-6"
-          role="main"
-          aria-live="polite"
-        >
+          {/* Form Content */}
+          <div className="flex-1">
+            <div 
+              className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 lg:p-8"
+              role="main"
+              aria-live="polite"
+            >
           {/* Step 1 - Service Selection */}
           {step === 1 && (
             <div className="space-y-6 animate-fadeIn">
@@ -816,8 +921,8 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                   htmlFor="service-select"
                   className="flex items-center gap-2 mb-3 text-slate-900 font-semibold text-lg"
                 >
-                  <Briefcase className="w-5 h-5 text-indigo-600" aria-hidden="true" />
-                  Select Service
+                  <Briefcase className="w-5 h-5" style={{ color: customColors.primaryColor }} aria-hidden="true" />
+                  Select {customLabels.serviceLabel}
                 </label>
                 <CustomSelect
                   id="service-select"
@@ -829,8 +934,9 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                     subLabel: `${getCurrencySymbol(s.currency)}${s.price} (${s.serviceDuration} min)`
                   })) : []}
                   isLoading={servicesLoading}
-                  placeholder="Choose a service..."
+                  placeholder={`Choose a ${customLabels.serviceLabel.toLowerCase()}...`}
                   error={servicesError}
+                  primaryColor={customColors.primaryColor}
                 />
               </div>
 
@@ -839,8 +945,8 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                   htmlFor="staff-select"
                   className="flex items-center gap-2 mb-3 text-slate-900 font-semibold text-lg"
                 >
-                  <Users className="w-5 h-5 text-indigo-600" aria-hidden="true" />
-                  Select Staff Member
+                  <Users className="w-5 h-5" style={{ color: customColors.primaryColor }} aria-hidden="true" />
+                  Select {customLabels.staffLabel}
                 </label>
                 <CustomSelect
                   id="staff-select"
@@ -856,8 +962,9 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                   ]}
                   isLoading={staffLoading}
                   disabled={!selectedServiceId}
-                  placeholder={!selectedServiceId ? "Please select a service first..." : "Choose a staff member..."}
+                  placeholder={!selectedServiceId ? `Please select a ${customLabels.serviceLabel.toLowerCase()} first...` : `Choose a ${customLabels.staffLabel.toLowerCase()}...`}
                   error={staffError}
+                  primaryColor={customColors.primaryColor}
                 />
               </div>
             </div>
@@ -868,7 +975,7 @@ export function BookingForm({ onComplete }: BookingFormProps) {
             <div className="space-y-6 animate-fadeIn">
               <div>
                 <label className="flex items-center gap-2 mb-4 text-slate-900 font-semibold text-lg">
-                  <MapPin className="w-5 h-5 text-indigo-600" aria-hidden="true" />
+                  <MapPin className="w-5 h-5" style={{ color: customColors.primaryColor }} aria-hidden="true" />
                   Meeting Location
                 </label>
                 <div 
@@ -882,7 +989,23 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                       <button
                         key={loc.value}
                         type="button"
+                        role="radio"
+                        aria-checked={meetingType === loc.value}
+                        aria-label={`${loc.label}: ${loc.description}`}
+                        className={`
+                          relative p-6 rounded-xl border-2 transition-all duration-300 text-center flex flex-col items-center justify-center gap-3 min-h-[140px]
+                          focus:outline-none focus:ring-4 focus:ring-indigo-300
+                          ${loc.isComingSoon
+                            ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed'
+                            : meetingType === loc.value
+                            ? `border-indigo-600 bg-gradient-to-br ${loc.gradient} text-white shadow-lg scale-105 cursor-pointer`
+                            : formErrors.meetingType
+                            ? 'border-rose-500 hover:border-rose-400 bg-white cursor-pointer'
+                            : 'border-slate-200 hover:border-indigo-300 bg-white hover:shadow-md cursor-pointer'
+                          }
+                        `}
                         onClick={() => {
+                          if (loc.isComingSoon) return;
                           setMeetingType(loc.value);
                           if (formErrors.meetingType) {
                             const newErrors = { ...formErrors };
@@ -890,20 +1013,12 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                             setFormErrors(newErrors);
                           }
                         }}
-                        role="radio"
-                        aria-checked={meetingType === loc.value}
-                        aria-label={`${loc.label}: ${loc.description}`}
-                        className={`
-                          relative p-6 rounded-xl border-2 transition-all duration-300 text-center flex flex-col items-center justify-center gap-3 min-h-[140px]
-                          focus:outline-none focus:ring-4 focus:ring-indigo-300
-                          ${meetingType === loc.value
-                            ? `border-indigo-600 bg-gradient-to-br ${loc.gradient} text-white shadow-lg scale-105`
-                            : formErrors.meetingType
-                            ? 'border-rose-500 hover:border-rose-400 bg-white'
-                            : 'border-slate-200 hover:border-indigo-300 bg-white hover:shadow-md'
-                          }
-                        `}
                       >
+                        {loc.isComingSoon && (
+                          <div className="absolute top-2 right-2 bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
+                            Coming Soon
+                          </div>
+                        )}
                         {meetingType === loc.value && (
                           <div className="absolute top-3 right-3">
                             <CheckCircle2 className="w-6 h-6" aria-hidden="true" />
@@ -917,7 +1032,7 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                             : 'bg-slate-50'
                           }
                         `}>
-                          <Icon className={`w-8 h-8 ${meetingType === loc.value ? 'text-white' : 'text-indigo-600'}`} aria-hidden="true" />
+                          <Icon className={`w-8 h-8 ${meetingType === loc.value ? 'text-white' : ''}`} style={meetingType !== loc.value ? { color: customColors.primaryColor } : undefined} aria-hidden="true" />
                         </div>
                         
                         <div>
@@ -949,7 +1064,7 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                   htmlFor="timezone-select"
                   className="flex items-center gap-2 mb-3 text-slate-900 font-semibold"
                 >
-                  <Globe className="w-5 h-5 text-indigo-600" aria-hidden="true" />
+                  <Globe className="w-5 h-5" style={{ color: customColors.primaryColor }} aria-hidden="true" />
                   Your Timezone
                 </label>
                 <div className="flex items-center gap-3">
@@ -980,23 +1095,24 @@ export function BookingForm({ onComplete }: BookingFormProps) {
           {/* Step 4 - Personal Details */}
           {step === 4 && (
             <div className="space-y-6 animate-fadeIn">
-              <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-5">
-                <h3 className="text-indigo-900 font-semibold mb-3 text-lg">You are booking:</h3>
-                <div className="space-y-2 text-sm">
-                  <p className="text-slate-900">
-                    <span className="text-slate-700 font-medium">Date:</span> {selectedDate?.toLocaleDateString('en-US', { 
-                      month: 'long', 
-                      day: 'numeric', 
-                      year: 'numeric' 
-                    })}
-                  </p>
-                  <p className="text-slate-900">
-                    <span className="text-slate-700 font-medium">Time:</span> {selectedTime}
-                  </p>
-                  <p className="text-slate-900">
-                    <span className="text-slate-700 font-medium">Price:</span> {getCurrencySymbolForService()}{getServicePrice()}
-                  </p>
-                </div>
+              {/* Compact Booking Summary */}
+              <div 
+                className="border-2 rounded-xl p-4 flex flex-wrap items-center gap-x-6 gap-y-2"
+                style={{ 
+                  backgroundColor: `${customColors.primaryColor}0d`, // 5% opacity
+                  borderColor: `${customColors.primaryColor}33`, // 20% opacity
+                }}
+              >
+                <h3 className="font-semibold" style={{ color: customColors.primaryColor }}>You are booking:</h3>
+                <span className="text-sm text-slate-900">
+                  <span className="text-slate-600 font-medium">Date:</span> {selectedDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+                <span className="text-sm text-slate-900">
+                  <span className="text-slate-600 font-medium">Time:</span> {selectedTime}
+                </span>
+                <span className="text-sm text-slate-900">
+                  <span className="text-slate-600 font-medium">Price:</span> {getCurrencySymbolForService()}{getServicePrice()}
+                </span>
               </div>
 
               <p className="text-slate-700 font-medium">
@@ -1027,7 +1143,7 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                       className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
                         formErrors.firstName 
                           ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
-                          : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
+                          : 'border-slate-300 focus:ring-[var(--brand-primary-ring)] focus:border-[var(--brand-primary)]'
                       }`}
                     />
                     {formErrors.firstName && (
@@ -1058,7 +1174,7 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                       className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
                         formErrors.lastName 
                           ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
-                          : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
+                          : 'border-slate-300 focus:ring-[var(--brand-primary-ring)] focus:border-[var(--brand-primary)]'
                       }`}
                     />
                     {formErrors.lastName && (
@@ -1069,68 +1185,74 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                   </div>
                 </div>
 
-                <div>
-                  <label htmlFor="phone" className="block mb-2 text-slate-900 font-medium">
-                    Phone <span className="text-rose-600">*</span>
+                <div className="pt-4 border-t border-slate-100">
+                  <label className="block mb-4 text-slate-900 font-semibold text-base">
+                    Contact Information <span className="text-slate-500 font-normal text-sm ml-1">(One required)</span>
                   </label>
-                  <input
-                    id="phone"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => {
-                      setPhone(e.target.value.replace(/[^\d+\s\-()]/g, ''));
-                      if (formErrors.phone) {
-                        const newErrors = { ...formErrors };
-                        delete newErrors.phone;
-                        setFormErrors(newErrors);
-                      }
-                    }}
-                    placeholder="+1 (555) 123-4567"
-                    aria-invalid={!!formErrors.phone}
-                    aria-describedby={formErrors.phone ? "phone-error" : undefined}
-                    className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
-                      formErrors.phone 
-                        ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
-                        : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
-                    }`}
-                  />
-                  {formErrors.phone && (
-                    <p id="phone-error" className="text-rose-600 text-sm mt-1" role="alert">
-                      {formErrors.phone}
-                    </p>
-                  )}
-                </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="phone" className="block mb-2 text-slate-700 text-sm font-medium">
+                        Phone Number
+                      </label>
+                      <PhoneInput
+                        id="phone"
+                        value={phone}
+                        timezone={customerTimezone}
+                        onChange={(val) => {
+                          setPhone(val);
+                          if (formErrors.phone) {
+                            const newErrors = { ...formErrors };
+                            delete newErrors.phone;
+                            setFormErrors(newErrors);
+                          }
+                        }}
+                        placeholder="Enter phone number"
+                        error={formErrors.phone}
+                      />
+                    </div>
 
-                <div>
-                  <label htmlFor="email" className="block mb-2 text-slate-900 font-medium">
-                    Email <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      if (formErrors.email) {
-                        const newErrors = { ...formErrors };
-                        delete newErrors.email;
-                        setFormErrors(newErrors);
-                      }
-                    }}
-                    placeholder="john.doe@example.com"
-                    aria-invalid={!!formErrors.email}
-                    aria-describedby={formErrors.email ? "email-error" : undefined}
-                    className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
-                      formErrors.email 
-                        ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
-                        : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
-                    }`}
-                  />
-                  {formErrors.email && (
-                    <p id="email-error" className="text-rose-600 text-sm mt-1" role="alert">
-                      {formErrors.email}
-                    </p>
-                  )}
+                    <div className="relative flex items-center justify-center">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-slate-200"></div>
+                      </div>
+                      <div className="relative px-3 bg-white">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">OR</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="email" className="block mb-2 text-slate-700 text-sm font-medium">
+                        Email Address
+                      </label>
+                      <input
+                        id="email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                          if (formErrors.email) {
+                            const newErrors = { ...formErrors };
+                            delete newErrors.email;
+                            setFormErrors(newErrors);
+                          }
+                        }}
+                        placeholder="john.doe@example.com"
+                        aria-invalid={!!formErrors.email}
+                        aria-describedby={formErrors.email ? "email-error" : undefined}
+                        className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 ${
+                          formErrors.email 
+                            ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
+                            : 'border-slate-300 focus:ring-[var(--brand-primary-ring)] focus:border-[var(--brand-primary)]'
+                        }`}
+                      />
+                      {formErrors.email && (
+                        <p id="email-error" className="text-rose-600 text-sm mt-1" role="alert">
+                          {formErrors.email}
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div>
@@ -1156,7 +1278,7 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                     className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-4 transition-all duration-200 resize-none ${
                       formErrors.description 
                         ? 'border-rose-500 focus:ring-rose-300 focus:border-rose-500' 
-                        : 'border-slate-300 focus:ring-indigo-300 focus:border-indigo-500'
+                        : 'border-slate-300 focus:ring-[var(--brand-primary-ring)] focus:border-[var(--brand-primary)]'
                     }`}
                   />
                   {formErrors.description && (
@@ -1175,6 +1297,8 @@ export function BookingForm({ onComplete }: BookingFormProps) {
           {/* Step 5 - Payment */}
           {step === 5 && (
             <div className="space-y-6 animate-fadeIn">
+              {/* Service Price Header - Commented out temporarily */}
+              {/*
               <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-2 border-indigo-200 rounded-xl p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1186,30 +1310,37 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                   </div>
                 </div>
               </div>
+              */}
 
               <div>
                 <label className="flex items-center gap-2 mb-4 text-slate-900 font-semibold text-lg">
-                  <CreditCard className="w-5 h-5 text-indigo-600" aria-hidden="true" />
+                  <CreditCard className="w-5 h-5" style={{ color: customColors.primaryColor }} aria-hidden="true" />
                   When would you like to pay?
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPaymentTiming('now');
-                      setPaymentMethod('');
-                    }}
-                    className={`
-                      py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-300
-                      ${paymentTiming === 'now'
-                        ? 'border-indigo-600 bg-indigo-50 shadow-md'
-                        : 'border-slate-300 hover:border-indigo-300 bg-white hover:shadow-sm'
-                      }
-                    `}
-                  >
-                    <CreditCard className={`w-6 h-6 mx-auto mb-2 ${paymentTiming === 'now' ? 'text-indigo-600' : 'text-slate-600'}`} aria-hidden="true" />
-                    <span className={`font-semibold ${paymentTiming === 'now' ? 'text-indigo-900' : 'text-slate-900'}`}>Pay Now</span>
-                  </button>
+                  {showPayNow && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentTiming('now');
+                        setPaymentMethod('');
+                      }}
+                      className={`
+                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)]
+                        ${paymentTiming === 'now'
+                          ? 'shadow-md'
+                          : 'border-slate-300 hover:shadow-sm'
+                        }
+                      `}
+                      style={paymentTiming === 'now' ? { 
+                        borderColor: customColors.primaryColor, 
+                        backgroundColor: `${customColors.primaryColor}0d` // 5% opacity
+                      } : undefined}
+                    >
+                      <CreditCard className={`w-6 h-6 mx-auto mb-2 ${paymentTiming !== 'now' ? 'text-slate-600' : ''}`} style={paymentTiming === 'now' ? { color: customColors.primaryColor } : undefined} aria-hidden="true" />
+                      <span className={`font-semibold ${paymentTiming !== 'now' ? 'text-slate-900' : ''}`} style={paymentTiming === 'now' ? { color: customColors.primaryColor } : undefined}>Pay Now</span>
+                    </button>
+                  )}
                   {canShowPayLater && (
                     <button
                       type="button"
@@ -1218,15 +1349,19 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                         setPaymentMethod('');
                       }}
                       className={`
-                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-300
+                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)]
                         ${paymentTiming === 'later'
-                          ? 'border-indigo-600 bg-indigo-50 shadow-md'
-                          : 'border-slate-300 hover:border-indigo-300 bg-white hover:shadow-sm'
+                          ? 'shadow-md'
+                          : 'border-slate-300 hover:shadow-sm'
                         }
                       `}
+                      style={paymentTiming === 'later' ? { 
+                        borderColor: customColors.primaryColor, 
+                        backgroundColor: `${customColors.primaryColor}0d` 
+                      } : undefined}
                     >
-                      <DollarSign className={`w-6 h-6 mx-auto mb-2 ${paymentTiming === 'later' ? 'text-indigo-600' : 'text-slate-600'}`} aria-hidden="true" />
-                      <span className={`font-semibold ${paymentTiming === 'later' ? 'text-indigo-900' : 'text-slate-900'}`}>Pay Later</span>
+                      <DollarSign className={`w-6 h-6 mx-auto mb-2 ${paymentTiming !== 'later' ? 'text-slate-600' : ''}`} style={paymentTiming === 'later' ? { color: customColors.primaryColor } : undefined} aria-hidden="true" />
+                      <span className={`font-semibold ${paymentTiming !== 'later' ? 'text-slate-900' : ''}`} style={paymentTiming === 'later' ? { color: customColors.primaryColor } : undefined}>Pay Later</span>
                     </button>
                   )}
                 </div>
@@ -1250,17 +1385,19 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                         type="button"
                         onClick={() => setPaymentMethod(method.name)}
                         className={`
-                          py-4 px-3 rounded-xl border-2 transition-all duration-300 text-center focus:outline-none focus:ring-4 focus:ring-indigo-300
+                          py-4 px-3 rounded-xl border-2 transition-all duration-300 text-center focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)]
                           ${paymentMethod === method.name
-                            ? 'border-indigo-600 bg-indigo-50 shadow-md scale-105'
-                            : 'border-slate-300 hover:border-indigo-300 bg-white hover:shadow-sm'
+                            ? 'shadow-md scale-[1.02]'
+                            : 'border-slate-300 bg-white hover:shadow-sm'
                           }
                         `}
+                        style={paymentMethod === method.name ? { 
+                          borderColor: customColors.primaryColor, 
+                          backgroundColor: `${customColors.primaryColor}0d` 
+                        } : undefined}
                       >
                         <div className="text-2xl mb-2">{method.icon}</div>
-                        <p className={`text-sm font-semibold mb-1 ${paymentMethod === method.name ? 'text-indigo-900' : 'text-slate-900'}`}>
-                          {method.name}
-                        </p>
+                        <div className={`font-semibold text-sm ${paymentMethod !== method.name ? 'text-slate-900' : ''}`} style={paymentMethod === method.name ? { color: customColors.primaryColor } : undefined}>{method.name}</div>
                         <p className="text-xs text-slate-600">{method.description}</p>
                       </button>
                     ))}
@@ -1303,81 +1440,85 @@ export function BookingForm({ onComplete }: BookingFormProps) {
                   </div>
                   <div className="flex justify-between py-3 mt-3 bg-white rounded-lg px-3">
                     <span className="text-slate-900 font-bold text-base">Total:</span>
-                    <span className="text-indigo-600 font-bold text-xl">{getCurrencySymbolForService()}{getServicePrice()}</span>
+                    <span className="font-bold text-xl" style={{ color: customColors.primaryColor }}>{getCurrencySymbolForService()}{getServicePrice()}</span>
                   </div>
                 </div>
               </div>
             </div>
           )}
-        </div>
 
-        {/* Navigation */}
-        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4 sm:p-6 flex items-center justify-between gap-3">
-          {step > 1 ? (
-            <button
-              type="button"
-              onClick={handleBack}
-              className="flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-slate-700 hover:bg-slate-100 rounded-lg transition-all duration-200 border-2 border-slate-300 font-medium focus:outline-none focus:ring-4 focus:ring-slate-300 min-h-[44px] sm:min-h-[48px] text-sm sm:text-base"
-              aria-label="Go back to previous step"
-            >
-              <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
-              Back
-            </button>
-          ) : (
-            <div />
-          )}
-
-          {step < 5 ? (
-            <button
-              type="button"
-              onClick={handleNext}
-              disabled={!canProceed()}
-              aria-label="Continue to next step"
-              className={`
-                flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg transition-all duration-300 font-semibold min-h-[44px] sm:min-h-[48px] text-sm sm:text-base focus:outline-none focus:ring-4
-                ${canProceed()
-                  ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-lg focus:ring-indigo-300 transform hover:scale-105'
-                  : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
-                }
-              `}
-            >
-              Next
-              <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
-            </button>
-          ) : (
-            <div className="flex flex-col items-end gap-2">
-              {submitError && (
-                <p className="text-rose-600 text-sm" role="alert">
-                  {submitError}
-                </p>
-              )}
-              <button
-                type="button"
-                onClick={handleConfirm}
-                disabled={!canProceed() || isSubmitting}
-                aria-label={isSubmitting ? "Processing booking..." : "Confirm booking"}
-                className={`
-                  flex items-center gap-2 px-8 py-3 rounded-lg transition-all duration-300 font-semibold min-h-[48px] focus:outline-none focus:ring-4
-                  ${canProceed() && !isSubmitting
-                    ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md hover:shadow-lg focus:ring-emerald-300 transform hover:scale-105'
-                    : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
-                  }
-                `}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
-                    Processing...
-                  </>
+              {/* Navigation - Now inside content container */}
+              <div className="mt-6 pt-6 border-t border-slate-200 flex items-center justify-between gap-3">
+                {step > 1 ? (
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-slate-700 hover:bg-slate-100 rounded-lg transition-all duration-200 border-2 border-slate-300 font-medium focus:outline-none focus:ring-4 focus:ring-slate-300 min-h-[44px] sm:min-h-[48px] text-sm sm:text-base"
+                    aria-label="Go back to previous step"
+                  >
+                    <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
+                    Back
+                  </button>
                 ) : (
-                  <>
-                    <Check className="w-5 h-5" aria-hidden="true" />
-                    {paymentTiming === 'now' ? 'Proceed to Payment' : 'Confirm Booking'}
-                  </>
+                  <div />
                 )}
-              </button>
+
+                {step < 5 ? (
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    disabled={!canProceed()}
+                    aria-label="Continue to next step"
+                    style={canProceed() ? { backgroundColor: customColors.primaryColor } : undefined}
+                    className={`
+                      flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg transition-all duration-300 font-semibold min-h-[44px] sm:min-h-[48px] text-sm sm:text-base focus:outline-none focus:ring-4
+                      ${canProceed()
+                        ? 'text-white shadow-md hover:shadow-lg hover:brightness-110 focus:ring-indigo-300 transform hover:scale-105'
+                        : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
+                      }
+                    `}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
+                  </button>
+                ) : (
+                  <div className="flex flex-col items-end gap-2">
+                    {submitError && (
+                      <p className="text-rose-600 text-sm" role="alert">
+                        {submitError}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleConfirm}
+                      disabled={!canProceed() || isSubmitting}
+                      aria-label={isSubmitting ? "Processing booking..." : "Confirm booking"}
+                      style={canProceed() && !isSubmitting ? { backgroundColor: customColors.secondaryColor } : undefined}
+                      className={`
+                        flex items-center gap-2 px-8 py-3 rounded-lg transition-all duration-300 font-semibold min-h-[48px] focus:outline-none focus:ring-4
+                        ${canProceed() && !isSubmitting
+                          ? 'text-white shadow-md hover:shadow-lg hover:brightness-110 focus:ring-emerald-300 transform hover:scale-105'
+                          : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
+                        }
+                      `}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-5 h-5" aria-hidden="true" />
+                          {paymentTiming === 'now' ? 'Proceed to Payment' : 'Confirm Booking'}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

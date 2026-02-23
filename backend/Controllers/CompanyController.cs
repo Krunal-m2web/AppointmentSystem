@@ -88,7 +88,10 @@ public async Task<IActionResult> UploadLogo(IFormFile file)
                 UpdatedAt = company.UpdatedAt,
                 LogoUrl = company.LogoUrl,
                 WebsiteUrl = company.WebsiteUrl,
-                Slug = company.Slug
+                Slug = company.Slug,
+                BookingFormPrimaryColor = company.BookingFormPrimaryColor,
+                BookingFormSecondaryColor = company.BookingFormSecondaryColor,
+                BookingFormLabels = company.BookingFormLabels
             });
         }
 
@@ -143,6 +146,11 @@ public async Task<IActionResult> UploadLogo(IFormFile file)
                 if (dto.IsActive.HasValue) company.IsActive = dto.IsActive.Value;
                 if (dto.LogoUrl != null) company.LogoUrl = dto.LogoUrl;
                 if (dto.WebsiteUrl != null) company.WebsiteUrl = dto.WebsiteUrl;
+                
+                // Booking Form Customization
+                if (dto.BookingFormPrimaryColor != null) company.BookingFormPrimaryColor = dto.BookingFormPrimaryColor;
+                if (dto.BookingFormSecondaryColor != null) company.BookingFormSecondaryColor = dto.BookingFormSecondaryColor;
+                if (dto.BookingFormLabels != null) company.BookingFormLabels = dto.BookingFormLabels;
 
                 company.UpdatedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
@@ -163,11 +171,14 @@ public async Task<IActionResult> UploadLogo(IFormFile file)
 
             return Ok(new CompanyResponseDto
             {
-                CompanyName = company.CompanyName, // Still needed for internal logic or meta tags if used
-                LogoUrl = company.LogoUrl, // Using LogoUrl field for storing Base64 for now based on context
+                CompanyName = company.CompanyName,
+                LogoUrl = company.LogoUrl,
                 Phone = company.Phone,
                 Email = company.Email,
-                WebsiteUrl = company.WebsiteUrl
+                WebsiteUrl = company.WebsiteUrl,
+                BookingFormPrimaryColor = company.BookingFormPrimaryColor,
+                BookingFormSecondaryColor = company.BookingFormSecondaryColor,
+                BookingFormLabels = company.BookingFormLabels
             });
         }
         [AllowAnonymous]
@@ -185,7 +196,10 @@ public async Task<IActionResult> UploadLogo(IFormFile file)
                 Email = company.Email,
                 WebsiteUrl = company.WebsiteUrl,
                 LogoUrl = company.LogoUrl,
-                Slug = company.Slug
+                Slug = company.Slug,
+                BookingFormPrimaryColor = company.BookingFormPrimaryColor,
+                BookingFormSecondaryColor = company.BookingFormSecondaryColor,
+                BookingFormLabels = company.BookingFormLabels
             });
         }
         private async Task<string> GenerateUniqueSlugAsync(string companyName, int? existingCompanyId = null)

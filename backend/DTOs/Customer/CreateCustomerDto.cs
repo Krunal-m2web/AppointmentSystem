@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 
+using Appointmentbookingsystem.Backend.Attributes;
+
 namespace Appointmentbookingsystem.Backend.DTOs.Customer
 {
     public class CreateCustomerDto
@@ -10,11 +12,10 @@ namespace Appointmentbookingsystem.Backend.DTOs.Customer
         [Required, MinLength(3), MaxLength(50)]
         public string LastName { get; set; } = null!;
 
-        [Required, EmailAddress, MaxLength(255)]
-        public string Email { get; set; } = null!;
+        [EmailAddress, MaxLength(255)]
+        public string? Email { get; set; }
 
-        [Phone]
-        [MaxLength(20)]
+        [PhoneNumber]
         public string? Phone { get; set; }
 
         [MaxLength(1000)]

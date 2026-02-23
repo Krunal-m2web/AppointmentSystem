@@ -24,7 +24,11 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
 
         public string? Status { get; set; } // Allow status update too
 
+        public string? Timezone { get; set; }
+
         [MaxLength(1000)]
         public string? Notes { get; set; }
+
+        public decimal? Price { get; set; }
     }
 }

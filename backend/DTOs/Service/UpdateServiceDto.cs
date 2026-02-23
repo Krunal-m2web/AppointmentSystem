@@ -13,7 +13,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Service
         [Range(0, 100000)]
         public decimal? Price { get; set; }
 
-        [Range(15, 480)]
+        [Range(1, 480)]
         public int? ServiceDuration { get; set; }
 
         public bool? IsActive { get; set; }

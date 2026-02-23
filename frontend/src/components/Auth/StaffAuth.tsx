@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Building, AlertCircle, Loader2 } from 'lucide-react';
+import { ShieldCheck, Building, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { staffLogin, staffRegister, saveToken, saveCompanyId, saveUserRole } from '../../services/authService';
 import { validateInvite } from '../../services/inviteApi';
@@ -31,6 +31,7 @@ const StaffAuth = () => {
   const [loginFieldErrors, setLoginFieldErrors] = useState<LoginFieldErrors>({});
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   // REGISTER STATE
   const [regEmail, setRegEmail] = useState('');
@@ -42,6 +43,7 @@ const StaffAuth = () => {
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
   const [regLoading, setRegLoading] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
   
   // INVITE STATE
   // params moved up
@@ -336,18 +338,31 @@ const StaffAuth = () => {
                 >
                   Password
                 </label>
-                <input
-                  id="loginPassword"
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => handleLoginPasswordChange(e.target.value)}
-                  placeholder="••••••••"
-                  className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 bg-gray-50 ${
-                    loginFieldErrors.password 
-                      ? 'border-red-400 focus:ring-red-500' 
-                      : 'border-gray-200 focus:ring-indigo-500'
-                  }`}
-                />
+                <div className="relative">
+                  <input
+                    id="loginPassword"
+                    type={showLoginPassword ? "text" : "password"}
+                    value={loginPassword}
+                    onChange={(e) => handleLoginPasswordChange(e.target.value)}
+                    placeholder="••••••••"
+                    className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 bg-gray-50 ${
+                      loginFieldErrors.password 
+                        ? 'border-red-400 focus:ring-red-500' 
+                        : 'border-gray-200 focus:ring-indigo-500'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                  >
+                    {showLoginPassword ? (
+                      <EyeOff className="w-5 h-5" />
+                    ) : (
+                      <Eye className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
                 {loginFieldErrors.password && (
                   <p className="mt-1 text-sm text-red-500">{loginFieldErrors.password}</p>
                 )}
@@ -493,18 +508,31 @@ const StaffAuth = () => {
                     >
                       Password
                     </label>
-                    <input
-                      id="regPassword"
-                      type="password"
-                      value={regPassword}
-                      onChange={(e) => handleRegPasswordChange(e.target.value)}
-                      placeholder="At least 6 characters"
-                      className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 bg-gray-50 ${
-                        regFieldErrors.password 
-                          ? 'border-red-400 focus:ring-red-500' 
-                          : 'border-gray-200 focus:ring-indigo-500'
-                      }`}
-                    />
+                    <div className="relative">
+                      <input
+                        id="regPassword"
+                        type={showRegPassword ? "text" : "password"}
+                        value={regPassword}
+                        onChange={(e) => handleRegPasswordChange(e.target.value)}
+                        placeholder="At least 6 characters"
+                        className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 bg-gray-50 ${
+                          regFieldErrors.password 
+                            ? 'border-red-400 focus:ring-red-500' 
+                            : 'border-gray-200 focus:ring-indigo-500'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRegPassword(!showRegPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                      >
+                        {showRegPassword ? (
+                          <EyeOff className="w-5 h-5" />
+                        ) : (
+                          <Eye className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
                     {regFieldErrors.password && (
                       <p className="mt-1 text-sm text-red-500">{regFieldErrors.password}</p>
                     )}

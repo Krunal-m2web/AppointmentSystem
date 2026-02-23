@@ -66,6 +66,16 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [MaxLength(1000)]
         public string? Notes { get; set; }
 
+        public Guid BookingToken { get; set; } = Guid.NewGuid();
+
+        [MaxLength(500)]
+        public string? CancellationReason { get; set; }
+
+        public DateTime? CancelledAt { get; set; } // Tracks when appointment was cancelled (for delayed cancellation emails)
+
+        [MaxLength(50)]
+        public string? Timezone { get; set; } // e.g. "UTC", "America/New_York"
+
         public bool ReminderSent { get; set; }
         public bool FollowupSent { get; set; }
 

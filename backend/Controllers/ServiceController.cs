@@ -250,9 +250,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
             return Ok(response);
         }
 
-        /// <summary>
-        /// DELETE /api/services/{id} - Soft delete a service
-        /// </summary>
         [HttpDelete("{id:int}")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteService(int id)
@@ -269,6 +266,37 @@ namespace Appointmentbookingsystem.Backend.Controllers
             await _context.SaveChangesAsync();
 
             return Ok(new { message = "Service deactivated successfully." });
+        }
+
+        [HttpPost("bulk-delete")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult> BulkDeleteServices([FromBody] List<int> ids)
+        {
+            if (ids == null || !ids.Any())
+                return BadRequest("No service IDs provided.");
+
+            var companyIdClaim = User.FindFirst("companyId");
+            
+            var query = _context.Services.Where(s => ids.Contains(s.Id) && s.IsActive);
+
+            if (companyIdClaim != null && int.TryParse(companyIdClaim.Value, out int companyId))
+            {
+                query = query.Where(s => s.CompanyId == companyId);
+            }
+
+            var services = await query.ToListAsync();
+
+            if (!services.Any())
+                return Ok();
+
+            foreach (var service in services)
+            {
+                service.IsActive = false;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return NoContent();
         }
     }
 }

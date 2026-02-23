@@ -105,8 +105,15 @@ const AdminRegister = () => {
 
   const validateStep2 = (): boolean => {
     const errors: FieldErrors = {};
-    if (!companyName.trim()) errors.companyName = 'Company name is required';
-    if (!companyCountry) errors.companyCountry = 'Company country is required';
+    
+    if (!companyName.trim()) {
+      errors.companyName = 'Company name is required';
+    } else if (companyName.trim().length < 3) {
+      errors.companyName = 'Company name must be at least 3 characters';
+    }
+
+    if (!companyCountry.trim()) errors.companyCountry = 'Company country is required';
+
     setFieldErrors(prev => ({ ...prev, ...errors }));
     return Object.keys(errors).length === 0;
   };

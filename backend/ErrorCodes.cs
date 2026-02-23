@@ -39,6 +39,8 @@ namespace Appointmentbookingsystem.Backend
         public const string CANNOT_DELETE = "CANNOT_DELETE";
         public const string TIME_OFF_OVERLAP = "TIME_OFF_OVERLAP";
         public const string ALREADY_EXISTS = "ALREADY_EXISTS";
+        public const string DUPLICATE_PHONE = "DUPLICATE_PHONE";
+        public const string DUPLICATE_RECORD = "DUPLICATE_RECORD";
     }
 
     /// <summary>

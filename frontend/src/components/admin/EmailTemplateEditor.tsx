@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { X, Save, Copy, Check, Mail, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 interface EmailTemplate {
   subject: string;
@@ -12,9 +14,21 @@ interface EmailTemplateEditorProps {
   onClose: () => void;
   onSave: (template: EmailTemplate) => void;
   template: EmailTemplate;
+  defaultTemplate?: EmailTemplate;
   title: string;
   description: string;
 }
+
+// Helper to convert plain text newlines to HTML paragraphs for Quill
+const processInitialValue = (content: string) => {
+  if (!content) return '';
+  // Check if it looks like HTML (has tags)
+  if (/<[a-z][\s\S]*>/i.test(content)) {
+    return content;
+  }
+  // Convert newlines to paragraphs
+  return content.split('\n').map(line => line.trim() === '' ? '<p><br></p>' : `<p>${line}</p>`).join('');
+};
 
 const DYNAMIC_VARIABLES = [
   {
@@ -48,7 +62,6 @@ const DYNAMIC_VARIABLES = [
     category: 'Staff Information',
     variables: [
       { name: '{{staff.name}}', description: 'Staff member name' },
-      { name: '{{staff.title}}', description: 'Staff member title' },
       { name: '{{staff.email}}', description: 'Staff member email' },
     ],
   },
@@ -67,7 +80,6 @@ const DYNAMIC_VARIABLES = [
     variables: [
       { name: '{{link.reschedule}}', description: 'Link to reschedule appointment' },
       { name: '{{link.cancel}}', description: 'Link to cancel appointment' },
-      { name: '{{link.viewAppointment}}', description: 'Link to view appointment details' },
     ],
   },
 ];
@@ -79,10 +91,20 @@ export function EmailTemplateEditor({
   template,
   title,
   description,
+  defaultTemplate,
 }: EmailTemplateEditorProps) {
-  const [subject, setSubject] = useState(template.subject);
-  const [body, setBody] = useState(template.body);
+  const [emailSubject, setEmailSubject] = useState(template.subject);
+  const [body, setBody] = useState(processInitialValue(template.body));
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [copiedVariable, setCopiedVariable] = useState<string | null>(null);
+  const quillRef = useRef<ReactQuill>(null);
+
+  const modules = {
+    toolbar: [
+      ['bold', 'italic', 'underline'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }]
+    ],
+  };
 
   const handleCopyVariable = (variable: string) => {
     navigator.clipboard.writeText(variable);
@@ -91,16 +113,34 @@ export function EmailTemplateEditor({
   };
 
   const handleInsertVariable = (variable: string) => {
-    setBody(body + ' ' + variable);
+    const quill = quillRef.current?.getEditor();
+    if (quill) {
+      const range = quill.getSelection();
+      const index = range ? range.index : quill.getLength();
+      quill.insertText(index, variable);
+      // Move cursor after inserted variable
+      quill.setSelection(index + variable.length, 0);
+      setBody(quill.root.innerHTML);
+    } else {
+       setBody(body + ' ' + variable);
+    }
   };
 
   const handleSave = () => {
-    onSave({ subject, body });
+    onSave({ subject: emailSubject, body });
     onClose();
   };
 
-  const handlePreview = () => {
-    // Create a preview with sample data
+  const handleResetToDefault = () => {
+    if (defaultTemplate) {
+        if (confirm('Are you sure you want to reset to the recommended template? This will lose current changes.')) {
+            setEmailSubject(defaultTemplate.subject);
+            setBody(defaultTemplate.body); // Default template is already HTML
+        }
+    }
+  };
+
+  const getPreviewContent = () => {
     const previewData = {
       'customer.name': 'John Doe',
       'customer.firstName': 'John',
@@ -115,7 +155,6 @@ export function EmailTemplateEditor({
       'service.price': '$150',
       'service.description': 'Initial consultation session',
       'staff.name': 'Dr. Sarah Smith',
-      'staff.title': 'Senior Consultant',
       'staff.email': 'sarah@example.com',
       'company.name': 'My Business',
       'company.email': 'info@mybusiness.com',
@@ -124,10 +163,9 @@ export function EmailTemplateEditor({
       'company.address': '123 Main St, City, ST 12345',
       'link.reschedule': 'https://mybusiness.com/reschedule/APT-12345',
       'link.cancel': 'https://mybusiness.com/cancel/APT-12345',
-      'link.viewAppointment': 'https://mybusiness.com/appointments/APT-12345',
     };
 
-    let previewSubject = subject;
+    let previewSubject = emailSubject;
     let previewBody = body;
 
     Object.entries(previewData).forEach(([key, value]) => {
@@ -136,11 +174,14 @@ export function EmailTemplateEditor({
       previewBody = previewBody.replace(regex, value);
     });
 
-    toast.info(`Preview for: ${previewSubject}`);
-    console.log("Template Preview:", { subject: previewSubject, body: previewBody });
-    // Note: Inline preview already shows this. 
-    // If the user really wants a popup, we suggest a dedicated PreviewModal later.
+    return { subject: previewSubject, body: previewBody };
   };
+
+  const handlePreview = () => {
+    setIsPreviewMode(!isPreviewMode);
+  };
+
+  const preview = getPreviewContent();
 
   if (!isOpen) return null;
 
@@ -176,8 +217,8 @@ export function EmailTemplateEditor({
                 </label>
                 <input
                   type="text"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
                   placeholder="Enter email subject..."
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
@@ -188,13 +229,17 @@ export function EmailTemplateEditor({
                 <label className="block text-sm text-gray-700 mb-2">
                   Email Body <span className="text-red-500">*</span>
                 </label>
-                <textarea
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                  placeholder="Write your email message here... Use dynamic variables from the right panel."
-                  rows={16}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none font-mono text-sm"
-                />
+                <div className="h-[400px] mb-12">
+                  <ReactQuill
+                     ref={quillRef}
+                     theme="snow"
+                     value={body}
+                     onChange={setBody}
+                     modules={modules}
+                     placeholder="Write your email message here... Use dynamic variables from the right panel."
+                     className="h-full"
+                  />
+                </div>
                 <p className="text-xs text-gray-500 mt-2">
                   Click on variables in the right panel to copy them, then paste into the subject or body.
                 </p>
@@ -210,21 +255,22 @@ export function EmailTemplateEditor({
                   <div className="mb-3 pb-3 border-b border-gray-200">
                     <p className="text-xs text-gray-500">Subject:</p>
                     <p className="text-sm text-gray-900 mt-1">
-                      {subject || <span className="text-gray-400">Subject will appear here...</span>}
+                      {isPreviewMode ? preview.subject : (emailSubject || <span className="text-gray-400">Subject will appear here...</span>)}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 mb-2">Body:</p>
                     <div className="text-sm text-gray-900 whitespace-pre-wrap">
-                      {body || <span className="text-gray-400">Email body will appear here...</span>}
+                    <div className="text-sm text-gray-900 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5" dangerouslySetInnerHTML={{ __html: isPreviewMode ? preview.body : (body || '<span class="text-gray-400">Email body will appear here...</span>') }} />
                     </div>
                   </div>
                 </div>
                 <button
                   onClick={handlePreview}
-                  className="mt-3 text-sm text-indigo-600 hover:text-indigo-700 hover:underline"
+                  className="mt-3 text-sm text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1"
                 >
-                  Preview with sample data
+                  <Sparkles className="w-3 h-3" />
+                  {isPreviewMode ? 'Show Raw Template' : 'Preview with sample data'}
                 </button>
               </div>
             </div>
@@ -239,7 +285,7 @@ export function EmailTemplateEditor({
                   </p>
                 </div>
 
-                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                <div className="space-y-4 max-h-[calc(90vh-320px)] overflow-y-auto pr-2 custom-scrollbar">
                   {DYNAMIC_VARIABLES.map((category) => (
                     <div key={category.category}>
                       <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-2">
@@ -249,7 +295,9 @@ export function EmailTemplateEditor({
                         {category.variables.map((variable) => (
                           <button
                             key={variable.name}
-                            onClick={() => handleCopyVariable(variable.name)}
+                            onClick={() => {
+                              handleCopyVariable(variable.name);
+                            }}
                             className="w-full text-left p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-indigo-300 transition-colors group"
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -283,13 +331,21 @@ export function EmailTemplateEditor({
         {/* Modal Footer */}
         <div className="bg-gray-50 border-t border-gray-200 p-6 flex items-center justify-between flex-shrink-0">
           <div className="text-sm text-gray-600">
-            {subject && body ? (
+            {emailSubject && body ? (
               <span className="text-green-600">✓ Template is complete</span>
             ) : (
               <span>Subject and body are required</span>
             )}
           </div>
           <div className="flex items-center gap-3">
+            {defaultTemplate && (
+                <button
+                    onClick={handleResetToDefault}
+                    className="mr-auto px-4 py-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors text-sm font-medium"
+                >
+                    Reset to Recommended
+                </button>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
@@ -298,7 +354,7 @@ export function EmailTemplateEditor({
             </button>
             <button
               onClick={handleSave}
-              disabled={!subject || !body}
+              disabled={!emailSubject || !body}
               className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />

@@ -47,6 +47,8 @@
             "react-day-picker": "^8.10.1",
             "react-dom": "^18.3.1",
             "react-hook-form": "^7.55.0",
+            "react-phone-number-input": "^3.4.14",
+            "react-quill": "^2.0.0",
             "react-resizable-panels": "^2.1.7",
             "react-router-dom": "^7.9.6",
             "recharts": "^2.15.2",
@@ -71,6 +73,9 @@
       },
       "scripts": {
             "dev": "vite",
-            "build": "vite build"
+            "build": "vite build",
+            "build:plugin": "vite build --config vite.plugin.config.ts",
+            "build:wp-block": "vite build --config vite.wp-block.config.ts",
+            "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
       }
 }

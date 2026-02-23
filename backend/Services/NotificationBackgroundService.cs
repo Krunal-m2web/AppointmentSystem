@@ -14,11 +14,13 @@ namespace Appointmentbookingsystem.Backend.Services
     public class NotificationBackgroundService : BackgroundService
     {
         private readonly IServiceProvider _serviceProvider;
-        private readonly TimeSpan _checkInterval = TimeSpan.FromMinutes(5);
+        private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
+        private readonly TimeSpan _checkInterval = TimeSpan.FromSeconds(30);
 
-        public NotificationBackgroundService(IServiceProvider serviceProvider)
+        public NotificationBackgroundService(IServiceProvider serviceProvider, Microsoft.Extensions.Configuration.IConfiguration configuration)
         {
             _serviceProvider = serviceProvider;
+            _configuration = configuration;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,7 +52,10 @@ namespace Appointmentbookingsystem.Backend.Services
                 // Note: We need to know per-company config for timing.
                 // For efficiency, we will fetch companies with enabled reminders first, or iterate active companies.
                 
-                var companies = await context.Companies.Where(c => c.IsActive && c.IsEmailServiceEnabled).ToListAsync();
+                // Fetch companies where EITHER Email OR Push is enabled generally
+                // Note: Company.IsEmailServiceEnabled is a master switch for EMAIL service. 
+                // We might need a Company.IsPushServiceEnabled later, but for now we assume Push is allowed if feature is on.
+                var companies = await context.Companies.Where(c => c.IsActive).ToListAsync();
 
                 foreach (var company in companies)
                 {
@@ -61,114 +66,174 @@ namespace Appointmentbookingsystem.Backend.Services
 
         private async Task ProcessCompanyNotifications(AppDbContext context, IEmailService emailService, Company company)
         {
-             // Get Configs
-             var reminderConfig = await context.NotificationConfigs
-                .FirstOrDefaultAsync(c => c.CompanyId == company.Id && c.Type == "appointmentReminder" && c.IsEnabled);
+            // Get all configs where IsEnabled is true
+            var configs = await context.NotificationConfigs
+                .Where(c => c.CompanyId == company.Id && c.IsEnabled && 
+                           (c.Type.StartsWith("appointmentReminder") || 
+                            c.Type.StartsWith("appointmentFollowUp") ||
+                            c.Type == "appointmentConfirmation" || 
+                            c.Type == "appointmentCancellation"))
+                .ToListAsync();
 
-             var followupConfig = await context.NotificationConfigs
-                .FirstOrDefaultAsync(c => c.CompanyId == company.Id && c.Type == "appointmentFollowup" && c.IsEnabled);
-             
-             // --- REMINDERS ---
-             if (reminderConfig != null)
-             {
-                 var now = DateTime.UtcNow;
-                 // Calculate time window. E.g. TimingValue = 24, Unit = "hours" -> window is [now, now + 24h]
-                 // But typically reminder is "24 hours BEFORE". 
-                 // So we check appointments where StartTime is between Now and Now + Timing.
-                 // And we only want to send it once.
-                 
-                 double hoursBefore = reminderConfig.TimingUnit == "days" ? reminderConfig.TimingValue * 24 : reminderConfig.TimingValue;
-                 // Default to 24h if invalid
-                 if (hoursBefore <= 0) hoursBefore = 24; 
+            var now = DateTime.UtcNow;
 
-                 var threshold = now.AddHours(hoursBefore);
-                 
-                 var upcomingAppointments = await context.Appointments
-                     .Include(a => a.Customer)
-                     .Include(a => a.Service)
-                     .Include(a => a.Staff)
-                     .Where(a => a.CompanyId == company.Id 
-                              && a.Status != AppointmentStatus.Cancelled 
-                              && !a.ReminderSent 
-                              && a.StartDateTimeUtc > now 
-                              && a.StartDateTimeUtc <= threshold)
-                     .ToListAsync();
+            foreach (var config in configs)
+            {
+                // Helper bools
+                bool isReminder = config.Type.StartsWith("appointmentReminder");
+                bool isFollowup = config.Type.StartsWith("appointmentFollowUp");
+                bool isConfirmation = config.Type == "appointmentConfirmation";
+                bool isCancellation = config.Type == "appointmentCancellation";
 
-                 foreach (var appt in upcomingAppointments)
-                 {
-                     string subject = reminderConfig.Subject ?? "Appointment Reminder";
-                     string body = reminderConfig.Body ?? "Reminder for your appointment.";
+                // Timing Context Handling:
+                string effectiveContext = config.TimingContext;
+                int effectiveValue = config.TimingValue;
+                
+                // Convert "immediately" for follow-ups to "after_appointment" with 0 offset
+                if (isFollowup && config.TimingContext == "immediately")
+                {
+                    effectiveContext = "after_appointment";
+                    effectiveValue = 0;
+                    Console.WriteLine($"[Notification Service] Converting follow-up 'immediately' to 'after_appointment' with 0 offset");
+                }
+                
+                // Skip "immediately" for confirmation/cancellation (handled by Controller)
+                if ((isConfirmation || isCancellation) && config.TimingContext == "immediately") continue;
+                
+                // Skip "immediately" for reminders (doesn't make sense)
+                if (isReminder && config.TimingContext == "immediately") continue;
+                
+                Console.WriteLine($"[Notification Service] Processing {config.Type} with context '{effectiveContext}' (Value: {effectiveValue} {config.TimingUnit})");
 
-                     body = ReplacePlaceholders(body, appt, company);
+                // Convert timing value to hours
+                double hoursOffset;
+                if (config.TimingUnit == "minutes")
+                    hoursOffset = effectiveValue / 60.0;
+                else if (config.TimingUnit == "days")
+                    hoursOffset = effectiveValue * 24;
+                else // hours
+                    hoursOffset = effectiveValue;
 
-                     await emailService.SendEmailAsync(
-                         appt.Customer.Email, 
-                         subject, 
-                         body, 
-                         company.DefaultSenderName ?? company.CompanyName,
-                         company.DefaultReplyToEmail, 
-                         company.Id
-                     );
+                if (hoursOffset < 0) hoursOffset = 0;
+                
+                Console.WriteLine($"[Notification Service] Calculated offset: {hoursOffset} hours");
 
-                     appt.ReminderSent = true;
-                 }
-             }
+                IQueryable<Appointment> query;
 
-             // --- FOLLOW-UPS ---
-             if (followupConfig != null)
-             {
-                 var now = DateTime.UtcNow;
-                 // Followup is "1 hour AFTER".
-                 // So we check appointments where EndTime was Timing ago.
-                 // EndTime < Now - Timing
-                 
-                 double hoursAfter = followupConfig.TimingUnit == "days" ? followupConfig.TimingValue * 24 : followupConfig.TimingValue;
-                 // Default to 1h
-                 if (hoursAfter <= 0) hoursAfter = 1;
+                if (isReminder && effectiveContext == "before_appointment")
+                {
+                    var threshold = now.AddHours(hoursOffset);
+                    query = context.Appointments
+                        .Include(a => a.Customer)
+                        .Include(a => a.Service)
+                        .Include(a => a.Staff)
+                        .Where(a => a.CompanyId == company.Id 
+                                 && a.Status == AppointmentStatus.Confirmed 
+                                 && a.StartDateTimeUtc > now 
+                                 && a.StartDateTimeUtc <= threshold);
+                    
+                    Console.WriteLine($"[Notification Service] Reminder threshold: {threshold:yyyy-MM-dd HH:mm:ss} UTC");
+                }
+                else if (isConfirmation && effectiveContext == "after_booking")
+                {
+                    var threshold = now.AddHours(-hoursOffset);
+                    query = context.Appointments
+                        .Include(a => a.Customer)
+                        .Include(a => a.Service)
+                        .Include(a => a.Staff)
+                        .Where(a => a.CompanyId == company.Id 
+                               && a.Status == AppointmentStatus.Confirmed
+                               && a.CreatedAt <= threshold);
+                    
+                    Console.WriteLine($"[Notification Service] Delayed confirmation threshold (CreatedAt): {threshold:yyyy-MM-dd HH:mm:ss} UTC");
+                }
+                else if (isFollowup && effectiveContext == "after_appointment")
+                {
+                    var threshold = now.AddHours(-hoursOffset);
+                    query = context.Appointments
+                        .Include(a => a.Customer)
+                        .Include(a => a.Service)
+                        .Include(a => a.Staff)
+                        .Where(a => a.CompanyId == company.Id 
+                               && a.EndDateTimeUtc <= threshold
+                               && (a.Status == AppointmentStatus.Confirmed || a.Status == AppointmentStatus.Completed));
+                    
+                    Console.WriteLine($"[Notification Service] Follow-up threshold (EndTime): {threshold:yyyy-MM-dd HH:mm:ss} UTC");
+                }
+                else if (isCancellation && effectiveContext == "after_booking")
+                {
+                    var threshold = now.AddHours(-hoursOffset);
+                    query = context.Appointments
+                        .Include(a => a.Customer)
+                        .Include(a => a.Service)
+                        .Include(a => a.Staff)
+                        .Where(a => a.CompanyId == company.Id 
+                               && a.Status == AppointmentStatus.Cancelled
+                               && a.CancelledAt.HasValue
+                               && a.CancelledAt.Value <= threshold);
+                    
+                    Console.WriteLine($"[Notification Service] Delayed cancellation threshold (CancelledAt): {threshold:yyyy-MM-dd HH:mm:ss} UTC");
+                }
+                else 
+                {
+                    continue;
+                }
 
-                 var listThreshold = now.AddHours(-hoursAfter);
+                var eligibleAppointments = await query.ToListAsync();
+                if (eligibleAppointments.Count > 0)
+                {
+                    Console.WriteLine($"[Notification Service] Found {eligibleAppointments.Count} eligible appointments for {config.Type} (Company {company.Id})");
+                }
 
-                 var pastAppointments = await context.Appointments
-                     .Include(a => a.Customer)
-                     .Include(a => a.Service)
-                     .Include(a => a.Staff)
-                     .Where(a => a.CompanyId == company.Id 
-                              && (a.Status == AppointmentStatus.Confirmed || a.Status == AppointmentStatus.Completed)
-                              && !a.FollowupSent
-                              && a.EndDateTimeUtc < listThreshold)
-                     .ToListAsync();
+                foreach (var appt in eligibleAppointments)
+                {
+                    var alreadySent = await context.EmailLogs.AnyAsync(l => 
+                        l.AppointmentId == appt.Id && l.NotificationConfigId == config.Id);
 
-                 foreach (var appt in pastAppointments)
-                 {
-                     string subject = followupConfig.Subject ?? "Thank you for visiting";
-                     string body = followupConfig.Body ?? "We hope to see you again.";
+                    if (alreadySent) 
+                    {
+                        continue;
+                    }
 
-                     body = ReplacePlaceholders(body, appt, company);
+                    string subject = config.Subject ?? (isReminder ? "Appointment Reminder" : "Thank you for visiting");
+                    string body = config.Body ?? (isReminder ? "Reminder for your appointment." : "We hope to see you again.");
 
-                     await emailService.SendEmailAsync(
-                         appt.Customer.Email, 
-                         subject, 
-                         body, 
-                         company.DefaultSenderName ?? company.CompanyName,
-                         company.DefaultReplyToEmail, 
-                         company.Id
-                     );
+                    string frontendUrl = _configuration["AppSettings:FrontendUrl"] ?? "http://localhost:5173";
 
-                     appt.FollowupSent = true;
-                 }
-             }
+                    subject = Appointmentbookingsystem.Backend.Utils.PlaceholderHelper.ReplacePlaceholders(subject, appt, company, frontendUrl);
+                    body = Appointmentbookingsystem.Backend.Utils.PlaceholderHelper.ReplacePlaceholders(body, appt, company, frontendUrl);
+                    
+                    // --- SEND EMAIL ---
+                    // Only if: Company Email Service Enabled AND Config Email Enabled (IsEnabled)
+                    if (company.IsEmailServiceEnabled && config.IsEnabled)
+                    {
+                        try 
+                        {
+                            Console.WriteLine($"[Notification Service] Sending Email {config.Type} for Appt {appt.Id} to {appt.Customer.Email}");
+                            await emailService.SendEmailAsync(
+                                appt.Customer.Email, 
+                                subject, 
+                                body, 
+                                company.DefaultSenderName ?? company.CompanyName,
+                                company.DefaultReplyToEmail, 
+                                company.Id,
+                                appt.Id,
+                                config.Id
+                            );
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[Notification Error] Failed to send Email {config.Type} for Appt {appt.Id}: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                         Console.WriteLine($"[Notification Service] Email skipped for Appt {appt.Id} (Email Service Disabled)");
+                    }
+                }
+            }
 
-             await context.SaveChangesAsync();
-        }
-
-        private string ReplacePlaceholders(string template, Appointment appt, Company company)
-        {
-            return template
-                .Replace("{{customerName}}", $"{appt.Customer.FirstName} {appt.Customer.LastName}")
-                .Replace("{{serviceName}}", appt.Service.Name)
-                .Replace("{{staffName}}", appt.Staff != null ? $"{appt.Staff.FirstName} {appt.Staff.LastName}" : "Staff")
-                .Replace("{{dateTime}}", appt.StartDateTimeUtc.ToString("f"))
-                .Replace("{{companyName}}", company.CompanyName);
+            await context.SaveChangesAsync();
         }
     }
 }

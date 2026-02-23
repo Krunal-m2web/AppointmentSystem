@@ -1,6 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using Appointmentbookingsystem.Backend.Models.Entities;
 
+using Appointmentbookingsystem.Backend.Attributes;
+
 namespace Appointmentbookingsystem.Backend.DTOs.Appointment
 {
     public class CreateAppointmentDto
@@ -17,14 +19,12 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
         [MaxLength(50)]
         public string LastName { get; set; } = null!;
 
-        [Required]
-        [EmailAddress]
         [MaxLength(255)]
-        public string Email { get; set; } = null!;
+        [EmailAddress(ErrorMessage = "Please enter a valid email address.")] // Allowed to be null/empty, but if provided must be valid
+        public string? Email { get; set; }
 
-        [Required]
-        [MaxLength(20)]
-        public string Phone { get; set; } = null!;
+        [PhoneNumber]
+        public string? Phone { get; set; }
 
         // Appointment Details
         [Required]
@@ -40,6 +40,14 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
 
         [Required]
         public string PaymentMethod { get; set; } = "Card";
+
+        public string? Timezone { get; set; }
+        
+        public string? Status { get; set; }
+
+        public decimal? Price { get; set; }
+        
+        public int? Duration { get; set; }
 
         [MaxLength(1000)]
         public string? Notes { get; set; }

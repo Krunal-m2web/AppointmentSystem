@@ -21,7 +21,7 @@ export interface CustomerResponse {
 export interface CreateCustomerRequest {
   firstName: string;
   lastName: string;
-  email: string;
+  email?: string;
   phone?: string;
   notes?: string;
 }
@@ -29,7 +29,7 @@ export interface CreateCustomerRequest {
 export interface UpdateCustomerRequest {
   firstName: string;
   lastName: string;
-  email: string;
+  email?: string;
   phone?: string;
   notes?: string;
   isActive?: boolean;
@@ -152,6 +152,19 @@ export async function deleteCustomer(id: number): Promise<void> {
   }
 }
 
+export async function bulkDeleteCustomers(ids: number[]): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/customer/bulk-delete`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(ids),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to delete customers: ${errorText}`);
+  }
+}
+
 export async function permanentDeleteCustomer(id: number): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/customer/${id}/permanent`, {
     method: "DELETE",
@@ -162,4 +175,56 @@ export async function permanentDeleteCustomer(id: number): Promise<void> {
     const errorText = await response.text();
     throw new Error(`Failed to permanently delete customer: ${errorText}`);
   }
+}
+export interface LogEntry {
+  id: string;
+  type: "email" | "sms";
+  date: string;
+  subject?: string;
+  message?: string;
+  status: string;
+}
+
+export interface CustomerLogsResponse {
+  logs: LogEntry[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+}
+
+export interface LogQueryParams {
+  days?: number;
+  page?: number;
+  pageSize?: number;
+  type?: "email" | "sms";
+}
+
+export async function fetchCustomerLogs(
+  id: number,
+  queryParams: LogQueryParams = {}
+): Promise<CustomerLogsResponse> {
+  const params = new URLSearchParams();
+  if (queryParams.days) params.append("days", queryParams.days.toString());
+  if (queryParams.page) params.append("page", queryParams.page.toString());
+  if (queryParams.pageSize)
+    params.append("pageSize", queryParams.pageSize.toString());
+  if (queryParams.type) params.append("type", queryParams.type);
+
+  const url = `${API_BASE_URL}/api/customer/${id}/logs${
+    params.toString() ? `?${params.toString()}` : ""
+  }`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: getAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to fetch logs: ${errorText}`);
+  }
+
+  return response.json();
 }

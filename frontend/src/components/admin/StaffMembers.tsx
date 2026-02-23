@@ -9,6 +9,7 @@ import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken }
 import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { InviteStaffModal } from './InviteStaffModal';
+import { forgotPassword } from '../../services/authService';
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -77,13 +78,20 @@ export function StaffMembers() {
 
   let cancelled = false;
 
-  const loadAvailability = async () => {
+  const loadStaffData = async () => {
+
     try {
-      const availability = await fetchStaffAvailability(selectedStaff.id);
+      const [availability, timeOffData] = await Promise.all([
+        fetchStaffAvailability(selectedStaff.id),
+        fetchTimeOff(selectedStaff.id)
+      ]);
+
+      setTimeOffs(timeOffData);
 
       if (cancelled) return;
 
       const dayMap: Record<string, number> = {
+
         Sunday: 0,
         Monday: 1,
         Tuesday: 2,
@@ -113,7 +121,8 @@ export function StaffMembers() {
     }
   };
 
-  loadAvailability();
+  loadStaffData();
+
 
   return () => {
     cancelled = true;
@@ -680,7 +689,7 @@ const scheduleData = availability.map((a: any) => ({
                                     >
                                         Schedules
                                     </button>
-                                    <button
+                                    {/* <button
                                         onClick={() => setActiveTab('timeoff')}
                                         className={`px-6 py-3 font-medium whitespace-nowrap ${activeTab === 'timeoff'
                                                 ? 'border-b-2 border-indigo-600 text-indigo-600'
@@ -688,7 +697,7 @@ const scheduleData = availability.map((a: any) => ({
                                             }`}
                                     >
                                         Time Off
-                                    </button>
+                                    </button> */}
                                 </div>
                             </div>
 
@@ -857,7 +866,16 @@ const scheduleData = availability.map((a: any) => ({
       {!(getRoleFromToken(getToken() || '') === 'Staff') && (
         <button
           type="button"
-          onClick={() => toast.info("Reset password link functionality coming soon")}
+          onClick={async () => {
+            if (editedStaff?.email) {
+              try {
+                await forgotPassword(editedStaff.email);
+                toast.success(`Password reset link sent to ${editedStaff.email}`);
+              } catch (err: any) {
+                toast.error(err.message || "Failed to send reset link");
+              }
+            }
+          }}
           className="text-sm text-indigo-600 hover:text-indigo-700 underline"
         >
           Send a Reset Password Link to staff
@@ -1078,7 +1096,7 @@ const scheduleData = availability.map((a: any) => ({
                                 )}
 
                             
-                                {activeTab === 'timeoff' && (
+                                {/* {activeTab === 'timeoff' && (
                                     <div className="space-y-6">
                                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                                             <h3 className="font-semibold mb-3">Add Time Off</h3>
@@ -1142,7 +1160,7 @@ const scheduleData = availability.map((a: any) => ({
                                             ))}
                                         </div>
                                     </div>
-                                )}
+                                )} */}
                             </div>
 
                             <div className="p-6 border-t border-gray-200 flex justify-between">

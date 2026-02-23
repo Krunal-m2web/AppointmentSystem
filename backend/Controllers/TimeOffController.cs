@@ -37,6 +37,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 ?? User.Claims.FirstOrDefault(c => c.Type == "role")?.Value;
         }
 
+        private int GetCurrentCompanyId()
+        {
+            var claim = User.FindFirst("companyId");
+            if (claim != null && int.TryParse(claim.Value, out int id))
+                return id;
+            return 0; // Should handle this appropriately, maybe throw exception if strict
+        }
+
         // POST /api/timeoff - Create time off request/entry
         [HttpPost]
         public async Task<ActionResult<TimeOffResponseDto>> CreateTimeOff([FromBody] CreateTimeOffDto dto)
@@ -49,6 +57,13 @@ namespace Appointmentbookingsystem.Backend.Controllers
             // Get current user info
             var userRole = GetCurrentUserRole();
             var userId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
+
+            // Verify staff belongs to the company
+            if (staff.CompanyId != companyId && companyId != 0)
+            {
+                return Forbid();
+            }
 
             // Authorization: Staff can only create for themselves
             if (userRole == "Staff" && userId.HasValue && userId.Value != dto.StaffId)
@@ -65,14 +80,11 @@ namespace Appointmentbookingsystem.Backend.Controllers
             
             if (hasOverlap)
             {
-                return BadRequest("This time off period overlaps with an existing record for the staff member.");
+                return BadRequest("You have one or more appointments booked on these dates. Please resolve them before adding time off.");
             }
 
             // Get company settings for approval requirement
-            var company = await _context.Staff
-                .Where(s => s.Id == dto.StaffId)
-                .Select(s => s.Company)
-                .FirstOrDefaultAsync();
+            var company = await _context.Companies.FindAsync(staff.CompanyId);
 
             // Determine status based on who creates it and company settings
             TimeOffStatus status;
@@ -126,15 +138,25 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
         // GET /api/timeoff/staff/{staffId} - Get time-offs for specific staff
         [HttpGet("staff/{staffId}")]
+        [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<TimeOffResponseDto>>> GetTimeOffByStaff(int staffId)
         {
             // Authorization: Staff can only view their own
             var userRole = GetCurrentUserRole();
             var userId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
 
             if (userRole == "Staff" && userId.HasValue && userId.Value != staffId)
             {
                 return Forbid();
+            }
+
+            // If Admin, verify staff belongs to company
+            if (userRole == "Admin")
+            {
+                 var staff = await _context.Staff.FindAsync(staffId);
+                 if (staff == null) return NotFound();
+                 if (staff.CompanyId != companyId && companyId != 0) return Forbid();
             }
 
             var list = await _context.TimeOffs
@@ -152,9 +174,13 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<ActionResult<IEnumerable<TimeOffResponseDto>>> GetAllTimeOffs()
         {
+            var companyId = GetCurrentCompanyId();
+            if (companyId == 0) return Forbid();
+
             var list = await _context.TimeOffs
                 .Include(t => t.Staff)
                 .Include(t => t.ApprovedByAdmin)
+                .Where(t => t.Staff.CompanyId == companyId)
                 .OrderByDescending(t => t.CreatedAt)
                 .ToListAsync();
 
@@ -166,9 +192,12 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<ActionResult<IEnumerable<TimeOffResponseDto>>> GetPendingTimeOffs()
         {
+            var companyId = GetCurrentCompanyId();
+            if (companyId == 0) return Forbid();
+
             var list = await _context.TimeOffs
                 .Include(t => t.Staff)
-                .Where(t => t.Status == TimeOffStatus.Pending)
+                .Where(t => t.Status == TimeOffStatus.Pending && t.Staff.CompanyId == companyId)
                 .OrderByDescending(t => t.CreatedAt) // Newest first
                 .ToListAsync();
 
@@ -180,8 +209,11 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<ActionResult<int>> GetPendingTimeOffCount()
         {
+            var companyId = GetCurrentCompanyId();
+            if (companyId == 0) return Forbid();
+
             var count = await _context.TimeOffs
-                .CountAsync(t => t.Status == TimeOffStatus.Pending);
+                .CountAsync(t => t.Status == TimeOffStatus.Pending && t.Staff.CompanyId == companyId);
 
             return Ok(count);
         }
@@ -191,9 +223,17 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> ApproveTimeOff(int id)
         {
-            var timeOff = await _context.TimeOffs.FindAsync(id);
+            var companyId = GetCurrentCompanyId();
+            
+            var timeOff = await _context.TimeOffs
+                .Include(t => t.Staff)
+                .FirstOrDefaultAsync(t => t.Id == id);
+                
             if (timeOff == null)
                 return NotFound("Time off request not found.");
+                
+            if (timeOff.Staff.CompanyId != companyId && companyId != 0)
+                return Forbid();
 
             if (timeOff.Status != TimeOffStatus.Pending)
                 return BadRequest("Only pending requests can be approved.");
@@ -215,9 +255,17 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> RejectTimeOff(int id)
         {
-            var timeOff = await _context.TimeOffs.FindAsync(id);
+            var companyId = GetCurrentCompanyId();
+
+            var timeOff = await _context.TimeOffs
+                .Include(t => t.Staff)
+                .FirstOrDefaultAsync(t => t.Id == id);
+
             if (timeOff == null)
                 return NotFound("Time off request not found.");
+
+            if (timeOff.Staff.CompanyId != companyId && companyId != 0)
+                return Forbid();
 
             if (timeOff.Status != TimeOffStatus.Pending)
                 return BadRequest("Only pending requests can be rejected.");
@@ -238,12 +286,16 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteTimeOff(int id)
         {
-            var timeOff = await _context.TimeOffs.FindAsync(id);
+            var timeOff = await _context.TimeOffs
+                .Include(t => t.Staff)
+                .FirstOrDefaultAsync(t => t.Id == id);
+                
             if (timeOff == null) return NotFound();
 
             // Authorization: Staff can only delete their own pending requests
             var userRole = GetCurrentUserRole();
             var userId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
 
             if (userRole == "Staff")
             {
@@ -252,6 +304,12 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
                 if (timeOff.Status != TimeOffStatus.Pending)
                     return BadRequest("Staff can only delete pending requests.");
+            }
+            else if (userRole == "Admin")
+            {
+                // Admin can only delete from their company
+                 if (timeOff.Staff.CompanyId != companyId && companyId != 0)
+                    return Forbid();
             }
 
             _context.TimeOffs.Remove(timeOff);
@@ -274,11 +332,20 @@ namespace Appointmentbookingsystem.Backend.Controllers
             // Authorization
             var userRole = GetCurrentUserRole();
             var userId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
 
             if (userRole == "Staff" && userId.HasValue && userId.Value != timeOff.StaffId)
             {
                 return Forbid();
             }
+            
+            if (userRole == "Admin" && timeOff.Staff.CompanyId != companyId && companyId != 0)
+            {
+                return Forbid();
+            }
+            
+            // Note: We should technically verify that the new StaffId (dto.StaffId) also belongs to the company if it's changing,
+            // but typical UI doesn't allow changing staffId on edit.
 
             // Check for overlaps (excluding this time off)
             var hasOverlap = await _context.TimeOffs
@@ -290,7 +357,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             
             if (hasOverlap)
             {
-                return BadRequest("This time off period overlaps with an existing record for the staff member.");
+                return BadRequest("You have one or more appointments booked on these dates. Please resolve them before adding time off.");
             }
 
             // Update fields
@@ -318,6 +385,13 @@ namespace Appointmentbookingsystem.Backend.Controllers
             [FromQuery] DateTime startDateTimeUtc,
             [FromQuery] DateTime endDateTimeUtc)
         {
+            var companyId = GetCurrentCompanyId();
+            
+            // Verify staff belongs to company
+            var staff = await _context.Staff.FindAsync(staffId);
+            if (staff == null) return NotFound("Staff not found");
+            if (staff.CompanyId != companyId && companyId != 0) return Forbid();
+
             // Find appointments that overlap with the time off period
             var conflictingAppointments = await _context.Appointments
                 .Include(a => a.Customer)
@@ -350,6 +424,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
         {
             var userRole = GetCurrentUserRole();
             var userId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
             
             int staffBadgeCount = 0;
             int adminBadgeCount = 0;
@@ -361,10 +436,13 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     .CountAsync(t => t.StaffId == userId.Value && !t.IsViewedByStaff);
             }
 
-            if (userRole == "Admin")
+            if (userRole == "Admin" && companyId != 0)
             {
                  // Admin Badge: Count ALL requests (Pending, Approved, Rejected) that haven't been viewed by admin yet
+                 // Filtered by company
                  adminBadgeCount = await _context.TimeOffs
+                    .Include(t => t.Staff)
+                    .Where(t => t.Staff.CompanyId == companyId)
                     .CountAsync(t => !t.IsViewedByAdmin);
             }
 
@@ -377,13 +455,16 @@ namespace Appointmentbookingsystem.Backend.Controllers
         {
             var userRole = GetCurrentUserRole();
             var userId = GetCurrentUserId();
+            var companyId = GetCurrentCompanyId();
+            
             if (!userId.HasValue) return Unauthorized();
 
-            if (userRole == "Admin")
+            if (userRole == "Admin" && companyId != 0)
             {
-                // Mark all as viewed by admin
+                // Mark all as viewed by admin, FILTERED BY COMPANY
                 var unseen = await _context.TimeOffs
-                    .Where(t => !t.IsViewedByAdmin)
+                    .Include(t => t.Staff)
+                    .Where(t => !t.IsViewedByAdmin && t.Staff.CompanyId == companyId)
                     .ToListAsync();
                 
                 foreach (var t in unseen)

@@ -1,30 +1,45 @@
 import { useState, useEffect } from 'react';
-import { Mail, Globe, Building, DollarSign, Bell, CheckCircle, Save, MapPin, Phone as PhoneIcon, Edit, Clock, Search, ChevronDown } from 'lucide-react';
+import { Mail, Globe, Building, DollarSign, Bell, CheckCircle, Save, MapPin, Phone as PhoneIcon, Edit, Clock, Search, ChevronDown, Settings as SettingsIcon, Palette, Calendar } from 'lucide-react';
+import GoogleCalendarSettings from './settings/GoogleCalendarSettings';
 import { EmailTemplateEditor } from './EmailTemplateEditor';
+import { SmsTemplateEditor } from './SmsTemplateEditor';
 import { useTimezone } from '../../context/TimezoneContext';
 import { getAuthHeaders, getTimeOffSettings, updateTimeOffSettings } from '../../services/staffApi';
 import { getMyCompany, updateMyCompany, uploadCompanyLogo } from '../../services/CompanyService';
-import { SettingsTab, NotificationConfig, TimingConfig, EmailTemplate } from './types/settings';
+import { SettingsTab, NotificationConfig, TimingConfig, EmailTemplate, TimeUnit, TimingContext, SmsNotificationConfig, SmsTemplate } from './types/settings';
 import { GeneralSettings } from './settings/GeneralSettings';
 import { EmailNotificationSettings } from './settings/EmailNotificationSettings';
+import { SmsNotificationSettings } from './settings/SmsNotificationSettings';
+import { BookingFormSettings } from './settings/BookingFormSettings';
 import { PaymentSettings } from './PaymentSettings';
 import MeetingLocationSettings from './MeetingLocationSettings';
 import { TIMEZONES } from '../../utils/datetime';
 import { TimezoneSelect } from '../TimezoneSelect';
-import { getGeneralSettings, updateGeneralSettings, getNotificationSettings, updateNotificationSettings, GeneralSettingsData } from '../../services/settingsApi';
+import { getGeneralSettings, updateGeneralSettings, getNotificationSettings, updateNotificationSettings, GeneralSettingsData, sendTestEmail } from '../../services/settingsApi';
 import { getToken } from '../../utils/auth';
 import { toast } from 'sonner';
+import PhoneInput from '../ui/PhoneInput';
+import { DEFAULT_NOTIFICATION_TEMPLATES } from './settings/defaultTemplates';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [notificationsActiveTab, setNotificationsActiveTab] = useState<'email' | 'sms'>('email');
 
   // General Settings State
   const [defaultSenderName, setDefaultSenderName] = useState('');
+  const [defaultSenderEmail, setDefaultSenderEmail] = useState('');
   const [defaultReplyEmail, setDefaultReplyEmail] = useState('');
   const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
+  const [smsNotificationsEnabled, setSmsNotificationsEnabled] = useState(true);
   const [requireTimeOffApproval, setRequireTimeOffApproval] = useState(true);
+
+  // Policy Settings
+  const [allowCustomerRescheduling, setAllowCustomerRescheduling] = useState(true);
+  const [reschedulingMinLeadTime, setReschedulingMinLeadTime] = useState(24);
+  const [allowCustomerCanceling, setAllowCustomerCanceling] = useState(true);
+  const [cancelingMinLeadTime, setCancelingMinLeadTime] = useState(24);
 
   // Company Profile State
   const [companyName, setCompanyName] = useState('My Business');
@@ -34,6 +49,8 @@ export function Settings() {
 
   // Template Editor State
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
+  const [editingSmsTemplate, setEditingSmsTemplate] = useState<string | null>(null);
+  const [hasLoadedNotifications, setHasLoadedNotifications] = useState(false);
 
   // Global Settings State (Timezone)
   const { timezone, refreshTimezone } = useTimezone();
@@ -45,36 +62,20 @@ export function Settings() {
   }>({
     appointmentConfirmation: {
       enabled: true,
+      pushEnabled: false,
       timing: 'Immediately after booking',
+      timingConfig: {
+        value: 1,
+        unit: 'hours',
+        context: 'immediately',
+      },
       trigger: 'When customer books an appointment',
       description: 'Send a confirmation email to the customer with all appointment details.',
-      template: {
-        subject: 'Your Appointment is Confirmed - {{appointment.date}} at {{appointment.time}}',
-        body: `Hi {{customer.firstName}},
-
-Thank you for booking with {{company.name}}!
-
-Your appointment has been confirmed:
-
-Service: {{service.name}}
-Date: {{appointment.date}}
-Time: {{appointment.time}}
-Duration: {{appointment.duration}}
-With: {{staff.name}}
-
-Need to make changes?
-Reschedule: {{link.reschedule}}
-Cancel: {{link.cancel}}
-
-We look forward to seeing you!
-
-Best regards,
-{{company.name}}
-{{company.phone}}`,
-      },
+      template: DEFAULT_NOTIFICATION_TEMPLATES.appointmentConfirmation.template as EmailTemplate,
     },
     appointmentReminder: {
       enabled: true,
+      pushEnabled: false,
       timing: '24 hours before appointment',
       timingConfig: {
         value: 24,
@@ -84,25 +85,7 @@ Best regards,
       trigger: 'Before scheduled appointment time',
       description: 'Remind customers about their upcoming appointment to reduce no-shows.',
       timingEditable: true,
-      template: {
-        subject: 'Reminder: Your Appointment Tomorrow at {{appointment.time}}',
-        body: `Hi {{customer.firstName}},
-
-This is a friendly reminder about your upcoming appointment:
-
-Service: {{service.name}}
-Date: {{appointment.date}}
-Time: {{appointment.time}}
-With: {{staff.name}}
-Location: {{company.address}}
-
-Need to reschedule? {{link.reschedule}}
-
-See you soon!
-
-Best regards,
-{{company.name}}`,
-      },
+      template: DEFAULT_NOTIFICATION_TEMPLATES.appointmentReminder.template as EmailTemplate,
     },
     appointmentFollowUp: {
       enabled: false,
@@ -115,50 +98,116 @@ Best regards,
       },
       trigger: 'After appointment ends',
       description: 'Follow up with customers to gather feedback, request reviews, or encourage rebooking.',
-      template: {
-        subject: 'How was your experience with {{company.name}}?',
-        body: `Hi {{customer.firstName}},
-
-Thank you for choosing {{company.name}}!
-
-We hope you had a great experience with {{staff.name}} on {{appointment.date}}.
-
-We'd love to hear your feedback and help you book your next appointment.
-
-Book again: {{company.website}}
-
-Best regards,
-{{company.name}}`,
-      },
+      template: DEFAULT_NOTIFICATION_TEMPLATES.appointmentFollowUp.template as EmailTemplate,
     },
     appointmentCancellation: {
       enabled: true,
       timing: 'Immediately after cancellation',
+      timingConfig: {
+        value: 1,
+        unit: 'hours',
+        context: 'immediately',
+      },
       trigger: 'When an appointment is cancelled',
       description: 'Notify customers when their appointment has been cancelled.',
+      template: DEFAULT_NOTIFICATION_TEMPLATES.appointmentCancellation.template as EmailTemplate,
+    },
+  });
+
+  // SMS Notification Settings State
+  const [smsSettings, setSmsSettings] = useState<{
+    [key: string]: SmsNotificationConfig;
+  }>({
+    smsConfirmation: {
+      enabled: false,
+      timing: 'Immediately after booking',
+      trigger: 'When customer books an appointment',
+      description: 'Send a confirmation SMS with appointment details.',
       template: {
-        subject: 'Appointment Cancellation - {{appointment.date}}',
-        body: `Hi {{customer.firstName}},
-
-Your appointment scheduled for {{appointment.date}} at {{appointment.time}} has been cancelled.
-
-Cancelled appointment details:
-Service: {{service.name}}
-Staff: {{staff.name}}
-
-Would you like to book a new appointment?
-Visit: {{company.website}}
-
-If you have any questions, please contact us.
-
-Best regards,
-{{company.name}}
-{{company.phone}}`,
+        body: `Hi {{customer.firstName}}, your appointment at {{company.name}} is confirmed for {{appointment.date}} at {{appointment.time}}. Reply HELP for assistance.`,
+      },
+    },
+    smsReminder: {
+      enabled: false,
+      timing: '1 hour before appointment',
+      timingConfig: {
+        value: 1,
+        unit: 'hours',
+        context: 'before_appointment',
+      },
+      trigger: 'Before scheduled appointment',
+      description: 'Remind customers about their upcoming appointment.',
+      template: {
+        body: `Reminder: Your appointment at {{company.name}} is in 1 hour. See you soon!`,
+      },
+    },
+    smsFollowUp: {
+      enabled: false,
+      timing: '1 hour after appointment',
+      timingConfig: {
+        value: 1,
+        unit: 'hours',
+        context: 'after_appointment',
+      },
+      trigger: 'After appointment ends',
+      description: 'Follow up with customers after their appointment.',
+      template: {
+        body: `Thank you for visiting {{company.name}}! We hope you had a great experience. Book again at {{company.website}}`,
+      },
+    },
+    smsCancellation: {
+      enabled: false,
+      timing: 'Immediately after cancellation',
+      trigger: 'When an appointment is cancelled',
+      description: 'Notify customers when their appointment is cancelled.',
+      template: {
+        body: `Hi {{customer.firstName}}, your appointment at {{company.name}} for {{appointment.date}} has been cancelled. Visit {{company.website}} to rebook.`,
       },
     },
   });
 
+  const getNotificationTitle = (key: string): string => {
+    const titles: { [key: string]: string } = {
+      appointmentConfirmation: 'Appointment Confirmation',
+      appointmentReminder: 'Appointment Reminder',
+      appointmentFollowUp: 'Appointment Follow-Up',
+      appointmentCancellation: 'Appointment Cancellation',
+      smsConfirmation: 'Booking Confirmation',
+      smsReminder: 'Appointment Reminder',
+      smsFollowUp: 'Follow-Up Message',
+      smsCancellation: 'Cancellation Notice',
+    };
+    if (key.includes(':')) {
+      const base = key.split(':')[0];
+      return titles[base] || base;
+    }
+    return titles[key] || key;
+  };
+
+  const getNotificationDescription = (key: string): string => {
+    if (key.startsWith('appointmentReminder')) return 'Send a reminder email to your customer before their appointment starts.';
+    if (key.startsWith('appointmentFollowUp')) return 'Send a follow-up email to your customer after their appointment is completed.';
+    if (key.startsWith('smsReminder')) return 'Send a reminder SMS before the appointment.';
+    if (key.startsWith('smsFollowUp')) return 'Send a follow-up SMS after the appointment.';
+    
+    const descriptions: { [key: string]: string } = {
+      appointmentConfirmation: 'Sent immediately when an appointment is booked and confirmed.',
+      appointmentCancellation: 'Sent immediately when an appointment is cancelled.',
+      smsConfirmation: 'Sent immediately when an appointment is booked.',
+      smsCancellation: 'Sent immediately when an appointment is cancelled.',
+    };
+    return descriptions[key] || '';
+  };
+
   // Load General Settings
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (tabParam === 'google-calendar') {
+      setActiveTab('google-calendar');
+    }
+  }, []);
+
   useEffect(() => {
       const loadGeneral = async () => {
           const token = getToken();
@@ -166,8 +215,14 @@ Best regards,
           try {
               const data = await getGeneralSettings(token);
               setDefaultSenderName(data.defaultSenderName || '');
+              setDefaultSenderEmail(data.defaultSenderEmail || '');
               setDefaultReplyEmail(data.defaultReplyToEmail || '');
               setEmailNotificationsEnabled(data.isEmailServiceEnabled);
+              setSmsNotificationsEnabled(data.isSmsServiceEnabled);
+              setAllowCustomerRescheduling(data.allowCustomerRescheduling ?? true);
+              setReschedulingMinLeadTime(data.reschedulingMinLeadTime ?? 24);
+              setAllowCustomerCanceling(data.allowCustomerCanceling ?? true);
+              setCancelingMinLeadTime(data.cancelingMinLeadTime ?? 24);
 
               // Load Time Off Settings
               const timeOffData = await getTimeOffSettings();
@@ -181,34 +236,61 @@ Best regards,
 
   // Load Notification Settings
   useEffect(() => {
-      const loadNotifications = async () => {
-          const token = getToken();
-          if (!token) return;
-          try {
-              const serverSettings = await getNotificationSettings(token);
-              
-              // Merge server settings with local defaults (to preserve descriptions/triggers which might be static in UI)
-              setNotificationSettings(prev => {
-                  const newSettings = { ...prev };
-                  Object.keys(serverSettings).forEach(key => {
-                      if (newSettings[key]) {
-                          newSettings[key] = {
-                              ...newSettings[key],
-                              ...serverSettings[key], // Overwrite enabled, timing, template from server
-                              // Preserve description/trigger from default if server doesn't send them populated
-                              description: newSettings[key].description,
-                              trigger: newSettings[key].trigger
-                          };
-                      }
-                  });
-                  return newSettings;
-              });
-          } catch (e) {
-              console.error("Failed to load notification settings", e);
-          }
-      };
-      if (activeTab === 'notifications') loadNotifications();
-  }, [activeTab]);
+    const loadNotifications = async () => {
+      // Only load if not already loaded to prevent overwriting local changes (e.g. from master toggles)
+      if (hasLoadedNotifications) return;
+
+      const token = getToken();
+      if (!token) return;
+      try {
+        const serverSettings = await getNotificationSettings(token);
+        
+        // Merge server settings with local defaults
+        // Merge server settings with local defaults
+        setNotificationSettings(prev => {
+          const newSettings = { ...prev };
+          Object.keys(serverSettings).forEach(key => {
+            // Only process email/appointment settings here
+            if (!key.startsWith('appointment')) return;
+
+            // Merge into existing or create new entry
+            newSettings[key] = {
+               ...(newSettings[key] || {}), // Keep local props if they exist
+               ...serverSettings[key],
+               // Ensure description/trigger are set even if server sends empty
+               description: serverSettings[key].description || newSettings[key]?.description || '', 
+               trigger: serverSettings[key].trigger || newSettings[key]?.trigger || '',
+               pushEnabled: serverSettings[key].pushEnabled || newSettings[key]?.pushEnabled || false
+            };
+          });
+          return newSettings;
+        });
+
+        // Also update SMS settings if they come from the same endpoint
+        setSmsSettings(prev => {
+          const newSmsSettings = { ...prev };
+          Object.keys(serverSettings).forEach(key => {
+            // Only process SMS settings here
+            if (!key.startsWith('sms')) return;
+
+            // Merge into existing or create new entry
+            newSmsSettings[key] = {
+              ...(newSmsSettings[key] || {}), // Keep local props
+              ...serverSettings[key],
+              description: serverSettings[key].description || newSmsSettings[key]?.description || '', 
+              trigger: serverSettings[key].trigger || newSmsSettings[key]?.trigger || ''
+            };
+          });
+          return newSmsSettings;
+        });
+
+        setHasLoadedNotifications(true);
+      } catch (e) {
+        console.error("Failed to load notification settings", e);
+      }
+    };
+    if (activeTab === 'notifications' || activeTab === 'general') loadNotifications();
+  }, [activeTab, hasLoadedNotifications]);
 
   // Load Company Profile
   useEffect(() => {
@@ -241,9 +323,18 @@ Best regards,
     try {
         await updateGeneralSettings({
             defaultSenderName,
+            defaultSenderEmail,
             defaultReplyToEmail: defaultReplyEmail,
-            isEmailServiceEnabled: emailNotificationsEnabled
+            isEmailServiceEnabled: emailNotificationsEnabled,
+            isSmsServiceEnabled: smsNotificationsEnabled,
+            allowCustomerRescheduling,
+            reschedulingMinLeadTime,
+            allowCustomerCanceling,
+            cancelingMinLeadTime
         }, token);
+        
+        // Also save all individual notification settings to sync the enabled states
+        await saveAllNotifications();
         
         await updateTimeOffSettings({ requireTimeOffApproval });
         
@@ -252,6 +343,42 @@ Best regards,
         console.error(e);
         toast.error('Failed to save general settings');
     }
+  };
+
+  const handleMasterEmailToggle = async (enabled: boolean) => {
+    setEmailNotificationsEnabled(enabled);
+    
+    // Sync all individual email notification settings
+    setNotificationSettings(prev => {
+      const newSettings = { ...prev };
+      Object.keys(newSettings).forEach(key => {
+        newSettings[key] = {
+          ...newSettings[key],
+          enabled: enabled
+        };
+      });
+      // Save immediately like individual toggles do
+      saveAllNotifications(newSettings);
+      return newSettings;
+    });
+  };
+
+  const handleMasterSmsToggle = async (enabled: boolean) => {
+    setSmsNotificationsEnabled(enabled);
+    
+    // Sync all individual SMS notification settings
+    setSmsSettings(prev => {
+      const newSettings = { ...prev };
+      Object.keys(newSettings).forEach(key => {
+        newSettings[key] = {
+          ...newSettings[key],
+          enabled: enabled
+        };
+      });
+      // Save immediately like individual toggles do
+      saveAllNotifications(undefined, newSettings);
+      return newSettings;
+    });
   };
 
   const handleSaveCompany = async () => {
@@ -289,6 +416,36 @@ Best regards,
     }
   };
 
+  const saveAllNotifications = async (updatedEmailSettings?: any, updatedSmsSettings?: any) => {
+    const token = getToken();
+    if (!token) return;
+
+    const emailSettings = updatedEmailSettings || notificationSettings;
+    const smsSettingsToSave = updatedSmsSettings || smsSettings;
+
+    // Combine all settings for the backend
+    const combinedSettings: any = { ...emailSettings };
+    
+    // Convert SMS settings to the format backend expects (with empty subject)
+    Object.keys(smsSettingsToSave).forEach(key => {
+      const config = smsSettingsToSave[key];
+      combinedSettings[key] = {
+        ...config,
+        template: {
+          subject: '', // SMS has no subject
+          body: config.template.body
+        }
+      };
+    });
+
+    try {
+      await updateNotificationSettings(combinedSettings, token);
+    } catch (e) {
+      console.error("Failed to save combined notification settings", e);
+      throw e;
+    }
+  };
+
   const handleToggleNotification = async (key: string) => {
     const newSettings = {
       ...notificationSettings,
@@ -299,25 +456,28 @@ Best regards,
     };
     setNotificationSettings(newSettings);
     
-    // Auto-save on toggle? Or wait for a save button? 
-    // The UI in EmailNotificationSettings doesn't have a main "Save" button for the list, 
-    // it seems to just be toggles. Let's auto-save to be safe, or just update local state.
-    // Given the previous code didn't have a save button for notifications tab explicitly, 
-    // we should functionality to save.
-    // However, usually "Settings" pages have a "Save" button.
-    // The `EmailNotificationSettings` component doesn't show a save button in the code I viewed.
-    // Let's assume auto-save for toggles or add a save button. 
-    // For now, I'll implementing auto-save or just local update. 
-    // Best practice: Update local, then save.
-    
-    // Let's implement auto-save for this interaction to make it seamless
     try {
-        const token = getToken();
-        if (token) {
-            await updateNotificationSettings(newSettings, token);
-        }
+      await saveAllNotifications(newSettings);
     } catch (e) {
-        console.error("Failed to save toggle", e);
+      toast.error("Failed to save toggle");
+    }
+  };
+
+  const handleTogglePush = async (key: string) => {
+    const newSettings = {
+      ...notificationSettings,
+      [key]: {
+        ...notificationSettings[key],
+        pushEnabled: !notificationSettings[key].pushEnabled,
+      },
+    };
+    setNotificationSettings(newSettings);
+    
+    try {
+      await saveAllNotifications(newSettings);
+      toast.success(`Push notification ${!notificationSettings[key].pushEnabled ? 'enabled' : 'disabled'}`);
+    } catch (e) {
+      toast.error("Failed to save push toggle");
     }
   };
 
@@ -336,15 +496,11 @@ Best regards,
     setNotificationSettings(newSettings);
 
     try {
-        const token = getToken();
-        if (token) {
-             // We save all, or just this one? API takes dictionary.
-             await updateNotificationSettings(newSettings, token);
-        }
-        toast.success('Template saved successfully!');
+      await saveAllNotifications(newSettings);
+      toast.success('Template saved successfully!');
     } catch (e) {
-        console.error(e);
-        toast.error('Failed to save template');
+      console.error(e);
+      toast.error('Failed to save template');
     }
   };
 
@@ -374,14 +530,234 @@ Best regards,
 
     setNotificationSettings(newSettings);
     
-    // Auto-save timing
     try {
-        const token = getToken();
-        if (token) {
-            await updateNotificationSettings(newSettings, token);
-        }
+      await saveAllNotifications(newSettings);
     } catch (e) {
-        console.error("Failed to save timing", e);
+      console.error("Failed to save timing", e);
+    }
+  };
+
+  const handleSendTestEmail = async (key: string, email: string) => {
+    if (!email || !email.includes('@')) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      await sendTestEmail(email, key, token);
+      toast.success(`Test email sent successfully to ${email}`);
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e.message || 'Failed to send test email');
+    }
+  };
+
+  const handleAddSequence = async (baseType: string) => {
+    const existingKeys = Object.keys(notificationSettings).filter(k => k.startsWith(baseType));
+    let nextIndex = 0;
+    
+    existingKeys.forEach(k => {
+      if (k.includes(':')) {
+        const idx = parseInt(k.split(':')[1]);
+        if (!isNaN(idx) && idx >= nextIndex) nextIndex = idx + 1;
+      } else {
+        // Current base key counts as index 0 if it exists
+        if (nextIndex === 0) nextIndex = 1;
+      }
+    });
+
+    const newKey = `${baseType}:${nextIndex}`;
+    const defaultTemplate = notificationSettings[baseType]?.template || { subject: 'New Notification', body: '' };
+    const defaultTiming: TimingConfig = { 
+      value: 1, 
+      unit: 'hours' as TimeUnit, 
+      context: (baseType === 'appointmentReminder' ? 'before_appointment' : 'after_appointment') as TimingContext 
+    };
+
+    const newConfig: NotificationConfig = {
+      enabled: true,
+      timing: baseType === 'appointmentReminder' ? '1 hour before appointment' : '1 hour after appointment',
+      timingConfig: defaultTiming,
+      trigger: baseType === 'appointmentReminder' ? 'Before scheduled appointment' : 'After appointment ends',
+      description: baseType === 'appointmentReminder' ? 'Additional reminder sequence' : 'Additional follow-up sequence',
+      template: { ...defaultTemplate }
+    };
+
+    const newSettings = {
+      ...notificationSettings,
+      [newKey]: newConfig
+    };
+
+    setNotificationSettings(newSettings);
+    
+    try {
+        await saveAllNotifications(newSettings);
+        toast.success(`New ${baseType === 'appointmentReminder' ? 'reminder' : 'follow-up'} added`);
+    } catch (e) {
+        console.error(e);
+        toast.error('Failed to add notification sequence');
+    }
+  };
+
+  const handleRemoveSequence = async (key: string) => {
+    const newSettings = { ...notificationSettings };
+    delete newSettings[key];
+    setNotificationSettings(newSettings);
+
+    try {
+        await saveAllNotifications(newSettings);
+        toast.success('Notification removed');
+    } catch (e) {
+        console.error(e);
+        toast.error('Failed to remove notification');
+    }
+  };
+
+  // SMS Notification Handlers
+  const handleToggleSmsNotification = async (key: string) => {
+    const newSettings = {
+      ...smsSettings,
+      [key]: {
+        ...smsSettings[key],
+        enabled: !smsSettings[key].enabled,
+      },
+    };
+    setSmsSettings(newSettings);
+    
+    try {
+      await saveAllNotifications(undefined, newSettings);
+      toast.success(`SMS notification ${newSettings[key].enabled ? 'enabled' : 'disabled'}`);
+    } catch (e) {
+      toast.error('Failed to save SMS toggle');
+    }
+  };
+
+  const handleEditSmsTemplate = (key: string) => {
+    setEditingSmsTemplate(key);
+  };
+
+  const handleSaveSmsTemplate = async (template: SmsTemplate) => {
+    if (!editingSmsTemplate) return;
+    
+    const newSettings = {
+      ...smsSettings,
+      [editingSmsTemplate]: {
+        ...smsSettings[editingSmsTemplate],
+        template: template
+      }
+    };
+    
+    setSmsSettings(newSettings);
+    
+    try {
+      await saveAllNotifications(undefined, newSettings);
+      toast.success('SMS template saved successfully');
+    } catch (e) {
+      toast.error('Failed to save SMS template');
+    }
+  };
+
+  const updateSmsTimingConfig = async (key: string, field: keyof TimingConfig, value: any) => {
+    const currentConfig = smsSettings[key]?.timingConfig;
+    if (!currentConfig) return;
+
+    const newConfig = { ...currentConfig, [field]: value };
+    
+    let timingString = '';
+    if (newConfig.context === 'immediately') {
+      timingString = 'Immediately';
+    } else {
+      const unitLabel = newConfig.value === 1 ? newConfig.unit.slice(0, -1) : newConfig.unit;
+      const contextLabel = newConfig.context === 'before_appointment' ? 'before appointment' : 'after appointment';
+      timingString = `${newConfig.value} ${unitLabel} ${contextLabel}`;
+    }
+
+    const newSettings = {
+      ...smsSettings,
+      [key]: {
+        ...smsSettings[key],
+        timing: timingString,
+        timingConfig: newConfig,
+      },
+    };
+
+    setSmsSettings(newSettings);
+
+    try {
+      await saveAllNotifications(undefined, newSettings);
+      toast.success('SMS timing updated successfully');
+    } catch (e) {
+      toast.error('Failed to save SMS timing');
+    }
+  };
+
+  const handleSendTestSms = (key: string, phone: string) => {
+    if (!phone || phone.length < 10) {
+      toast.error('Please enter a valid phone number');
+      return;
+    }
+    // Placeholder for actual SMS sending
+    toast.info(`Test SMS to ${phone} - SMS gateway not yet configured`);
+  };
+
+  const handleAddSmsSequence = async (baseType: string) => {
+    const existingKeys = Object.keys(smsSettings).filter(k => k.startsWith(baseType));
+    let nextIndex = 0;
+    
+    existingKeys.forEach(k => {
+      if (k.includes(':')) {
+        const idx = parseInt(k.split(':')[1]);
+        if (!isNaN(idx) && idx >= nextIndex) nextIndex = idx + 1;
+      } else {
+        if (nextIndex === 0) nextIndex = 1;
+      }
+    });
+
+    const newKey = `${baseType}:${nextIndex}`;
+    const defaultTemplate = smsSettings[baseType]?.template || { body: 'New SMS notification' };
+    const defaultTiming: TimingConfig = { 
+      value: 1, 
+      unit: 'hours' as TimeUnit, 
+      context: (baseType === 'smsReminder' ? 'before_appointment' : 'after_appointment') as TimingContext 
+    };
+
+    const newConfig: SmsNotificationConfig = {
+      enabled: true,
+      timing: baseType === 'smsReminder' ? '1 hour before appointment' : '1 hour after appointment',
+      timingConfig: defaultTiming,
+      trigger: baseType === 'smsReminder' ? 'Before scheduled appointment' : 'After appointment ends',
+      description: baseType === 'smsReminder' ? 'Additional SMS reminder' : 'Additional SMS follow-up',
+      template: { ...defaultTemplate }
+    };
+
+    const newSmsSettings = {
+      ...smsSettings,
+      [newKey]: newConfig
+    };
+
+    setSmsSettings(newSmsSettings);
+    
+    try {
+      await saveAllNotifications(undefined, newSmsSettings);
+      toast.success(`New SMS ${baseType === 'smsReminder' ? 'reminder' : 'follow-up'} added`);
+    } catch (e) {
+      toast.error('Failed to save new SMS sequence');
+    }
+  };
+
+  const handleRemoveSmsSequence = async (key: string) => {
+    const newSettings = { ...smsSettings };
+    delete newSettings[key];
+    setSmsSettings(newSettings);
+    
+    try {
+      await saveAllNotifications(undefined, newSettings);
+      toast.success('SMS notification removed');
+    } catch (e) {
+      toast.error('Failed to remove SMS notification');
     }
   };
 
@@ -407,11 +783,12 @@ Best regards,
   };
 
   const tabs = [
-    { id: 'general' as SettingsTab, label: 'General', icon: Bell },
+    { id: 'general' as SettingsTab, label: 'General', icon: SettingsIcon },
     { id: 'company' as SettingsTab, label: 'Company Profile', icon: Building },
-    { id: 'notifications' as SettingsTab, label: 'Email Notifications', icon: Mail },
+    { id: 'notifications' as SettingsTab, label: 'Notifications', icon: Bell },
     { id: 'payment' as SettingsTab, label: 'Payment Settings', icon: DollarSign },
     { id: 'locations' as SettingsTab, label: 'Meeting Locations', icon: MapPin },
+    { id: 'bookingForm' as SettingsTab, label: 'Booking Form', icon: Palette },
     { id: 'global' as SettingsTab, label: 'Timezone', icon: Globe },
   ];
 
@@ -448,12 +825,24 @@ Best regards,
         <GeneralSettings
           defaultSenderName={defaultSenderName}
           setDefaultSenderName={setDefaultSenderName}
+          defaultSenderEmail={defaultSenderEmail}
+          setDefaultSenderEmail={setDefaultSenderEmail}
           defaultReplyEmail={defaultReplyEmail}
           setDefaultReplyEmail={setDefaultReplyEmail}
           emailNotificationsEnabled={emailNotificationsEnabled}
-          setEmailNotificationsEnabled={setEmailNotificationsEnabled}
+          setEmailNotificationsEnabled={handleMasterEmailToggle}
+          smsNotificationsEnabled={smsNotificationsEnabled}
+          setSmsNotificationsEnabled={handleMasterSmsToggle}
           requireTimeOffApproval={requireTimeOffApproval}
           setRequireTimeOffApproval={setRequireTimeOffApproval}
+          allowCustomerRescheduling={allowCustomerRescheduling}
+          setAllowCustomerRescheduling={setAllowCustomerRescheduling}
+          reschedulingMinLeadTime={reschedulingMinLeadTime}
+          setReschedulingMinLeadTime={setReschedulingMinLeadTime}
+          allowCustomerCanceling={allowCustomerCanceling}
+          setAllowCustomerCanceling={setAllowCustomerCanceling}
+          cancelingMinLeadTime={cancelingMinLeadTime}
+          setCancelingMinLeadTime={setCancelingMinLeadTime}
           onSave={handleSaveGeneral}
         />
       )}
@@ -531,13 +920,10 @@ Best regards,
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Business Phone</label>
                     <div className="relative group">
-                      <PhoneIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
-                      <input
-                        type="tel"
+                      <PhoneInput
                         value={businessPhone}
-                        onChange={(e) => setBusinessPhone(e.target.value)}
-                        placeholder="+1 (555) 123-4567"
-                        className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900"
+                        onChange={setBusinessPhone}
+                        className="w-full bg-white border border-gray-200 rounded-xl focus-within:ring-4 focus-within:ring-indigo-600/10 focus-within:border-indigo-600 transition-all"
                       />
                     </div>
                   </div>
@@ -559,14 +945,64 @@ Best regards,
         </div>
       )}
 
-      {/* Email Notifications */}
+      {/* Notifications */}
       {activeTab === 'notifications' && (
-        <EmailNotificationSettings
-          notificationSettings={notificationSettings}
-          onToggleNotification={handleToggleNotification}
-          onEditTemplate={handleEditTemplate}
-          onUpdateTimingConfig={updateTimingConfig}
-        />
+        <div className="space-y-6">
+          {/* Sub-tabs for Notifications */}
+          <div className="flex border-b border-gray-200 mb-6">
+            <button
+              onClick={() => setNotificationsActiveTab('email')}
+              className={`px-6 py-3 text-sm font-bold transition-all relative ${
+                notificationsActiveTab === 'email'
+                  ? 'text-indigo-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Email Notifications
+              {notificationsActiveTab === 'email' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full" />
+              )}
+            </button>
+            <button
+              onClick={() => setNotificationsActiveTab('sms')}
+              className={`px-6 py-3 text-sm font-bold transition-all relative ${
+                notificationsActiveTab === 'sms'
+                  ? 'text-indigo-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              SMS Notifications
+              {notificationsActiveTab === 'sms' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full" />
+              )}
+            </button>
+          </div>
+
+          {notificationsActiveTab === 'email' && (
+            <EmailNotificationSettings
+              notificationSettings={notificationSettings}
+              onToggleNotification={handleToggleNotification}
+              onEditTemplate={handleEditTemplate}
+              onUpdateTimingConfig={updateTimingConfig}
+              onSendTestEmail={handleSendTestEmail}
+              onTogglePush={handleTogglePush}
+              onAddSequence={handleAddSequence}
+              onRemoveSequence={handleRemoveSequence}
+            />
+          )}
+
+          {notificationsActiveTab === 'sms' && (
+            <SmsNotificationSettings
+              smsSettings={smsSettings}
+              onToggleNotification={handleToggleSmsNotification}
+              onEditTemplate={handleEditSmsTemplate}
+              onUpdateTimingConfig={updateSmsTimingConfig}
+              onSendTestSms={handleSendTestSms}
+              onAddSequence={handleAddSmsSequence}
+              onRemoveSequence={handleRemoveSmsSequence}
+            />
+          )}
+        </div>
       )}
 
       {/* Payment Settings */}
@@ -577,6 +1013,11 @@ Best regards,
       {/* Meeting Locations */}
       {activeTab === 'locations' && (
           <MeetingLocationSettings />
+      )}
+
+      {/* Booking Form Settings */}
+      {activeTab === 'bookingForm' && (
+          <BookingFormSettings />
       )}
 
       {/* Global Settings (Timezone) */}
@@ -634,20 +1075,33 @@ Best regards,
           </div>
         </div>
       )}
-      {/* Template Editor Modal */}
+
+      {/* Google Calendar Settings */}
+      {activeTab === 'google-calendar' && (
+        <GoogleCalendarSettings />
+      )}
+
+      {/* Edit Template Modal */}
       {editingTemplate && notificationSettings[editingTemplate] && (
         <EmailTemplateEditor
           isOpen={true}
           onClose={() => setEditingTemplate(null)}
+          onSave={(template) => handleSaveTemplate(editingTemplate, template)}
           template={notificationSettings[editingTemplate].template}
-          onSave={(template) => {
-             handleSaveTemplate(editingTemplate, template);
-             setEditingTemplate(null);
-          }}
-          title={`Edit ${notificationSettings[editingTemplate].description}`}
-          description={notificationSettings[editingTemplate].description}
+          defaultTemplate={DEFAULT_NOTIFICATION_TEMPLATES[editingTemplate]?.template as EmailTemplate}
+          title={getNotificationTitle(editingTemplate)}
+          description={getNotificationDescription(editingTemplate)}
         />
       )}
+
+      <SmsTemplateEditor
+        isOpen={!!editingSmsTemplate}
+        onClose={() => setEditingSmsTemplate(null)}
+        onSave={handleSaveSmsTemplate}
+        template={editingSmsTemplate ? smsSettings[editingSmsTemplate]?.template : { body: '' }}
+        title={editingSmsTemplate ? getNotificationTitle(editingSmsTemplate) : ''}
+        description={editingSmsTemplate ? (smsSettings[editingSmsTemplate]?.description || '') : ''}
+      />
     </div>
   );
 }

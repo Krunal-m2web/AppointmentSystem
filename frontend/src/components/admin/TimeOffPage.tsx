@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, Check, X, Plus, Search, Loader2, Calendar, User, AlertCircle, ChevronDown, Filter, Edit2, Trash2, AlertTriangle } from 'lucide-react';
+import { Clock, Check, X, Plus, Search, Loader2, Calendar, User, AlertCircle, ChevronDown, Filter, Pencil, Edit2, Trash2, AlertTriangle } from 'lucide-react';
 import { 
   TimeOff, 
   fetchPendingTimeOffs, 
@@ -21,6 +21,22 @@ import { useTimezone } from '../../context/TimezoneContext';
 import { getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
 import type { Staff } from '../../types/types';
 import { toast } from 'sonner';
+import { TableSkeleton } from '../ui/TableSkeleton';
+import { DateInput } from '../ui/DateInput';
+
+// Helper to convert YYYY-MM-DD to mm/dd/yyyy
+const toDisplayDate = (isoDate: string) => {
+  if (!isoDate) return '';
+  const [year, month, day] = isoDate.split('-');
+  return `${month}/${day}/${year}`;
+};
+
+// Helper to convert mm/dd/yyyy to YYYY-MM-DD
+const toInternalDate = (displayDate: string) => {
+  if (!displayDate) return '';
+  const [month, day, year] = displayDate.split('/');
+  return `${year}-${month}-${day}`;
+};
 
 interface TimeOffPageProps {
   onCountChange: (count: number) => void;
@@ -57,6 +73,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
   // Fetch data
   const fetchData = async () => {
     setLoading(true);
+    setTimeOffs([]); // Clear previous data to prevent stale counts
     try {
       if (isAdmin) {
         if (activeTab === 'pending') {
@@ -211,8 +228,16 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
     if (typeFilter === 'fullday' && !t.isFullDay) return false;
     if (typeFilter === 'partial' && t.isFullDay) return false;
     // Date range filter
-    if (dateRangeFilter.start && new Date(t.startDateTimeUtc) < new Date(dateRangeFilter.start)) return false;
-    if (dateRangeFilter.end && new Date(t.endDateTimeUtc) > new Date(dateRangeFilter.end + 'T23:59:59Z')) return false;
+    const tStartLocal = getDateString(new Date(t.startDateTimeUtc), timezone);
+    const tEndLocal = getDateString(new Date(t.endDateTimeUtc), timezone);
+
+    if (dateRangeFilter.start) {
+        const filterStart = dateRangeFilter.start;
+        const filterEnd = dateRangeFilter.end || filterStart; // Default to single day
+        
+        // Overlap condition: (RecordStart <= RangeEnd) AND (RecordEnd >= RangeStart)
+        if (tStartLocal > filterEnd || tEndLocal < filterStart) return false;
+    }
     
     return true;
   });
@@ -276,7 +301,11 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setTimeOffs([]);
+                  setLoading(true);
+                  setActiveTab(tab.id);
+                }}
                 className={`pb-3 px-2 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'border-indigo-600 text-indigo-600'
@@ -346,20 +375,18 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
 
           {/* Date Range */}
           <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={dateRangeFilter.start}
-              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, start: e.target.value }))}
-              className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
+            <DateInput
+              value={toDisplayDate(dateRangeFilter.start)}
+              onChange={(val) => setDateRangeFilter(prev => ({ ...prev, start: toInternalDate(val) }))}
               placeholder="Start date"
+              className="w-40"
             />
             <span className="text-gray-400">to</span>
-            <input
-              type="date"
-              value={dateRangeFilter.end}
-              onChange={(e) => setDateRangeFilter(prev => ({ ...prev, end: e.target.value }))}
-              className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
+            <DateInput
+              value={toDisplayDate(dateRangeFilter.end)}
+              onChange={(val) => setDateRangeFilter(prev => ({ ...prev, end: toInternalDate(val) }))}
               placeholder="End date"
+              className="w-40"
             />
           </div>
 
@@ -383,8 +410,8 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <div className="p-4">
+            <TableSkeleton rows={5} columns={isAdmin ? 7 : 6} />
           </div>
         ) : filteredTimeOffs.length === 0 ? (
           <div className="text-center py-12 px-4">
@@ -498,14 +525,14 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                           <>
                             <button
                               onClick={() => handleEdit(timeOff)}
-                              className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              className="p-1.5 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-lg transition-all duration-200"
                               title="Edit"
                             >
-                              <Edit2 className="w-4 h-4" />
+                              <Pencil className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDelete(timeOff)}
-                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              className="p-1.5 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-lg transition-all duration-200"
                               title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -796,21 +823,18 @@ function AddTimeOffModal({
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Start Date <span className="text-red-500">*</span></label>
-                      <input
-                        type="date"
-                        value={formData.startDate}
-                        onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-transparent outline-none transition-all"
+                      <DateInput
+                        value={toDisplayDate(formData.startDate)}
+                        onChange={(val) => setFormData({ ...formData, startDate: toInternalDate(val) })}
+                        className="w-full"
                       />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">End Date</label>
-                      <input
-                        type="date"
-                        value={formData.endDate}
-                        onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                        min={formData.startDate}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-transparent outline-none transition-all"
+                      <DateInput
+                        value={toDisplayDate(formData.endDate)}
+                        onChange={(val) => setFormData({ ...formData, endDate: toInternalDate(val) })}
+                        className="w-full"
                       />
                     </div>
                   </div>
@@ -818,11 +842,10 @@ function AddTimeOffModal({
                   <div className="space-y-3">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Date <span className="text-red-500">*</span></label>
-                      <input
-                        type="date"
-                        value={formData.startDate}
-                        onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-transparent outline-none transition-all"
+                      <DateInput
+                        value={toDisplayDate(formData.startDate)}
+                        onChange={(val) => setFormData({ ...formData, startDate: toInternalDate(val) })}
+                        className="w-full"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-4">

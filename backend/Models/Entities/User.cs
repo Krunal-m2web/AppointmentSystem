@@ -24,16 +24,6 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [Required, MinLength(2), MaxLength(50)]
         public string LastName { get; set; } = null!;
 
-        [Required]
-        [Phone, MaxLength(20)]
-        public string Phone { get; set; } = null!;
-
-      
-
-        [Required]
-        [MaxLength(100)]
-        public string Country { get; set; } = null!;
-
         // Password for admin login
         [Required]
         public string PasswordHash { get; set; } = null!;

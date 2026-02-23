@@ -8,14 +8,18 @@ export interface CreateAppointmentRequest {
   companyId: number;
   firstName: string;
   lastName: string;
-  email: string;
-  phone: string;
+  email?: string;
+  phone?: string;
   serviceId: number;
   staffId?: number | null;
   startTime: string; // ISO format UTC
   meetingType: "InPerson" | "Phone" | "Zoom";
   paymentMethod: "Card" | "Cash" | "PayPal";
+  timezone?: string;
   notes?: string;
+  status?: string;
+  price?: number;
+  duration?: number;
 }
 
 export interface UpdateAppointmentRequest {
@@ -29,7 +33,11 @@ export interface UpdateAppointmentRequest {
   meetingType?: string;
   paymentMethod?: string;
   status?: string;
+  timezone?: string;
   notes?: string;
+  price?: number;
+  currencyCode?: string;
+  duration?: number;
 }
 
 export interface AppointmentResponse {
@@ -221,4 +229,29 @@ export async function deleteAppointment(
       errorData.message || `Failed to delete appointment: ${response.status}`
     );
   }
+}
+/**
+ * Reschedule an appointment using a token
+ * No authentication required
+ */
+export async function rescheduleByToken(
+  token: string,
+  newStartTime: string
+): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE_URL}/api/appointments/reschedule-by-token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ token, newStartTime }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      errorData.message || `Failed to reschedule: ${response.status}`
+    );
+  }
+
+  return response.json();
 }

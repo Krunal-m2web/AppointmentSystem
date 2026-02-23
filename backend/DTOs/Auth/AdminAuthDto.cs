@@ -24,7 +24,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Auth
 
         // Company info for new company creation
         [Required]
-        [MaxLength(100)]
+        [MinLength(3), MaxLength(100)]
         public string CompanyName { get; set; } = null!;
 
         [MaxLength(3)]

@@ -6,6 +6,8 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
     {
         public int Id { get; set; }
         public int CompanyId { get; set; }
+        public string? CompanyPhone { get; set; }
+        public string? CompanySlug { get; set; }
 
         // Customer Info
         public int CustomerId { get; set; }
@@ -34,5 +36,16 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
         public PaymentStatus PaymentStatus { get; set; }
 
         public DateTime CreatedAt { get; set; }
+        
+        // Admin Rules
+        public bool AllowCustomerRescheduling { get; set; }
+        public int ReschedulingMinLeadTime { get; set; }
+        public bool AllowCustomerCanceling { get; set; }
+        public int CancelingMinLeadTime { get; set; }
+
+        // Customer Stats
+        public int CustomerTotalAppointments { get; set; }
+        public decimal CustomerTotalUnpaidAmount { get; set; }
+        public List<SimpleAppointmentDto> CustomerOtherAppointments { get; set; } = new();
     }
 }

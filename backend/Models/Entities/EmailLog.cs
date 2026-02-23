@@ -20,8 +20,11 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [Required]
         public string Subject { get; set; } = string.Empty;
 
-        [Required]
-        public string Body { get; set; } = string.Empty;
+
+
+        public int? AppointmentId { get; set; }
+        public int? NotificationConfigId { get; set; }
+        public NotificationConfig? NotificationConfig { get; set; }
 
         public DateTime SentAt { get; set; } = DateTime.UtcNow;
     }

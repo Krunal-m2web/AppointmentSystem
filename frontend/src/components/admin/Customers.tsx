@@ -1,14 +1,20 @@
 import { useState, useEffect } from 'react';
-import { Search, Download, Upload, Plus, Edit, Trash2, X, Mail, Phone, User, Loader2, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, FileText } from 'lucide-react';
+import PhoneInput, { isValidPhoneNumber } from '../ui/PhoneInput';
+import { Search, Download, Upload, Plus, Edit, Trash2, X, Mail, Phone, User, Loader2, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, FileText, History, Pencil } from 'lucide-react';
 import { 
   fetchCustomers, 
   createCustomer, 
   updateCustomer, 
   deleteCustomer,
+  bulkDeleteCustomers,
   CustomerResponse 
 } from '../../services/customerApi';
 import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
+import { NotificationHistoryDrawer } from './NotificationHistoryDrawer';
+import { Skeleton } from '../ui/skeleton';
+import { TableSkeleton } from '../ui/TableSkeleton';
+
 
 export function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
@@ -19,8 +25,12 @@ export function CustomersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [deleteCustomerId, setDeleteCustomerId] = useState<number | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedHistoryCustomer, setSelectedHistoryCustomer] = useState<CustomerResponse | null>(null);
 
   // Pagination & Sorting State
   const [currentPage, setCurrentPage] = useState(1);
@@ -53,16 +63,20 @@ export function CustomersPage() {
       errors.lastName = 'Last name must be at least 3 characters';
     }
 
-    if (!formData.email.trim()) {
-      errors.email = 'Email is required';
-    } else if (!emailRegex.test(formData.email)) {
-      errors.email = 'Invalid email format';
-    }
+    const hasEmail = formData.email.trim().length > 0;
+    const hasPhone = formData.phone?.trim().length > 0;
 
-    if (!formData.phone?.trim()) {
-      errors.phone = 'Phone number is required';
-    } else if (!/^[\d\s\-()+]{7,20}$/.test(formData.phone.trim())) {
-      errors.phone = 'Invalid phone format';
+    if (!hasEmail && !hasPhone) {
+      errors.contact = 'Either Email or Phone number is required';
+      errors.email = ' '; // Silent error for border
+      errors.phone = ' '; // Silent error for border
+    } else {
+      if (hasEmail && !emailRegex.test(formData.email)) {
+        errors.email = 'Invalid email format';
+      }
+      if (hasPhone && !isValidPhoneNumber(formData.phone)) {
+        errors.phone = 'Invalid phone format';
+      }
     }
 
     if (formData.notes && formData.notes.length > 500) {
@@ -184,6 +198,22 @@ export function CustomersPage() {
     setDeleteCustomerId(id);
   };
 
+  const confirmBulkDelete = async () => {
+    if (selectedCustomers.length === 0) return;
+    try {
+      setIsBulkDeleting(true);
+      await bulkDeleteCustomers(selectedCustomers);
+      toast.success(`${selectedCustomers.length} customers deleted successfully`);
+      setSelectedCustomers([]);
+      loadCustomers();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete customers');
+    } finally {
+      setIsBulkDeleting(false);
+      setShowBulkDeleteConfirm(false);
+    }
+  };
+
   const handleCloseForm = () => {
     setShowNewCustomerForm(false);
     setEditingCustomer(null);
@@ -195,6 +225,11 @@ export function CustomersPage() {
       notes: '',
     });
     setFormErrors({});
+  };
+
+  const handleViewHistory = (customer: CustomerResponse) => {
+    setSelectedHistoryCustomer(customer);
+    setShowHistoryModal(true);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
@@ -210,7 +245,7 @@ export function CustomersPage() {
         await updateCustomer(editingCustomer.id, {
           firstName: formData.firstName,
           lastName: formData.lastName,
-          email: formData.email,
+          email: formData.email || undefined,
           phone: formData.phone || undefined,
           notes: formData.notes || undefined,
           isActive: true,
@@ -220,7 +255,7 @@ export function CustomersPage() {
         await createCustomer({
           firstName: formData.firstName,
           lastName: formData.lastName,
-          email: formData.email,
+          email: formData.email || undefined,
           phone: formData.phone || undefined,
           notes: formData.notes || undefined,
         });
@@ -283,9 +318,19 @@ export function CustomersPage() {
 
   if (isLoading && customers.length === 0 && !searchQuery) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
-        <p className="text-gray-600">Loading customers...</p>
+      <div className="p-6">
+        {/* Search bar skeleton */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <Skeleton className="h-10 w-full max-w-md bg-gray-200" />
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-10 w-32 bg-gray-200" />
+              <Skeleton className="h-10 w-36 bg-gray-200" />
+            </div>
+          </div>
+        </div>
+        {/* Table skeleton */}
+        <TableSkeleton rows={8} columns={7} />
       </div>
     );
   }
@@ -462,17 +507,27 @@ export function CustomersPage() {
                       {customer.totalAppointments}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleViewHistory(customer)}
+                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                          title="Communication Logs"
+                        >
+                          <History className="w-4 h-4" />
+                        </button>
+
                         <button
                           onClick={() => handleEditCustomer(customer)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                          title="Edit Customer"
                         >
-                          <Edit className="w-3 h-3" />
-                          Edit...
+                          <Pencil className="w-4 h-4" />
                         </button>
+
                         <button
                           onClick={() => handleDeleteCustomer(customer.id)}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                          title="Delete Customer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -513,12 +568,26 @@ export function CustomersPage() {
           </div>
             
                 <div className="flex items-center gap-2">
+            {selectedCustomers.length > 1 && (
+              <button
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={isBulkDeleting}
+                className="flex items-center gap-2 px-4 py-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-all text-sm shadow-sm active:scale-95 font-medium disabled:opacity-50"
+              >
+                {isBulkDeleting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                Delete {selectedCustomers.length} selected
+              </button>
+            )}
             <button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1 || isLoading}
               className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
             >
-              Previous
+             <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="text-sm text-gray-700">
               Page {currentPage} of {totalPages || 1}
@@ -528,7 +597,7 @@ export function CustomersPage() {
               disabled={currentPage === totalPages || totalPages === 0 || isLoading}
               className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
             >
-              Next
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -645,14 +714,14 @@ export function CustomersPage() {
                         <div className="p-1.5 bg-emerald-100 rounded-lg">
                           <Mail className="w-4 h-4 text-emerald-600" />
                         </div>
-                        Contact & Notes
+                        Contact & Notes <span className="text-gray-400 font-normal text-xs ml-1">(Provide either Email or Phone)</span>
                       </h3>
                     </div>
                     <div className="p-5 space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Email <span className="text-red-500">*</span>
+                            Email
                           </label>
                           <div className="relative">
                             <Mail className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
@@ -664,6 +733,10 @@ export function CustomersPage() {
                                 if (formErrors.email) {
                                   const newErrors = { ...formErrors };
                                   delete newErrors.email;
+                                  // Clear phone error if email is being typed and phone was showing "required"
+                                  if (formErrors.email !== 'Email or Phone is required' && formErrors.phone === 'Email or Phone is required') {
+                                    delete newErrors.phone;
+                                  }
                                   setFormErrors(newErrors);
                                 }
                               }}
@@ -682,34 +755,39 @@ export function CustomersPage() {
 
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Phone <span className="text-red-500">*</span>
+                            Phone
                           </label>
                           <div className="relative">
-                            <Phone className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
-                            <input
-                              type="tel"
-                              value={formData.phone}
-                              onChange={(e) => {
-                                setFormData({ ...formData, phone: e.target.value });
-                                if (formErrors.phone) {
-                                  const newErrors = { ...formErrors };
-                                  delete newErrors.phone;
-                                  setFormErrors(newErrors);
-                                }
-                              }}
-                              placeholder="+1 (555) 000-0000"
-                              className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
-                                formErrors.phone ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
-                              }`}
-                            />
+                            <Phone className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none z-10" />
+                             <div className="pl-8">
+                                <PhoneInput
+                                  value={formData.phone}
+                                  onChange={(val) => {
+                                    setFormData({ ...formData, phone: val });
+                                    if (formErrors.phone) {
+                                      const newErrors = { ...formErrors };
+                                      delete newErrors.phone;
+                                      // Clear email error if phone is being typed and email was showing "required"
+                                      if (formErrors.phone === 'Email or Phone is required' && formErrors.email === 'Email or Phone is required') {
+                                        delete newErrors.email;
+                                      }
+                                      setFormErrors(newErrors);
+                                    }
+                                  }}
+                                  placeholder="Enter phone number"
+                                  error={formErrors.phone}
+                                />
+                             </div>
                           </div>
-                          {formErrors.phone && (
-                            <p className="text-red-600 text-xs mt-1.5">
-                              {formErrors.phone}
-                            </p>
-                          )}
                         </div>
                       </div>
+
+                      {formErrors.contact && (
+                        <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg border border-red-100 animate-in fade-in slide-in-from-top-1 duration-200">
+                          <X className="w-4 h-4" />
+                          <p className="text-sm font-medium">{formErrors.contact}</p>
+                        </div>
+                      )}
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -776,14 +854,32 @@ export function CustomersPage() {
       )}
       
       <ConfirmationModal
-        isOpen={!!deleteCustomerId}
+        isOpen={deleteCustomerId !== null}
         onClose={() => setDeleteCustomerId(null)}
         onConfirm={confirmDeleteCustomer}
         title="Delete Customer"
-        description="Are you sure you want to delete this customer? This action cannot be undone."
+        description="Are you sure you want to delete this customer? This action will set the customer as inactive. You can permanently delete them later if they have no appointments."
         confirmText="Delete"
         variant="destructive"
       />
+
+      <ConfirmationModal
+        isOpen={showBulkDeleteConfirm}
+        onClose={() => setShowBulkDeleteConfirm(false)}
+        onConfirm={confirmBulkDelete}
+        title="Bulk Delete Customers"
+        description={`Are you sure you want to delete ${selectedCustomers.length} selected customers? This action will set them as inactive.`}
+        confirmText={`Delete ${selectedCustomers.length} Customers`}
+        variant="destructive"
+      />
+
+      {showHistoryModal && selectedHistoryCustomer && (
+        <NotificationHistoryDrawer
+          isOpen={showHistoryModal}
+          onClose={() => setShowHistoryModal(false)}
+          customer={selectedHistoryCustomer}
+        />
+      )}
     </div>
   );
 }

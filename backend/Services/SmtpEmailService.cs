@@ -13,7 +13,7 @@ namespace Appointmentbookingsystem.Backend.Services
             _configuration = configuration;
         }
 
-        public async Task SendEmailAsync(string to, string subject, string body, string? fromName = null, string? replyTo = null, int? companyId = null)
+        public async Task SendEmailAsync(string to, string subject, string body, string? fromName = null, string? replyTo = null, int? companyId = null, int? appointmentId = null, int? notificationConfigId = null)
         {
             var smtpSettings = _configuration.GetSection("SmtpSettings");
             var host = smtpSettings["Host"];

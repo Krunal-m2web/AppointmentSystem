@@ -6,13 +6,10 @@ export interface AdminRegisterDto {
   lastName: string;
   email: string;
   password: string;
-  userPhone: string;
-  userCountry: string;
   companyName: string;
-  companyPhone: string;
-  companyAddress?: string;
   companyCountry: string;
   currency: string;
+  otpCode: string;
 }
 
 export interface AdminLoginDto {

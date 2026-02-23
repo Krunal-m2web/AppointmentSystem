@@ -18,12 +18,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
         private readonly IConfiguration _configuration;
         private readonly IWebHostEnvironment _environment;
         private readonly AppDbContext _context;
+        private readonly Services.IEmailService _emailService;
 
-        public SettingsController(IConfiguration configuration, IWebHostEnvironment environment, AppDbContext context)
+        public SettingsController(IConfiguration configuration, IWebHostEnvironment environment, AppDbContext context, Services.IEmailService emailService)
         {
             _configuration = configuration;
             _environment = environment;
             _context = context;
+            _emailService = emailService;
         }
 
         /// <summary>
@@ -170,8 +172,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
             return Ok(new GeneralSettingsDto
             {
                 DefaultSenderName = company.DefaultSenderName,
+                DefaultSenderEmail = company.DefaultSenderEmail,
                 DefaultReplyToEmail = company.DefaultReplyToEmail,
-                IsEmailServiceEnabled = company.IsEmailServiceEnabled
+                IsEmailServiceEnabled = company.IsEmailServiceEnabled,
+                IsSmsServiceEnabled = company.IsSmsServiceEnabled,
+                AllowCustomerRescheduling = company.AllowCustomerRescheduling,
+                ReschedulingMinLeadTime = company.ReschedulingMinLeadTime,
+                AllowCustomerCanceling = company.AllowCustomerCanceling,
+                CancelingMinLeadTime = company.CancelingMinLeadTime
             });
         }
 
@@ -184,8 +192,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (company == null) return NotFound();
 
             company.DefaultSenderName = dto.DefaultSenderName;
+            company.DefaultSenderEmail = dto.DefaultSenderEmail;
             company.DefaultReplyToEmail = dto.DefaultReplyToEmail;
             company.IsEmailServiceEnabled = dto.IsEmailServiceEnabled;
+            company.IsSmsServiceEnabled = dto.IsSmsServiceEnabled;
+            company.AllowCustomerRescheduling = dto.AllowCustomerRescheduling;
+            company.ReschedulingMinLeadTime = dto.ReschedulingMinLeadTime;
+            company.AllowCustomerCanceling = dto.AllowCustomerCanceling;
+            company.CancelingMinLeadTime = dto.CancelingMinLeadTime;
 
             await _context.SaveChangesAsync();
             return Ok(dto);
@@ -208,6 +222,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 result[config.Type] = new NotificationConfigDto
                 {
                     Enabled = config.IsEnabled,
+                    PushEnabled = config.IsPushEnabled,
                     Trigger = "", // Static based on type in frontend
                     Description = "", // Static based on type in frontend
                     Timing = "", // Calculated in frontend
@@ -237,24 +252,33 @@ namespace Appointmentbookingsystem.Backend.Controllers
              if (companyIdClaim == null) return Unauthorized("CompanyId claim missing");
              
              var companyId = int.Parse(companyIdClaim.Value);
-             Console.WriteLine($"[Settings Debug] Updating notifications for CompanyId: {companyId}. Payload count: {settings?.Count ?? 0}");
+             Console.WriteLine($"[Settings Debug] Syncing notifications for CompanyId: {companyId}. Payload count: {settings?.Count ?? 0}");
+
+             if (settings == null) return BadRequest("Settings payload is null");
 
              var existingConfigs = await _context.NotificationConfigs
                  .Where(c => c.CompanyId == companyId)
                  .ToListAsync();
 
-             if (settings == null) return BadRequest("Settings payload is null");
+             // 1. Identify configs to delete (those in DB but NOT in payload)
+             var incomingTypes = settings.Keys.ToList();
+             var configsToDelete = existingConfigs.Where(c => !incomingTypes.Any(t => string.Equals(t, c.Type, StringComparison.OrdinalIgnoreCase))).ToList();
+             
+             if (configsToDelete.Any())
+             {
+                 _context.NotificationConfigs.RemoveRange(configsToDelete);
+             }
 
+             // 2. Update or Create configs from payload
              foreach (var kvp in settings)
              {
                  var type = kvp.Key;
-                 var dto = kvp.Value;
-                 Console.WriteLine($"[Settings Debug] Processing Config: {type}, Enabled: {dto.Enabled}");
-
-                 var config = existingConfigs.FirstOrDefault(c => c.Type == type);
+                 var incomingConfig = kvp.Value;
+                 
+                 // Find matching config case-insensitively
+                 var config = existingConfigs.FirstOrDefault(c => string.Equals(c.Type, type, StringComparison.OrdinalIgnoreCase));
                  if (config == null)
                  {
-                     Console.WriteLine($"[Settings Debug] Creating NEW config for {type}");
                      config = new NotificationConfig
                      {
                          CompanyId = companyId,
@@ -262,20 +286,17 @@ namespace Appointmentbookingsystem.Backend.Controllers
                      };
                      _context.NotificationConfigs.Add(config);
                  }
-                 else
-                 {
-                      Console.WriteLine($"[Settings Debug] Updating EXISTING config for {type} (Id: {config.Id})");
-                 }
 
-                 config.IsEnabled = dto.Enabled;
-                 config.Subject = dto.Template.Subject;
-                 config.Body = dto.Template.Body;
+                 config.IsEnabled = incomingConfig.Enabled;
+                 config.IsPushEnabled = incomingConfig.PushEnabled;
+                 config.Subject = incomingConfig.Template.Subject;
+                 config.Body = incomingConfig.Template.Body;
                  
-                 if (dto.TimingConfig != null)
+                 if (incomingConfig.TimingConfig != null)
                  {
-                     config.TimingValue = dto.TimingConfig.Value;
-                     config.TimingUnit = dto.TimingConfig.Unit;
-                     config.TimingContext = dto.TimingConfig.Context;
+                     config.TimingValue = incomingConfig.TimingConfig.Value;
+                     config.TimingUnit = incomingConfig.TimingConfig.Unit;
+                     config.TimingContext = incomingConfig.TimingConfig.Context;
                  }
                  else
                  {
@@ -290,15 +311,75 @@ namespace Appointmentbookingsystem.Backend.Controllers
              
              return Ok(new { message = "Notification settings updated" });
         }
+    
+        [HttpPost("notifications/test")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> SendTestEmail([FromBody] SendTestEmailDto dto)
+        {
+            if (string.IsNullOrEmpty(dto.ToEmail)) return BadRequest("Email address is required");
+            if (string.IsNullOrEmpty(dto.Type)) return BadRequest("Notification type is required");
+
+            var companyId = int.Parse(User.FindFirst("CompanyId")!.Value);
+            var company = await _context.Companies.FindAsync(companyId);
+            if (company == null) return NotFound("Company not found");
+
+            var config = await _context.NotificationConfigs
+                .FirstOrDefaultAsync(c => c.CompanyId == companyId && c.Type == dto.Type);
+
+            if (config == null) return NotFound("Notification template not found");
+
+            // Create a dummy appointment for placeholder replacement
+            var dummyAppointment = new Appointment
+            {
+                Customer = new Customer { FirstName = "Test", LastName = "User", Email = dto.ToEmail },
+                Service = new Service { Name = "Sample Service" },
+                Staff = new Staff { FirstName = "Sample", LastName = "Staff" },
+                StartDateTimeUtc = DateTime.UtcNow,
+                EndDateTimeUtc = DateTime.UtcNow.AddHours(1), // Added end time
+                CompanyId = companyId
+            };
+
+            string frontendUrl = _configuration["AppSettings:FrontendUrl"] ?? "http://localhost:5173";
+
+            string subject = Appointmentbookingsystem.Backend.Utils.PlaceholderHelper.ReplacePlaceholders(config.Subject, dummyAppointment, company, frontendUrl);
+            string body = Appointmentbookingsystem.Backend.Utils.PlaceholderHelper.ReplacePlaceholders(config.Body, dummyAppointment, company, frontendUrl);
+
+            try 
+            {
+                await _emailService.SendEmailAsync(
+                    dto.ToEmail,
+                    "[TEST] " + subject,
+                    body,
+                    company.DefaultSenderName,
+                    company.DefaultReplyToEmail,
+                    companyId,
+                    null, // appointmentId
+                    config.Id // notificationConfigId
+                );
+                return Ok(new { message = $"Test email sent to {dto.ToEmail}" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Failed to send test email: {ex.Message}");
+            }
+        }
 
         // --- Payment Settings ---
 
         [HttpGet("payment")]
-        [Authorize(Roles = "Admin")]
-        public async Task<ActionResult<PaymentSettingsDto>> GetPaymentSettings()
+        public async Task<ActionResult<PaymentSettingsDto>> GetPaymentSettings([FromQuery] int? companyId)
         {
-            var companyId = int.Parse(User.FindFirst("CompanyId")!.Value);
-            var company = await _context.Companies.FindAsync(companyId);
+            // If companyId not provided, try to get from token (if logged in)
+            if (!companyId.HasValue)
+            {
+               var claimId = User.FindFirst("CompanyId")?.Value;
+               if (!string.IsNullOrEmpty(claimId))
+                   companyId = int.Parse(claimId);
+            }
+
+            if (!companyId.HasValue) return BadRequest("Company ID is required");
+
+            var company = await _context.Companies.FindAsync(companyId.Value);
             if (company == null) return NotFound();
 
             var enabledMethods = new List<string>();
@@ -447,13 +528,20 @@ namespace Appointmentbookingsystem.Backend.Controllers
     public class GeneralSettingsDto
     {
         public string? DefaultSenderName { get; set; }
+        public string? DefaultSenderEmail { get; set; }
         public string? DefaultReplyToEmail { get; set; }
         public bool IsEmailServiceEnabled { get; set; }
+        public bool IsSmsServiceEnabled { get; set; }
+        public bool AllowCustomerRescheduling { get; set; }
+        public int ReschedulingMinLeadTime { get; set; }
+        public bool AllowCustomerCanceling { get; set; }
+        public int CancelingMinLeadTime { get; set; }
     }
 
     public class NotificationConfigDto
     {
         public bool Enabled { get; set; }
+        public bool PushEnabled { get; set; }
         public string? Trigger { get; set; }
         public string? Description { get; set; }
         public string? Timing { get; set; }
@@ -464,8 +552,11 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
     public class TimingConfigDto
     {
+        [System.Text.Json.Serialization.JsonPropertyName("value")]
         public int Value { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("unit")]
         public string Unit { get; set; } = "hours";
+        [System.Text.Json.Serialization.JsonPropertyName("context")]
         public string Context { get; set; } = "immediately";
     }
 
@@ -490,5 +581,11 @@ namespace Appointmentbookingsystem.Backend.Controllers
     public class TimeOffSettingsDto
     {
         public bool RequireTimeOffApproval { get; set; } = true;
+    }
+
+    public class SendTestEmailDto
+    {
+        public string ToEmail { get; set; } = "";
+        public string Type { get; set; } = "";
     }
 }

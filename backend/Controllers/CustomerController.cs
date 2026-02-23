@@ -176,12 +176,27 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             int companyId = int.Parse(companyIdClaim.Value);
 
-            // Check if email already exists for this company
-            var existingCustomer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.CompanyId == companyId && c.Email == dto.Email);
+            // Require at least one contact method
+            if (string.IsNullOrWhiteSpace(dto.Email) && string.IsNullOrWhiteSpace(dto.Phone))
+                return BadRequest("At least one contact method (Email or Phone) is required.");
 
-            if (existingCustomer != null)
-                return BadRequest("A customer with this email already exists.");
+            // Check if email already exists for this company (if provided)
+            if (!string.IsNullOrWhiteSpace(dto.Email))
+            {
+                var existingByEmail = await _context.Customers
+                    .FirstOrDefaultAsync(c => c.CompanyId == companyId && c.Email == dto.Email);
+                if (existingByEmail != null)
+                    return BadRequest("A customer with this email already exists.");
+            }
+
+            // Check if phone already exists for this company (if provided)
+            if (!string.IsNullOrWhiteSpace(dto.Phone))
+            {
+                var existingByPhone = await _context.Customers
+                    .FirstOrDefaultAsync(c => c.CompanyId == companyId && c.Phone == dto.Phone);
+                if (existingByPhone != null)
+                    return BadRequest("A customer with this phone number already exists.");
+            }
 
             var customer = new Customer
             {
@@ -239,14 +254,28 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (customer == null)
                 return NotFound("Customer not found.");
 
+            // Require at least one contact method
+            if (string.IsNullOrWhiteSpace(dto.Email) && string.IsNullOrWhiteSpace(dto.Phone))
+                return BadRequest("At least one contact method (Email or Phone) is required.");
+
             // Check if new email conflicts with another customer
-            if (customer.Email != dto.Email)
+            if (!string.IsNullOrWhiteSpace(dto.Email) && customer.Email != dto.Email)
             {
                 var existingCustomer = await _context.Customers
                     .FirstOrDefaultAsync(c => c.CompanyId == companyId && c.Email == dto.Email && c.Id != id);
 
                 if (existingCustomer != null)
                     return BadRequest("A customer with this email already exists.");
+            }
+
+            // Check if new phone conflicts with another customer
+            if (!string.IsNullOrWhiteSpace(dto.Phone) && customer.Phone != dto.Phone)
+            {
+                var existingByPhone = await _context.Customers
+                    .FirstOrDefaultAsync(c => c.CompanyId == companyId && c.Phone == dto.Phone && c.Id != id);
+
+                if (existingByPhone != null)
+                    return BadRequest("A customer with this phone number already exists.");
             }
 
             customer.FirstName = dto.FirstName;
@@ -306,6 +335,37 @@ namespace Appointmentbookingsystem.Backend.Controllers
             return NoContent();
         }
 
+        [HttpPost("bulk-delete")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult> BulkDeleteCustomers([FromBody] List<int> ids)
+        {
+            var companyIdClaim = User.FindFirst("companyId");
+            if (companyIdClaim == null)
+                return Forbid("Company context missing from token.");
+
+            int companyId = int.Parse(companyIdClaim.Value);
+
+            if (ids == null || !ids.Any())
+                return BadRequest("No customer IDs provided.");
+
+            var customers = await _context.Customers
+                .Where(c => ids.Contains(c.Id) && c.CompanyId == companyId && c.IsActive)
+                .ToListAsync();
+
+            if (!customers.Any())
+                return Ok();
+
+            foreach (var customer in customers)
+            {
+                customer.IsActive = false;
+                customer.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
         // DELETE: api/customer/{id}/permanent
         // Hard delete - permanently removes customer (Admin only)
         [HttpDelete("{id}/permanent")]
@@ -333,6 +393,90 @@ namespace Appointmentbookingsystem.Backend.Controllers
             await _context.SaveChangesAsync();
 
             return NoContent();
+        }
+        // GET: api/customer/{id}/logs
+        [HttpGet("{id}/logs")]
+        [Authorize(Roles = "Admin,Staff")]
+        public async Task<ActionResult<CustomerLogsResponseDto>> GetCustomerLogs(int id, [FromQuery] LogQueryDto query)
+        {
+            var companyIdClaim = User.FindFirst("companyId");
+            if (companyIdClaim == null)
+                return Forbid("Company context missing from token.");
+
+            int companyId = int.Parse(companyIdClaim.Value);
+
+            var customer = await _context.Customers
+                .FirstOrDefaultAsync(c => c.Id == id && c.CompanyId == companyId);
+
+            if (customer == null)
+                return NotFound("Customer not found.");
+
+            var sinceDate = DateTime.UtcNow.AddDays(-query.Days);
+            var logs = new List<LogEntryDto>();
+            int totalCount = 0;
+
+            if (string.IsNullOrEmpty(query.Type) || string.Equals(query.Type, "email", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrEmpty(customer.Email))
+                {
+                    var emailQuery = _context.EmailLogs
+                        .Where(l => l.CompanyId == companyId && l.ToEmail == customer.Email && l.SentAt >= sinceDate);
+                    
+                    totalCount = await emailQuery.CountAsync();
+                    
+                    var emailLogs = await emailQuery
+                        .OrderByDescending(l => l.SentAt)
+                        .Skip((query.Page - 1) * query.PageSize)
+                        .Take(query.PageSize)
+                        .ToListAsync();
+
+                    logs.AddRange(emailLogs.Select(l => new LogEntryDto
+                    {
+                        Id = l.Id.ToString(),
+                        Type = "email",
+                        Date = l.SentAt,
+                        Subject = l.Subject,
+                        Status = "sent"
+                    }));
+                }
+            }
+            else if (string.Equals(query.Type, "sms", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrEmpty(customer.Phone))
+                {
+                    var smsQuery = _context.SMSLogs
+                        .Where(l => l.CompanyId == companyId && l.ToNumber == customer.Phone && l.SentAt >= sinceDate);
+                    
+                    totalCount = await smsQuery.CountAsync();
+                    
+                    var smsLogs = await smsQuery
+                        .OrderByDescending(l => l.SentAt)
+                        .Skip((query.Page - 1) * query.PageSize)
+                        .Take(query.PageSize)
+                        .ToListAsync();
+
+                    logs.AddRange(smsLogs.Select(l => new LogEntryDto
+                    {
+                        Id = l.Id.ToString(),
+                        Type = "sms",
+                        Date = l.SentAt,
+                        Message = l.MessageBody,
+                        Status = "sent"
+                    }));
+                }
+            }
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)query.PageSize);
+
+            return Ok(new CustomerLogsResponseDto
+            {
+                Logs = logs,
+                TotalCount = totalCount,
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalPages = totalPages,
+                HasNextPage = query.Page < totalPages
+            });
         }
     }
 }

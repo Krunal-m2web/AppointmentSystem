@@ -14,7 +14,6 @@ export function PaymentSettings() {
   const [paymentOptions, setPaymentOptions] = useState({
     showPayNow: true,
     showPayLater: true,
-    enablePaymentSection: true,
   });
   const [enabledPaymentMethods, setEnabledPaymentMethods] = useState({
     'Credit Card': true,
@@ -49,7 +48,6 @@ export function PaymentSettings() {
         setPaymentOptions({
           showPayNow: paymentSettingsData.showPayNow,
           showPayLater: paymentSettingsData.showPayLater,
-          enablePaymentSection: paymentSettingsData.showPayNow || paymentSettingsData.showPayLater,
         });
       } catch (error) {
         console.error('Failed to load settings:', error);
@@ -189,23 +187,14 @@ export function PaymentSettings() {
           {/* Payment Options */}
           <div>
             <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-6">Payment Options</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { 
-                  id: 'enablePaymentSection', 
-                  title: 'Enable Checkout', 
-                  desc: 'Show payment step in booking flow', 
-                  checked: paymentOptions.enablePaymentSection, 
-                  onChange: (v: boolean) => setPaymentOptions({ ...paymentOptions, enablePaymentSection: v }),
-                  disabled: false 
-                },
                 { 
                   id: 'showPayNow', 
                   title: 'Pay Now', 
                   desc: 'Allow immediate online payment', 
                   checked: paymentOptions.showPayNow, 
                   onChange: (v: boolean) => setPaymentOptions({ ...paymentOptions, showPayNow: v }),
-                  disabled: !paymentOptions.enablePaymentSection 
                 },
                 { 
                   id: 'showPayLater', 
@@ -213,10 +202,9 @@ export function PaymentSettings() {
                   desc: 'In-person payment at arrival', 
                   checked: paymentOptions.showPayLater, 
                   onChange: (v: boolean) => setPaymentOptions({ ...paymentOptions, showPayLater: v }),
-                  disabled: !paymentOptions.enablePaymentSection 
                 }
               ].map((opt) => (
-                <div key={opt.id} className={`flex flex-col justify-between p-5 rounded-2xl border-2 transition-all duration-300 ${opt.checked ? 'border-indigo-100 bg-indigo-50/20' : 'border-gray-50 bg-gray-50/30'} ${opt.disabled ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                <div key={opt.id} className={`flex flex-col justify-between p-5 rounded-2xl border-2 transition-all duration-300 ${opt.checked ? 'border-indigo-100 bg-indigo-50/20' : 'border-gray-50 bg-gray-50/30'}`}>
                   <div className="mb-4">
                     <p className="font-bold text-gray-900">{opt.title}</p>
                     <p className="text-xs text-gray-500 mt-1 font-medium leading-relaxed">{opt.desc}</p>
@@ -227,7 +215,6 @@ export function PaymentSettings() {
                       checked={opt.checked}
                       onChange={(e) => opt.onChange(e.target.checked)}
                       className="sr-only peer"
-                      disabled={opt.disabled}
                     />
                     <div className="w-12 h-6.5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-[22px] peer-checked:after:border-white after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600 shadow-inner"></div>
                   </label>

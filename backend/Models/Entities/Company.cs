@@ -15,9 +15,8 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [MaxLength(100)]
         public string? Slug { get; set; }
 
-        [Required]
         [Phone, MaxLength(20)]
-        public string Phone { get; set; } = null!;
+        public string? Phone { get; set; }
 
         [Required, EmailAddress, MaxLength(255)]
         public string Email { get; set; } = null!;
@@ -47,10 +46,16 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [MaxLength(100)]
         public string? DefaultSenderName { get; set; }
 
+        [EmailAddress]
+        [MaxLength(255)]
+        public string? DefaultSenderEmail { get; set; }
+
         [MaxLength(255)]
         public string? DefaultReplyToEmail { get; set; }
 
         public bool IsEmailServiceEnabled { get; set; } = true;
+
+        public bool IsSmsServiceEnabled { get; set; } = true;
 
         // Payment Settings
         public string? EnabledPaymentMethods { get; set; } // JSON array of enabled payment methods
@@ -62,6 +67,22 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
 
         // Time Off Settings
         public bool RequireTimeOffApproval { get; set; } = true; // When true, staff time off needs admin approval
+
+        // Rescheduling & Cancellation Settings
+        public bool AllowCustomerRescheduling { get; set; } = true;
+        public int ReschedulingMinLeadTime { get; set; } = 24; // Minimum hours before appointment to allow rescheduling
+        
+        public bool AllowCustomerCanceling { get; set; } = true;
+        public int CancelingMinLeadTime { get; set; } = 24; // Minimum hours before appointment to allow cancellation
+
+        // Booking Form Customization
+        [MaxLength(7)]
+        public string? BookingFormPrimaryColor { get; set; } // Hex color e.g. #6366f1
+
+        [MaxLength(7)]
+        public string? BookingFormSecondaryColor { get; set; } // Hex color e.g. #10b981
+
+        public string? BookingFormLabels { get; set; } // JSON object with custom labels
 
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }

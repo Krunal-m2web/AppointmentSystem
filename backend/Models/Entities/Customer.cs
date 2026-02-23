@@ -15,8 +15,8 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         public int CompanyId { get; set; }
         public Company Company { get; set; } = null!;
 
-        [Required, EmailAddress, MaxLength(255)]
-        public string Email { get; set; } = null!;
+        [EmailAddress, MaxLength(255)]
+        public string? Email { get; set; }
 
         [Required, MinLength(2), MaxLength(50)]
         public string FirstName { get; set; } = null!;

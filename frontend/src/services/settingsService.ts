@@ -70,21 +70,27 @@ export interface PaymentSettingsData {
   showPayLater: boolean;
 }
 
-export const getPaymentSettings = async (): Promise<PaymentSettingsData> => {
+export const getPaymentSettings = async (
+  companyId?: number
+): Promise<PaymentSettingsData> => {
   const token = getToken();
 
-  if (!token) {
-    throw new Error("Not authenticated. Please log in again.");
+  let url = `${API_BASE_URL}/api/settings/payment`;
+  if (companyId) {
+    url += `?companyId=${companyId}`;
   }
 
-  const url = `${API_BASE_URL}/api/settings/payment`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
 
   const response = await fetch(url, {
     method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
   });
 
   if (!response.ok) {

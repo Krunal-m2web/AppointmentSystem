@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, X, User, DollarSign, Search, RefreshCw, Filter, Edit, Trash2, Mail, Phone, Calendar as CalendarIcon, Link as LinkIcon, AlertCircle, ChevronDown, MapPin, XCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, User, DollarSign, Search, RefreshCw, Filter, Edit, Trash2, Mail, Phone, Calendar as CalendarIcon, Link as LinkIcon, AlertCircle, ChevronDown, MapPin, XCircle, Clock, Loader2 } from 'lucide-react';
 import { fetchServices } from '../../services/serviceApi';
 import { fetchStaff } from '../../services/staffApi';
 import { fetchCustomers, CustomerResponse } from '../../services/customerApi';
 import { getAppointments, createAppointment, deleteAppointment, updateAppointment } from '../../services/appointmentApi';
 import { Staff, Service } from '../../types/types';
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
-import { combineDateTimeToUTC, formatTime, getDateString } from '../../utils/datetime';
+import { combineDateTimeToUTC, formatTime, getDateString, formatDuration } from '../../utils/datetime';
 import { useTimezone } from '../../context/TimezoneContext';
 import { MiniCalendar } from './MiniCalendar';
-import { AppointmentFormModal, NewAppointment } from './AppointmentFormModal'; // Note: file has space in name on disk
+import { AppointmentFormModal, NewAppointment } from './AppointmentFormModal';
 import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
+import { googleCalendarApi } from '../../services/googleCalendarApi';
 
 const TIME_SLOTS = [
   '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
@@ -25,7 +26,6 @@ type RecurrenceType = 'none' | 'daily' | 'weekly' | 'monthly';
 
 type ViewMode = 'month' | 'week' | 'day' | 'list';
 
-// Internal type for UI mapping
 interface CalendarAppointment {
   id: number;
   date: string;
@@ -44,12 +44,10 @@ interface CalendarAppointment {
   startDateTime: string; 
 }
 
-// Extended Staff type for UI (adds name and color)
 interface CalendarStaff extends Staff {
-  name: string; // Combined firstName + lastName
-  color: string; // UI color
+  name: string;
+  color: string;
 }
-
 
 export function CalendarPage() {
   const { timezone, refreshTimezone } = useTimezone();
@@ -68,11 +66,16 @@ export function CalendarPage() {
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [timezoneReady, setTimezoneReady] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
-  // Popover State
-  const [hoveredAppointment, setHoveredAppointment] = useState<CalendarAppointment | null>(null);
-  const [popoverPos, setPopoverPos] = useState<{x: number, y: number} | null>(null);
-  const popoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Auth State
+  const token = getToken();
+  const currentUserRole = token ? getRoleFromToken(token) : null;
+  const currentUserId = token ? getUserIdFromToken(token) : null;
+
+  // Appointment Detail Modal State
+  const [selectedAppointment, setSelectedAppointment] = useState<CalendarAppointment | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   // Form State
   const [searchClient, setSearchClient] = useState('');
@@ -82,7 +85,6 @@ export function CalendarPage() {
   const datePickerRef = useRef<HTMLDivElement>(null);
   const repeatDatePickerRef = useRef<HTMLDivElement>(null);
 
-  // Close date pickers when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
@@ -107,15 +109,13 @@ export function CalendarPage() {
     duration: 60,
     meetingType: 'InPerson',
     paymentMethod: 'credit-card',
-    status: 'Pending',
+    status: 'Confirmed',
     notes: '',
     price: '',
     isRecurring: false,
     recurrenceType: 'none',
     repeatEndDate: '',
   });
-
-  // Validation State
 
   const addDays = (date: Date, days: number) => {
     const d = new Date(date);
@@ -129,13 +129,11 @@ export function CalendarPage() {
     return d;
   };
 
-  // Helper to assign colors to staff
   const getStaffColor = (index: number) => {
     const colors = ['#4f46e5', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
     return colors[index % colors.length];
   };
 
-  // Initialize timezone before loading appointments
   useEffect(() => {
     const initTimezone = async () => {
       try {
@@ -149,7 +147,6 @@ export function CalendarPage() {
     initTimezone();
   }, []);
 
-  // Fetch Metadata (Staff, Services, Customers)
   useEffect(() => {
     const loadMetadata = async () => {
       try {
@@ -164,7 +161,6 @@ export function CalendarPage() {
         ]);
 
         let staffData = staffDataRaw;
-        // RBAC: If Staff, only show themselves
         if (role === 'Staff' && userId) {
             staffData = staffDataRaw.filter((s: any) => s.id === userId);
             setSelectedStaff(userId);
@@ -172,18 +168,17 @@ export function CalendarPage() {
 
         const servicesData = Array.isArray(servicesRaw) ? servicesRaw : (servicesRaw.items || []);
 
-        // Map Staff to CalendarStaff
         const mappedStaff: CalendarStaff[] = staffData
           .filter((s:any) => s.isActive)
           .map((s:any, index:number) => ({
             ...s,
             name: `${s.firstName} ${s.lastName}`,
-            color: s.avatar ? '#4f46e5' : getStaffColor(index) // Use avatar color logic or default
+            color: s.avatar ? '#4f46e5' : getStaffColor(index),
+            serviceIds: s.services?.map((svc: any) => svc.serviceId) || []
         }));
 
         setStaffList(mappedStaff);
         setServices(servicesData);
-        // Handle potential error case where catch returns []
         const customersList = 'customers' in customersData ? customersData.customers : [];
         setCustomers(customersList);
       } catch (error) {
@@ -199,36 +194,26 @@ export function CalendarPage() {
       const token = getToken();
       if (!token) return;
 
-      // Calculate date range based on viewMode
-      // defaulting to month range for now as safe bet
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth();
-      const startDate = new Date(year, month - 1, 1).toISOString(); // Fetch extra buffer
+      const startDate = new Date(year, month - 1, 1).toISOString();
       const endDate = new Date(year, month + 2, 0).toISOString();
 
       const data = await getAppointments({
         startDate: startDate,
         endDate: endDate,
         staffId: selectedStaff || undefined,
-        serviceId: selectedService !== 'all' ? parseInt(selectedService) : undefined, // assumes filter uses ID
-        pageSize: 1000, // Ensure we fetch enough appointments for the calendar view
+        serviceId: selectedService !== 'all' ? parseInt(selectedService) : undefined,
+        pageSize: 1000,
         sortBy: 'date',
         sortDirection: 'asc'
       }, token);
 
-      // Map API response to UI format
       const mapped: CalendarAppointment[] = data.appointments.map(apt => {
-         // DEBUG: Log timezone used for display formatting
-         // console.log('🗓️ CalendarPage loadAppointments - Formatting with timezone:', timezone, 'for apt:', apt.startDateTime);
-         
-         // Use timezone-aware formatting
          const startDateTime = apt.startDateTime;
          const dateStr = getDateString(new Date(startDateTime), timezone);
          const timeStr = formatTime(startDateTime, timezone);
          
-         // console.log('🗓️ CalendarPage - Formatted:', { raw: apt.startDateTime, dateStr, timeStr, timezone });
-         
-         // Calculate duration
          const start = new Date(apt.startDateTime);
          const end = new Date(apt.endDateTime);
          const diffMin = Math.round((end.getTime() - start.getTime()) / 60000);
@@ -252,7 +237,6 @@ export function CalendarPage() {
          };
       });
 
-      // Client-side safety sort
       mapped.sort((a, b) => new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime());
 
       setAppointments(mapped);
@@ -263,26 +247,20 @@ export function CalendarPage() {
     }
   };
 
-  // Fetch Appointments when date, filters, or timezone change
   useEffect(() => {
-    if (!timezoneReady) return; // Don't load until timezone is ready
+    if (!timezoneReady) return;
     loadAppointments();
   }, [currentDate, selectedStaff, selectedService, timezone, timezoneReady]);
 
   const getFilteredAppointments = () => {
-    // API already filters by staff/service if we pass params
-    // But we might want local filtering if we fetched a larger range to avoid flickers
     let filtered = appointments;
     if (selectedStaff) {
         filtered = filtered.filter(a => a.staffId === selectedStaff);
     }
-    // Service filter logic if needed locally...
     return filtered;
   };
 
   const getAppointmentsForDate = (date: Date) => {
-    // Use local date components to match the visual calendar cell
-    // This avoids timezone shifting (e.g. Local Midnight -> Previous Day in UTC)
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -308,7 +286,7 @@ export function CalendarPage() {
     const newDate = new Date(currentDate);
     if (viewMode === 'month') {
       newDate.setMonth(currentDate.getMonth() - 1);
-    } else if (viewMode === 'week') {
+    } else if (viewMode === 'week' || viewMode === 'list') {
       newDate.setDate(currentDate.getDate() - 7);
     } else if (viewMode === 'day') {
       newDate.setDate(currentDate.getDate() - 1);
@@ -320,7 +298,7 @@ export function CalendarPage() {
     const newDate = new Date(currentDate);
     if (viewMode === 'month') {
       newDate.setMonth(currentDate.getMonth() + 1);
-    } else if (viewMode === 'week') {
+    } else if (viewMode === 'week' || viewMode === 'list') {
       newDate.setDate(currentDate.getDate() + 7);
     } else if (viewMode === 'day') {
       newDate.setDate(currentDate.getDate() + 1);
@@ -361,7 +339,7 @@ export function CalendarPage() {
       setNewAppointment({
         ...newAppointment,
         serviceId,
-        duration: service.serviceDuration || 60, // Assuming service object has duration or serviceDuration
+        duration: service.serviceDuration || 60,
       });
     }
   };
@@ -379,10 +357,9 @@ export function CalendarPage() {
       duration: 60,
       meetingType: 'InPerson',
       paymentMethod: 'Card',
-      status: 'Pending',
+      status: 'Confirmed',
       notes: '',
       price: '',
-
       isRecurring: false,
       recurrenceType: 'none',
       repeatEndDate: '',
@@ -409,7 +386,6 @@ export function CalendarPage() {
 
   const handleSubmitAppointment = async (formData: NewAppointment) => {
     try {
-       // 🛡️ Ensure we have the latest timezone before computing times
        let activeTimezone = timezone;
        try {
            const freshTz = await refreshTimezone();
@@ -426,13 +402,10 @@ export function CalendarPage() {
        const firstName = nameParts[0] || 'Customer';
        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'Unknown';
 
-       // Map frontend payment method to backend enum
        let apiPaymentMethod: "Card" | "Cash" | "PayPal" = "Card";
        if (formData.paymentMethod === 'Cash') apiPaymentMethod = 'Cash';
        else if (formData.paymentMethod === 'paypal' || formData.paymentMethod === 'PayPal') apiPaymentMethod = 'PayPal';
-       // 'credit-card', 'debit-card', 'pay-later' default to 'Card'
 
-       // Common Payload Data
        const basePayload = {
            companyId: companyId || 0,
            firstName: firstName,
@@ -446,23 +419,20 @@ export function CalendarPage() {
            notes: formData.notes,
        };
 
-       // Use date strings to avoid timezone issues with Date objects
        const appointmentDates: string[] = [];
-       const baseDateStr = formData.date; // Already YYYY-MM-DD format
+       const baseDateStr = formData.date;
        
        if (!formData.isRecurring) {
            appointmentDates.push(baseDateStr);
        } else {
            if (!formData.repeatEndDate) throw new Error("End date required for recurring appointment");
            
-           // For recurrence, we need Date objects to calculate next occurrence
            const [baseY, baseM, baseD] = baseDateStr.split('-').map(Number);
            let curr = new Date(Date.UTC(baseY, baseM - 1, baseD));
            const endDate = new Date(formData.repeatEndDate + 'T23:59:59');
            let count = 0;
            
-           while(curr <= endDate && count < 50) { // Safety limit
-               // Extract date string in YYYY-MM-DD format
+           while(curr <= endDate && count < 50) {
                const dateStr = curr.toISOString().split('T')[0];
                appointmentDates.push(dateStr);
                
@@ -475,10 +445,7 @@ export function CalendarPage() {
            }
        }
 
-       // Execute Creation Loop
        if (formData.id) {
-           // Update existing appointment (Handle single update for now)
-           // If it's an edit, we typically only update one unless we implement recurring update logic
             const startTimeUtc = combineDateTimeToUTC(
                 baseDateStr,
                 formData.time,
@@ -492,7 +459,6 @@ export function CalendarPage() {
             
             toast.success("Appointment updated successfully!");
        } else {
-           // Create new
             for (const datePart of appointmentDates) {
                 const startTimeUtc = combineDateTimeToUTC(
                     datePart,
@@ -508,15 +474,12 @@ export function CalendarPage() {
             toast.success("Appointment(s) created successfully!");
        }
        
-       
-       // Auto-navigate to the date of the appointment/first occurrence
        if (appointmentDates.length > 0) {
            const [y, m, d] = appointmentDates[0].split('-').map(Number);
            const firstDate = new Date(y, m - 1, d);
            setCurrentDate(firstDate);
            setSelectedDate(firstDate);
            
-           // If we are already viewing that month, manually reload. Otherwise currentDate change handles it.
            const currentY = currentDate.getFullYear();
            const currentM = currentDate.getMonth() + 1;
            if (y === currentY && m === currentM) {
@@ -531,57 +494,65 @@ export function CalendarPage() {
     }
   };
 
-
-
-
-
-  // ---------- POPOVER & ACTIONS ----------
-  
-  const handleAppointmentTitleEnter = (e: React.MouseEvent, apt: CalendarAppointment) => {
-      // Clear any pending close timer
-      if (popoverTimeout.current) {
-          clearTimeout(popoverTimeout.current);
-          popoverTimeout.current = null;
-      }
-      
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      // Simple absolute positioning relative to viewport
-      // Add scroll offset if container scrolls, but fixed position is easier for modal-like behavior within viewport
-      setPopoverPos({ x: rect.right + 10, y: rect.top });
-      setHoveredAppointment(apt);
+  // Appointment click handler - opens detail modal
+  const handleSync = async () => {
+    try {
+      setSyncing(true);
+      await googleCalendarApi.sync();
+      toast.success('Calendar synced successfully!');
+      // Refresh appointments to show new external events
+      await loadAppointments();
+    } catch (error) {
+      console.error('Error syncing:', error);
+      toast.error('Failed to sync calendar');
+    } finally {
+      setSyncing(false);
+    }
   };
 
-  const handleAppointmentLeave = () => {
-      // Delay closing to allow moving mouse to the popover
-      popoverTimeout.current = setTimeout(() => {
-          setHoveredAppointment(null);
-          setPopoverPos(null);
-      }, 300);
+  /**
+   * Triggers a background sync with Google Calendar without blocking the UI.
+   * Refresh the appointments list once the sync is complete.
+   */
+  const triggerBackgroundSync = async () => {
+    // Both Staff and Admin can sync their own calendar
+    const token = getToken();
+    const role = token ? getRoleFromToken(token) : null;
+    if (role !== 'Staff' && role !== 'Admin') return;
+
+    try {
+      // console.log('[CalendarPage] Starting background sync...');
+      await googleCalendarApi.sync();
+      // console.log('[CalendarPage] Background sync complete, refreshing appointments...');
+      // Refresh appointments to show new external events
+      await loadAppointments();
+    } catch (error) {
+      // Silently fail for background sync to avoid bothering the user
+      console.error('Background sync failed:', error);
+    }
   };
 
-  const handlePopoverEnter = () => {
-      if (popoverTimeout.current) {
-          clearTimeout(popoverTimeout.current);
-          popoverTimeout.current = null;
-      }
-  };
+  // Trigger background sync on mount for Staff
+  useEffect(() => {
+    if (timezoneReady) {
+      triggerBackgroundSync();
+    }
+  }, [timezoneReady]);
 
-  const handlePopoverLeave = () => {
-       popoverTimeout.current = setTimeout(() => {
-          setHoveredAppointment(null);
-          setPopoverPos(null);
-      }, 300);
+  const handleAppointmentClick = (apt: CalendarAppointment) => {
+    setSelectedAppointment(apt);
+    setShowDetailModal(true);
   };
 
   const confirmCancelAppointment = async () => {
-    if (!cancelAppointmentId) return;
+    if (!cancelAppointmentId || cancelAppointmentId < 0) return;
     try {
         const token = getToken();
         if (token) {
             await updateAppointment(cancelAppointmentId, { status: "Cancelled" }, token);
-            // Optimistic update
             setAppointments(prev => prev.map(a => a.id === cancelAppointmentId ? { ...a, status: 'cancelled' } : a));
-            setHoveredAppointment(null); // Close popover
+            setShowDetailModal(false);
+            setSelectedAppointment(null);
             toast.success("Appointment cancelled successfully");
         }
     } catch(err) {
@@ -597,14 +568,8 @@ export function CalendarPage() {
   };
 
   const handleEditAppointment = (apt: CalendarAppointment) => {
-      // Pre-fill form
-      // Convert apt.date (YYYY-MM-DD input) and apt.time (HH:MM AM/PM display) to input friendly formats
-      // input type="date" expects YYYY-MM-DD (apt.date is likely already this or needs check)
-      // input type="time" expects HH:MM (24h)
-      
-      // Parse time "8:00 AM" -> "08:00"
       const timeParts = apt.time.match(/(\d+):(\d+) (AM|PM)/);
-      let time24 = "09:00"; // default
+      let time24 = "09:00";
       if (timeParts) {
           let h = parseInt(timeParts[1]);
           const m = parseInt(timeParts[2]);
@@ -623,24 +588,22 @@ export function CalendarPage() {
           staffId: apt.staffId,
           date: apt.date,
           time: time24,
-          duration: 60, // approximate, or parse apt.duration string
+          duration: 60,
           meetingType: (apt.location === 'In Person' || apt.location === 'in-person') ? 'InPerson' : 
                        (apt.location === 'Phone' || apt.location === 'Phone Call') ? 'Phone' : 'Zoom',
-          paymentMethod: 'Card', // default or fetch if available
+          paymentMethod: 'Card',
           status: apt.status as any,
           notes: '',
           price: apt.price.replace('$', ''),
-
           isRecurring: false,
           recurrenceType: 'none',
           repeatEndDate: '',
       });
       setSearchClient(apt.client);
       setShowBookingForm(true);
-      setHoveredAppointment(null);
+      setShowDetailModal(false);
   };
 
-  // Show loading while timezone is being fetched
   if (!timezoneReady) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px]">
@@ -655,7 +618,6 @@ export function CalendarPage() {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
         <div className="flex flex-wrap items-center gap-4 md:gap-8">
           <div className="flex items-center gap-2 relative">
-            {/* Navigation arrows */}
             <button
               onClick={previousPeriod}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
@@ -664,7 +626,6 @@ export function CalendarPage() {
               <ChevronLeft className="w-5 h-5" />
             </button>
             
-            {/* Date Picker Trigger */}
             <div className="relative" ref={datePickerRef}>
               <button 
                 onClick={() => setShowDatePicker(!showDatePicker)}
@@ -677,7 +638,6 @@ export function CalendarPage() {
                 <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showDatePicker ? 'rotate-180' : ''}`} />
               </button>
 
-              {/* Mini Calendar Popover */}
               {showDatePicker && (
                 <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-50 w-[300px]">
                   <MiniCalendar 
@@ -692,7 +652,6 @@ export function CalendarPage() {
               )}
             </div>
             
-            {/* Next arrow */}
             <button
               onClick={nextPeriod}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
@@ -701,7 +660,6 @@ export function CalendarPage() {
               <ChevronRight className="w-5 h-5" />
             </button>
 
-            {/* Today button */}
             <button
               onClick={() => {
                 setCurrentDate(new Date());
@@ -715,7 +673,6 @@ export function CalendarPage() {
 
           <div className="h-8 w-px bg-gray-200 hidden md:block"></div>
 
-          {/* View Modes (Month filter block) */}
           <div className="flex items-center bg-gray-100 p-1 rounded-xl">
             {['Month', 'Week', 'Day', 'List'].map((mode) => (
               <button
@@ -733,8 +690,21 @@ export function CalendarPage() {
           </div>
         </div>
         
-        {/* Filters */}
         <div className="flex items-center gap-3">
+          {currentUserRole === 'Staff' && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all shadow-sm disabled:opacity-50"
+            >
+              {syncing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              Sync Now
+            </button>
+          )}
           <div className="flex items-center gap-2 bg-white px-3 py-2 border border-gray-200 rounded-lg shadow-sm">
             <Filter className="w-4 h-4 text-gray-500" />
             <select
@@ -753,7 +723,6 @@ export function CalendarPage() {
         </div>
       </div>
 
-      {/* Staff Avatars */}
       {!(getRoleFromToken(getToken() || '') === 'Staff') && (
         <div className="bg-blue-50/50 rounded-lg shadow-sm border border-indigo-200/50 p-4 mb-4">
             <div className="flex items-center gap-3 overflow-x-auto pb-2 custom-scrollbar">
@@ -790,7 +759,6 @@ export function CalendarPage() {
                 <span className={`text-xs text-center max-w-[80px] truncate ${
                     selectedStaff === staff.id ? 'text-indigo-600' : 'text-gray-700'
                 }`}>
-                    {/* Use full name, truncation happens if overly long */}
                     {staff.name} 
                 </span>
                 </button>
@@ -799,9 +767,6 @@ export function CalendarPage() {
         </div>
       )}
 
-
-
-      {/* Calendar Views */}
       {viewMode === 'month' && (
         <MonthView
           currentDate={currentDate}
@@ -809,7 +774,6 @@ export function CalendarPage() {
           onSelectDate={setSelectedDate}
           getAppointmentsForDate={getAppointmentsForDate}
           onCreateAppointment={(date) => {
-            // Auto-fill date with clicked date
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
@@ -818,8 +782,7 @@ export function CalendarPage() {
             setShowBookingForm(true);
           }}
           staff={staffList}
-          onHoverAppointment={handleAppointmentTitleEnter}
-          onLeaveAppointment={handleAppointmentLeave}
+          onAppointmentClick={handleAppointmentClick}
         />
       )}
 
@@ -828,7 +791,6 @@ export function CalendarPage() {
           currentDate={currentDate}
           getAppointmentsForDate={getAppointmentsForDate}
           onCreateAppointment={(date) => {
-            // Auto-fill date with clicked date
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
@@ -837,8 +799,7 @@ export function CalendarPage() {
             setShowBookingForm(true);
           }}
           staff={staffList}
-          onHoverAppointment={handleAppointmentTitleEnter}
-          onLeaveAppointment={handleAppointmentLeave}
+          onAppointmentClick={handleAppointmentClick}
         />
       )}
 
@@ -847,12 +808,10 @@ export function CalendarPage() {
           currentDate={currentDate}
           appointments={getAppointmentsForDate(currentDate)}
           onCreateAppointment={(time) => {
-            // Auto-fill date and time
             const year = currentDate.getFullYear();
             const month = String(currentDate.getMonth() + 1).padStart(2, '0');
             const day = String(currentDate.getDate()).padStart(2, '0');
             
-            // Convert time from "8:00 AM" to "08:00" 24h format
             const timeParts = time.match(/(\d+):(\d+) (AM|PM)/);
             let time24 = "09:00";
             if (timeParts) {
@@ -869,90 +828,203 @@ export function CalendarPage() {
             setShowBookingForm(true);
           }}
           staff={staffList}
-          onHoverAppointment={handleAppointmentTitleEnter}
-          onLeaveAppointment={handleAppointmentLeave}
+          onAppointmentClick={handleAppointmentClick}
         />
       )}
-
-
 
       {viewMode === 'list' && (
         <ListView
           appointments={getFilteredAppointments()}
-          onEdit={handleEditAppointment}
-          onDelete={handleCancelAppointment}
+          onAppointmentClick={handleAppointmentClick}
           currentDate={currentDate}
         />
       )}
       
-      {/* Popover */}
-      {hoveredAppointment && popoverPos && (
-          <div 
-             className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 w-80 p-4 text-sm"
-             style={{ 
-                 left: Math.min(popoverPos.x, window.innerWidth - 340), // prevent overflow right
-                 top: popoverPos.y 
-             }}
-             onMouseEnter={handlePopoverEnter}
-             onMouseLeave={handlePopoverLeave}
-          >
-              <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-indigo-600"></div>
-                      <span className="font-semibold text-gray-900">{hoveredAppointment.client} - {hoveredAppointment.service}</span>
-                  </div>
-              </div>
-              
-              <div className="space-y-2 mb-4">
-                  <div className="flex items-center gap-2 text-gray-600">
-                      <User className="w-4 h-4" />
-                      <span>{hoveredAppointment.staff}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-gray-600">
-                      <CalendarIcon className="w-4 h-4" />
-                      <span>{hoveredAppointment.time} ({hoveredAppointment.duration})</span>
-                  </div>
-                   {hoveredAppointment.clientEmail && (
-                      <div className="flex items-center gap-2 text-gray-600">
-                          <Mail className="w-4 h-4" />
-                          <span>{hoveredAppointment.clientEmail}</span>
-                      </div>
-                  )}
-                  {hoveredAppointment.clientPhone && (
-                      <div className="flex items-center gap-2 text-gray-600">
-                          <Phone className="w-4 h-4" />
-                          <span>{hoveredAppointment.clientPhone}</span>
-                      </div>
-                  )}
-                  
-                  <div className="flex items-center justify-between mt-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-semibold 
-                          ${hoveredAppointment.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                          {hoveredAppointment.status}
-                      </span>
-                  </div>
-              </div>
-              
-              <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
-                   <button 
-                      onClick={() => handleEditAppointment(hoveredAppointment)}
-                      className="p-1.5 bg-green-600 text-white rounded hover:bg-green-700 transition" 
-                      title="Edit"
-                   >
-                       <Edit className="w-4 h-4" />
-                   </button>
-                   <button 
-                      onClick={() => handleCancelAppointment(hoveredAppointment.id)}
-                      className="p-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition" 
-                      title="Cancel Appointment"
-                   >
-                       <XCircle className="w-4 h-4" />
-                   </button>
-              </div>
-          </div>
-      )}
+      {/* Appointment Detail Modal */}
+      {showDetailModal && selectedAppointment && (() => {
+        const isExternal = selectedAppointment.id < 0;
+        const mappedStaff = staffList.find(s => s.id === selectedAppointment.staffId);
+        const displayStaffName = isExternal && mappedStaff 
+          ? `${mappedStaff.firstName} ${mappedStaff.lastName}` 
+          : selectedAppointment.staff;
 
-      {/* Booking Form Modal */}
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* External Event Header */}
+              {isExternal ? (
+                 <div className="relative bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-5 border-b border-blue-700/20">
+                   <div className="flex items-center justify-between">
+                     <div className="flex items-center gap-2 text-white">
+                        <CalendarIcon className="w-5 h-5" />
+                        <h3 className="text-xl font-bold">External Event</h3>
+                     </div>
+                     <button
+                       onClick={() => {
+                         setShowDetailModal(false);
+                         setSelectedAppointment(null);
+                       }}
+                       className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-white hover:rotate-90"
+                     >
+                       <X className="w-5 h-5" />
+                     </button>
+                   </div>
+                 </div>
+              ) : (
+                  /* Standard Appointment Header */
+                  <div className="relative bg-gradient-to-r from-indigo-500 to-indigo-600 px-6 py-5 border-b border-indigo-700/20">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xl font-bold text-white">Appointment Details</h3>
+                      <button
+                        onClick={() => {
+                          setShowDetailModal(false);
+                          setSelectedAppointment(null);
+                        }}
+                        className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-white hover:rotate-90"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+              )}
+
+              <div className="p-6 space-y-5 bg-gray-50/50">
+                {/* External Event Body */}
+                {isExternal ? (
+                  <>
+                      <div className="space-y-4">
+                          <div>
+                              <h4 className="font-semibold text-gray-900 text-lg">Busy</h4>
+                              <div className="flex items-center gap-1.5 text-gray-500 mt-1">
+                                  <Clock className="w-4 h-4" />
+                                  <span className="text-sm">
+                                      {selectedAppointment.date} at {selectedAppointment.time} ({formatDuration(parseInt(selectedAppointment.duration.replace(/\D/g,'')) || 0)})
+                                  </span>
+                              </div>
+                          </div>
+
+                          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-start gap-3">
+                               <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                  <User className="w-5 h-5 text-blue-600" />
+                               </div>
+                               <div>
+                                   <p className="text-sm font-bold text-gray-900">Staff: {displayStaffName}</p>
+                                   <p className="text-xs text-gray-500 mt-0.5">Source: Google Calendar</p>
+                               </div>
+                          </div>
+
+                          <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl space-y-2">
+                               <p className="text-xs text-amber-700 font-medium flex items-center gap-2">
+                                   <AlertCircle className="w-3.5 h-3.5" /> This event is synced from Google Calendar.
+                               </p>
+                               <div className="space-y-1 ml-5">
+                                 <p className="text-[11px] text-amber-600/80 leading-relaxed">• It is marked as 'Busy' to prevent overbooking.</p>
+                                 <p className="text-[11px] text-amber-600/80 leading-relaxed">• Edits and cancellations must be done in Google Calendar.</p>
+                               </div>
+                          </div>
+                      </div>
+                       <div className="pt-2">
+                          <button
+                            onClick={() => {
+                              setShowDetailModal(false);
+                              setSelectedAppointment(null);
+                            }}
+                             className="w-full py-3 bg-white border border-gray-200 text-gray-700 text-sm font-bold rounded-xl hover:bg-gray-50 transition-all shadow-sm active:scale-[0.98]"
+                          >
+                            Close
+                          </button>
+                       </div>
+                  </>
+                ) : (
+                  /* Standard Appointment Body */
+                  <>
+                    <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                      <div>
+                        <label className="text-xs text-indigo-600 font-bold uppercase tracking-wider">Service</label>
+                        <p className="text-lg font-bold text-gray-900 leading-tight">{selectedAppointment.service}</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs text-gray-500 font-medium flex items-center gap-1.5 mb-1">
+                            <User className="w-3.5 h-3.5" /> Client
+                          </label>
+                          <p className="text-sm font-semibold text-gray-900">{selectedAppointment.client}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 font-medium flex items-center gap-1.5 mb-1 text-right justify-end">
+                            Staff <User className="w-3.5 h-3.5" />
+                          </label>
+                          <p className="text-sm font-semibold text-gray-900 text-right">{displayStaffName}</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-gray-100">
+                        <label className="text-xs text-gray-500 font-medium flex items-center gap-1.5 mb-1">
+                          <Clock className="w-3.5 h-3.5" /> Time & Duration
+                        </label>
+                        <p className="text-base font-semibold text-gray-900">{selectedAppointment.time} ({formatDuration(parseInt(selectedAppointment.duration.replace(/\D/g,'')) || 60)})</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        {selectedAppointment.clientEmail && (
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <Mail className="w-4 h-4 text-indigo-500" />
+                            <p className="text-sm font-medium">{selectedAppointment.clientEmail}</p>
+                          </div>
+                        )}
+
+                        {selectedAppointment.clientPhone && (
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <Phone className="w-4 h-4 text-indigo-500" />
+                            <p className="text-sm font-medium">{selectedAppointment.clientPhone}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2">
+                        <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide border shadow-sm ${
+                          selectedAppointment.status === 'confirmed' ? 'bg-green-50 text-green-700 border-green-200' :
+                          selectedAppointment.status === 'completed' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                          selectedAppointment.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200' :
+                          'bg-yellow-50 text-yellow-700 border-yellow-200'
+                        }`}>
+                          <div className={`w-2 h-2 rounded-full mr-2 ${
+                            selectedAppointment.status === 'confirmed' ? 'bg-green-500' :
+                            selectedAppointment.status === 'completed' ? 'bg-blue-500' :
+                            selectedAppointment.status === 'cancelled' ? 'bg-red-500' :
+                            'bg-yellow-500'
+                          }`} />
+                          {selectedAppointment.status}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-2">
+                      <button
+                        onClick={() => handleEditAppointment(selectedAppointment)}
+                        className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-md hover:shadow-lg active:scale-[0.98]"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleCancelAppointment(selectedAppointment.id)}
+                        className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-white text-red-600 border-2 border-red-100 rounded-xl hover:bg-red-50 hover:border-red-200 transition-all font-bold active:scale-[0.98]"
+                      >
+                        <XCircle className="w-4 h-4" />
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+
       <AppointmentFormModal 
         isOpen={showBookingForm}
         onClose={handleCloseForm}
@@ -972,6 +1044,8 @@ export function CalendarPage() {
             email: c.email,
             phone: c.phone || undefined
         }))}
+        currentUserRole={currentUserRole || 'Staff'}
+        currentUserId={currentUserId || 0}
       />
 
       <ConfirmationModal
@@ -995,8 +1069,7 @@ function MonthView({
   getAppointmentsForDate,
   onCreateAppointment,
   staff,
-  onHoverAppointment,
-  onLeaveAppointment
+  onAppointmentClick
 }: {
   currentDate: Date;
   selectedDate: Date;
@@ -1004,8 +1077,7 @@ function MonthView({
   getAppointmentsForDate: (date: Date) => CalendarAppointment[];
   onCreateAppointment: (date: Date) => void;
   staff: CalendarStaff[];
-  onHoverAppointment: (e: React.MouseEvent, apt: CalendarAppointment) => void;
-  onLeaveAppointment: () => void;
+  onAppointmentClick: (apt: CalendarAppointment) => void;
 }) {
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
@@ -1052,14 +1124,12 @@ function MonthView({
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="grid grid-cols-7 gap-2">
-        {/* Day Headers */}
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
           <div key={i} className="text-center text-sm text-gray-600 py-2">
             {day}
           </div>
         ))}
         
-        {/* Calendar Days */}
         {days.map((date, index) => {
           const isSelected = date && isSameDate(date, selectedDate);
           const today = date && isToday(date);
@@ -1072,7 +1142,6 @@ function MonthView({
               onClick={() => {
                   if (date) {
                       onSelectDate(date);
-                      // If empty, open Create Modal immediately
                       if (appointments.length === 0) {
                           onCreateAppointment(date);
                       }
@@ -1092,7 +1161,6 @@ function MonthView({
                     <div className={`text-sm mb-2 ${isSelected ? 'text-indigo-700' : today ? 'text-indigo-600' : 'text-gray-900'}`}>
                       {date.getDate()}
                     </div>
-                    {/* Add Button on Hover for empty or populated days */}
                      <button
                         onClick={(e) => {
                             e.stopPropagation();
@@ -1114,10 +1182,12 @@ function MonthView({
                         return (
                           <div
                             key={apt.id}
-                            className="text-xs p-1 rounded truncate hover:brightness-95 transition-filter"
+                            className="text-xs p-1 rounded truncate cursor-pointer hover:brightness-95 transition-filter"
                             style={{ backgroundColor: color + '20', color: color }}
-                            onMouseEnter={(e) => onHoverAppointment(e, apt)}
-                            onMouseLeave={onLeaveAppointment}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onAppointmentClick(apt);
+                            }}
                           >
                             {apt.time} - {apt.client}
                           </div>
@@ -1146,15 +1216,13 @@ function WeekView({
   getAppointmentsForDate,
   onCreateAppointment,
   staff,
-  onHoverAppointment,
-  onLeaveAppointment
+  onAppointmentClick
 }: {
   currentDate: Date;
   getAppointmentsForDate: (date: Date) => CalendarAppointment[];
   onCreateAppointment: (date: Date) => void;
   staff: CalendarStaff[];
-  onHoverAppointment: (e: React.MouseEvent, apt: CalendarAppointment) => void;
-  onLeaveAppointment: () => void;
+  onAppointmentClick: (apt: CalendarAppointment) => void;
 }) {
   const getWeekDays = (date: Date) => {
     const week = [];
@@ -1183,7 +1251,6 @@ function WeekView({
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="grid grid-cols-7 gap-2">
-        {/* Day Headers */}
         {weekDays.map((day, i) => (
           <div key={i} className="text-center border-b border-gray-200 pb-2 mb-2">
             <div className="text-sm text-gray-600">
@@ -1195,7 +1262,6 @@ function WeekView({
           </div>
         ))}
         
-        {/* Calendar Days */}
         {weekDays.map((date, index) => {
           const appointments = getAppointmentsForDate(date);
 
@@ -1204,7 +1270,6 @@ function WeekView({
                 key={index} 
                 className="min-h-[400px] border border-gray-200 rounded-lg p-2 space-y-2 hover:bg-gray-50 transition-colors"
                 onClick={() => {
-                   // Click empty space -> Create
                    onCreateAppointment(date);
                 }}
             >
@@ -1214,18 +1279,20 @@ function WeekView({
                 return (
                   <div
                     key={apt.id}
-                    className="text-xs p-2 rounded border-l-4 cursor-pointer hover:shadow-sm"
+                    className="text-xs p-2 rounded border-l-4 cursor-pointer hover:shadow-sm bg-white"
                     style={{ 
-                      backgroundColor: color + '20',
+                      backgroundColor: color + '10',
                       borderLeftColor: color
                     }}
-                    onClick={(e) => e.stopPropagation()} // Prevent triggering create on empty space click
-                    onMouseEnter={(e) => onHoverAppointment(e, apt)}
-                    onMouseLeave={onLeaveAppointment}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAppointmentClick(apt);
+                    }}
                   >
-                    <div className="text-gray-900">{apt.time}</div>
-                    <div className="text-gray-700 mt-1">{apt.client}</div>
-                    <div className="text-gray-600">{apt.service}</div>
+                    <div className="font-semibold text-gray-900">{apt.time} • {new Date(apt.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                    <div className="text-gray-700 mt-0.5">{apt.client}</div>
+                    <div className="text-gray-600 mt-0.5">{apt.service}</div>
+                    <div className="text-gray-500 mt-0.5 font-medium">{apt.staff}</div>
                   </div>
                 );
               })}
@@ -1253,15 +1320,13 @@ function DayView({
   appointments,
   onCreateAppointment,
   staff,
-  onHoverAppointment,
-  onLeaveAppointment
+  onAppointmentClick
 }: {
   currentDate: Date;
   appointments: CalendarAppointment[];
   onCreateAppointment: (time: string) => void;
   staff: CalendarStaff[];
-  onHoverAppointment: (e: React.MouseEvent, apt: CalendarAppointment) => void;
-  onLeaveAppointment: () => void;
+  onAppointmentClick: (apt: CalendarAppointment) => void;
 }) {
   const timeSlots = ['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM'];
 
@@ -1280,7 +1345,6 @@ function DayView({
       <div className="space-y-2">
         {timeSlots.map((time) => {
           const slotHour = getSlotHour(time);
-          // Find all appointments that start in this hour
           const slotAppointments = appointments.filter(a => getSlotHour(a.time) === slotHour);
 
           return (
@@ -1296,18 +1360,17 @@ function DayView({
                         key={apt.id}
                         className="p-3 rounded-lg border-l-4 hover:shadow-md transition-shadow relative cursor-pointer bg-white border border-gray-100"
                         style={{
-                          backgroundColor: color + '10', // Very light background
+                          backgroundColor: color + '10',
                           borderLeftColor: color
                         }}
-                        onMouseEnter={(e) => onHoverAppointment(e, apt)}
-                        onMouseLeave={onLeaveAppointment}
+                        onClick={() => onAppointmentClick(apt)}
                       >
                         <div className="flex items-start justify-between">
                           <div>
                             <div className="flex items-center gap-2">
                                 <span className="font-semibold text-gray-900">{apt.client}</span>
                                 <span className="text-xs text-gray-500">
-                                    ({apt.time} - {apt.duration})
+                                    ({apt.time} • {new Date(apt.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {apt.duration})
                                 </span>
                             </div>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 mt-1">
@@ -1348,25 +1411,20 @@ function DayView({
   );
 }
 
-
-
-// List View Component
+// List View Component - Redesigned for density
 function ListView({
   appointments,
-  onEdit,
-  onDelete,
+  onAppointmentClick,
   currentDate
 }: {
   appointments: CalendarAppointment[];
-  onEdit: (apt: CalendarAppointment) => void;
-  onDelete: (id: number) => void;
+  onAppointmentClick: (apt: CalendarAppointment) => void;
   currentDate: Date;
 }) {
-  // Get the week days starting from the current date
   const getWeekDays = (date: Date) => {
     const week = [];
     const curr = new Date(date);
-    const first = curr.getDate() - curr.getDay(); // Sunday of the week
+    const first = curr.getDate() - curr.getDay();
     
     for (let i = 0; i < 7; i++) {
       const day = new Date(curr);
@@ -1377,108 +1435,65 @@ function ListView({
   };
 
   const weekDays = getWeekDays(currentDate);
-  const startDate = weekDays[0];
-  const endDate = weekDays[6];
 
-  // Group appointments by day
   const groupedAppointments: { [key: string]: CalendarAppointment[] } = {};
   weekDays.forEach(day => {
     const dateKey = day.toISOString().split('T')[0];
     groupedAppointments[dateKey] = appointments.filter(apt => {
       const aptDate = new Date(apt.date).toISOString().split('T')[0];
       return aptDate === dateKey;
-    });
+    }).sort((a, b) => 
+      new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime()
+    );
   });
 
-  // Format day header (e.g., "Wednesday")
   const formatDayHeader = (date: Date) => {
-    return date.toLocaleDateString('en-US', { weekday: 'long' });
-  };
-
-  // Format full date (e.g., "January 7, 2026")
-  const formatFullDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-      {/* Appointments list grouped by day */}
-      <div className="p-6">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="space-y-6">
         {weekDays.map((day) => {
           const dateKey = day.toISOString().split('T')[0];
-          // Sort appointments by time (AM to PM)
-          const dayAppointments = (groupedAppointments[dateKey] || []).sort((a, b) => 
-            new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime()
-          );
+          const dayAppointments = groupedAppointments[dateKey] || [];
           
-          // Only show days that have appointments
           if (dayAppointments.length === 0) return null;
 
           return (
-            <div key={dateKey} className="mb-8 last:mb-0">
-              {/* Day header */}
-              <div className="flex items-baseline gap-4 mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {formatDayHeader(day)}
-                </h3>
-                <span className="text-sm text-gray-500">
-                  {formatFullDate(day)}
-                </span>
-              </div>
+            <div key={dateKey}>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3 pb-2 border-b border-gray-200">
+                {formatDayHeader(day)}
+              </h3>
 
-              {/* Appointments for this day */}
-              <div className="space-y-3 pl-4 border-l-4 border-indigo-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {dayAppointments.map((apt) => (
                   <div
                     key={apt.id}
-                    className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                    className="border border-gray-200 rounded-lg p-3 hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer bg-white"
+                    onClick={() => onAppointmentClick(apt)}
                   >
-                    {/* Time and Service */}
                     <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900">
-                          {apt.time}
-                        </div>
-                        <div className="text-base font-medium text-gray-900 mt-1">
-                          {apt.service}
-                        </div>
-                      </div>
-                      
-                      {/* Status badge */}
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        apt.status.toLowerCase() === 'confirmed' || apt.status.toLowerCase() === 'approved'
-                          ? 'bg-green-100 text-green-800'
-                          : apt.status.toLowerCase() === 'pending'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-gray-100 text-gray-800'
+                      <span className="text-xs font-bold text-indigo-600">{apt.time} • {new Date(apt.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        apt.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                        apt.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                        apt.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
                       }`}>
-                        Status: {apt.status.charAt(0).toUpperCase() + apt.status.slice(1)}
+                        {apt.status}
                       </span>
                     </div>
 
-                    {/* Customer details */}
-                    <div className="text-sm text-gray-700 space-y-0.5">
-                      <div>{apt.client}</div>
-                      {apt.clientPhone && <div>{apt.clientPhone}</div>}
-                      {apt.clientEmail && <div>{apt.clientEmail}</div>}
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{apt.client}</p>
+                      <p className="text-xs text-gray-600 truncate">{apt.service}</p>
+                      <p className="text-xs text-gray-500 truncate">{apt.staff}</p>
                     </div>
 
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-2 mt-3">
-                      <button
-                        onClick={() => onEdit(apt)}
-                        className="p-1.5 bg-green-600 text-white rounded hover:bg-green-700 transition"
-                        title="Edit"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => onDelete(apt.id)}
-                        className="p-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition"
-                        title="Cancel Appointment"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </button>
+                    <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                      <span>{apt.duration}</span>
+                      {apt.clientPhone && <Phone className="w-3 h-3" />}
                     </div>
                   </div>
                 ))}
@@ -1487,7 +1502,6 @@ function ListView({
           );
         })}
 
-        {/* Show message if no appointments in the week */}
         {appointments.length === 0 && (
           <div className="text-center py-12 text-gray-500">
             No appointments found for this week.

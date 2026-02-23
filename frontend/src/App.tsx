@@ -5,6 +5,7 @@ import { TimezoneProvider } from './context/TimezoneContext';
 import { PublicBooking } from './Pages/PublicBookingPage';
 import { UserBooking } from './Pages/BookingPage';
 import StaffAuth from './components/Auth/StaffAuth';
+import ResetPasswordPage from './components/Auth/ResetPasswordPage';
 import AdminLogin from './components/Auth/AdminLogin';
 import AdminRegister from './components/Auth/AdminRegister';
 import { ProtectedRoute } from './components/Auth/ProtectedRoute';
@@ -13,6 +14,8 @@ import { SettingsPage } from './components/admin/SettingsPage';
 import { getToken, clearToken } from './utils/auth';
 import { jwtDecode } from 'jwt-decode';
 import { Toaster } from './components/ui/sonner';
+
+import { ManageBookingPage } from './Pages/ManageBookingPage';
 
 export default function App() {
   const handleLogout = (redirectPath: string) => {
@@ -27,12 +30,14 @@ export default function App() {
         {/* Public Booking Routes - No Authentication Required */}
         <Route path="/book/:slug" element={<PublicBooking />} />
         <Route path="/book" element={<PublicBooking />} />
+        <Route path="/booking/manage/:token" element={<ManageBookingPage />} />
         
         
         {/* Auth Routes */}
         <Route path="/" element={<AdminLogin />} />
         <Route path="/auth/admin/register" element={<AdminRegister />} />
         <Route path="/auth/staff" element={<StaffAuth />} />
+        <Route path="/auth/staff/reset-password" element={<ResetPasswordPage />} />
 
         
         {/* Protected Dashboard Routes */}

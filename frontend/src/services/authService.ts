@@ -158,6 +158,35 @@ export const staffLogin = async (
   return await response.json();
 };
 
+export const forgotPassword = async (email: string): Promise<{ message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/staff/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseErrorMessage(text) || "Failed to send reset link");
+  }
+  return response.json();
+};
+
+export const resetPassword = async (data: {
+  token: string;
+  newPassword: string;
+}): Promise<{ message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/staff/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseErrorMessage(text) || "Failed to reset password");
+  }
+  return response.json();
+};
+
 // ============ TOKEN MANAGEMENT ============
 
 export const saveToken = (token: string): void => {

@@ -10,6 +10,9 @@ import { getMyCompany } from '../../services/CompanyService';
 import { useTimezone } from '../../context/TimezoneContext';
 import { formatTime as centralFormatTime, getDateString, combineDateTimeToUTC } from '../../utils/datetime';
 import { toast } from 'sonner';
+import { Skeleton } from '../ui/skeleton';
+import { CardSkeleton, ChartSkeleton } from '../ui/CardSkeleton';
+import { DateInput } from '../ui/DateInput';
 
 // Types
 interface DashboardStats {
@@ -129,11 +132,14 @@ export function DashboardHome() {
       start.setMonth(0, 1);
       end.setMonth(11, 31);
     } else if (range === 'custom' && customStartDate && customEndDate) {
-      const customStart = new Date(customStartDate);
-      const customEnd = new Date(customEndDate);
-      customStart.setHours(0,0,0,0);
-      customEnd.setHours(23,59,59,999);
-      return { start: customStart, end: customEnd };
+      // Parse mm/dd/yyyy format
+      const [startMonth, startDay, startYear] = customStartDate.split('/').map(Number);
+      const [endMonth, endDay, endYear] = customEndDate.split('/').map(Number);
+      if (startMonth && startDay && startYear && endMonth && endDay && endYear) {
+        const customStart = new Date(startYear, startMonth - 1, startDay, 0, 0, 0, 0);
+        const customEnd = new Date(endYear, endMonth - 1, endDay, 23, 59, 59, 999);
+        return { start: customStart, end: customEnd };
+      }
     }
     
     return { start, end };
@@ -438,6 +444,9 @@ export function DashboardHome() {
         const processedChart = processChartData(filteredHistory, rangeStart, rangeEnd);
         const processedTable = processTableData(filteredHistory, rangeStart, rangeEnd);
         
+        const totalAppointments = filteredHistory.length;
+        const pendingAppointments = filteredHistory.filter(appt => appt.status === 'Pending').length;
+        
         const totalRevenue = filteredHistory.reduce((sum, appt) => {
           if (appt.status === 'Confirmed' || appt.status === 'Completed') {
             return sum + appt.price;
@@ -445,10 +454,14 @@ export function DashboardHome() {
           return sum;
         }, 0);
 
-
         setChartData(processedChart);
         setTableData(processedTable);
-        setStats(prev => ({ ...prev, revenue: totalRevenue }));
+        setStats(prev => ({ 
+          ...prev, 
+          revenue: totalRevenue,
+          totalAppointments: totalAppointments,
+          pendingAppointments: pendingAppointments
+        }));
       } catch (err) {
           console.error("Analytics fetch error:", err);
       } finally {
@@ -561,15 +574,9 @@ export function DashboardHome() {
   const fetchGlobalStats = async () => {
       try {
           const { token, staffIds } = getApiParams();
-          const totalRes = await getAppointments({ pageSize: 1, staffIds: staffIds }, token);
-          const pendingRes = await getAppointments({ status: 'Pending', pageSize: 1, staffIds: staffIds }, token);
+          // Global counts are now handled in fetchAnalyticsData based on filters
+          // but we still want upcoming global list
           
-          setStats(prev => ({ 
-              ...prev, 
-              totalAppointments: totalRes.totalCount,
-              pendingAppointments: pendingRes.totalCount
-          }));
-
           // Upcoming fetch (global tomorrow+)
           const nowInCompanyTz = new Date();
           const tomorrowDate = new Date(nowInCompanyTz);
@@ -625,9 +632,23 @@ export function DashboardHome() {
 
   if (isLoading) {
     return (
-      <div className="p-8 flex flex-col items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
-        <p className="text-gray-600">Loading dashboard data...</p>
+      <div className="p-4 md:p-8">
+        {/* Header skeleton */}
+        <div className="mb-6 md:mb-8 flex flex-col md:flex-row justify-between items-start gap-4">
+          <div>
+            <Skeleton className="h-6 w-64 mb-2 bg-gray-200" />
+          </div>
+          <div className="flex gap-3">
+            <Skeleton className="h-10 w-10 bg-gray-200" />
+            <Skeleton className="h-10 w-40 bg-gray-200" />
+          </div>
+        </div>
+        {/* Stats cards skeleton */}
+        <CardSkeleton count={4} />
+        {/* Chart skeleton */}
+        <div className="mt-6 md:mt-8">
+          <ChartSkeleton />
+        </div>
       </div>
     );
   }
@@ -685,7 +706,10 @@ export function DashboardHome() {
         <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Appointments</p>
+              <p className="text-sm font-semibold text-gray-900">Total Appointments</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {dateRange === 'this_week' ? 'This Week' : dateRange === 'this_month' ? 'This Month' : dateRange === 'this_year' ? 'This Year' : 'Custom Period'}
+              </p>
               <p className="text-2xl font-bold mt-2">{stats.totalAppointments}</p>
             </div>
             <div className="bg-blue-100 p-3 rounded-lg">
@@ -697,7 +721,10 @@ export function DashboardHome() {
         <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-sm font-semibold text-gray-900">Pending</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {dateRange === 'this_week' ? 'This Week' : dateRange === 'this_month' ? 'This Month' : dateRange === 'this_year' ? 'This Year' : 'Custom Period'}
+              </p>
               <p className="text-2xl font-bold mt-2">{stats.pendingAppointments}</p>
             </div>
             <div className="bg-yellow-100 p-3 rounded-lg">
@@ -709,7 +736,8 @@ export function DashboardHome() {
         <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Today's Appointments</p>
+              <p className="text-sm font-semibold text-gray-900">Today's Appointments</p>
+              <p className="text-xs text-gray-500 mt-0.5">Today</p>
               <p className="text-2xl font-bold mt-2">{stats.todayCount}</p>
             </div>
             <div className="bg-green-100 p-3 rounded-lg">
@@ -721,7 +749,10 @@ export function DashboardHome() {
         <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Revenue ({dateRange === 'this_week' ? 'Week' : dateRange === 'this_month' ? 'Month' : dateRange === 'this_year' ? 'Year' : 'Custom'})</p>
+              <p className="text-sm font-semibold text-gray-900">Revenue</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {dateRange === 'this_week' ? 'This Week' : dateRange === 'this_month' ? 'This Month' : dateRange === 'this_year' ? 'This Year' : 'Custom Period'}
+              </p>
               <p className="text-2xl font-bold mt-2">${stats.revenue.toLocaleString()}</p>
             </div>
             <div className="bg-purple-100 p-3 rounded-lg">
@@ -767,25 +798,26 @@ export function DashboardHome() {
                   <div className="space-y-3">
                     <div>
                       <label className="block text-sm text-gray-600 mb-1">Start Date</label>
-                      <input
-                        type="date"
+                      <DateInput
                         value={customStartDate}
-                        onChange={(e) => setCustomStartDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        onChange={setCustomStartDate}
+                        placeholder="mm/dd/yyyy"
                       />
                     </div>
                     <div>
                       <label className="block text-sm text-gray-600 mb-1">End Date</label>
-                      <input
-                        type="date"
+                      <DateInput
                         value={customEndDate}
-                        onChange={(e) => setCustomEndDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        onChange={setCustomEndDate}
+                        placeholder="mm/dd/yyyy"
                       />
                     </div>
                     <div className="flex gap-2 pt-2">
                       <button
-                        onClick={() => setShowCustomDatePicker(false)}
+                        onClick={() => {
+                          setDateRange('this_week');
+                          setShowCustomDatePicker(false);
+                        }}
                         className="flex-1 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
                       >
                         Cancel
@@ -794,7 +826,6 @@ export function DashboardHome() {
                         onClick={() => {
                           if (customStartDate && customEndDate) {
                             setShowCustomDatePicker(false);
-                            // Trigger refetch by changing state
                           } else {
                             toast.error('Please select both start and end dates');
                           }
@@ -981,7 +1012,7 @@ export function DashboardHome() {
 
        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
         {/* Today's Appointments */}
-        <div  style={{height: '888px'}}  className="lg:col-span-2">
+        <div className="lg:col-span-2">
           <div className="bg-white rounded-lg shadow">
             <div className="p-4 md:p-6 border-b border-gray-200 flex items-center justify-between">
               <div>

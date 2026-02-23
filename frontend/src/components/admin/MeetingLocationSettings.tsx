@@ -8,6 +8,7 @@ interface Location {
   value: string;
   icon: React.ReactNode;
   color: string;
+  isComingSoon?: boolean;
 }
 
 export default function MeetingLocationSettings() {
@@ -74,6 +75,7 @@ export default function MeetingLocationSettings() {
       value: 'Zoom',
       icon: <Video className="w-6 h-6" />,
       color: 'blue',
+      isComingSoon: true,
     },
   ];
 
@@ -102,13 +104,20 @@ export default function MeetingLocationSettings() {
                   return (
                     <div
                       key={location.value}
-                      className={`group relative flex flex-col p-6 rounded-2xl border-2 transition-all duration-300 cursor-pointer ${
-                        isChecked
-                          ? 'border-indigo-600 bg-indigo-50/30'
-                          : 'border-gray-50 bg-gray-50/30 hover:border-gray-200'
+                      className={`group relative flex flex-col p-6 rounded-2xl border-2 transition-all duration-300 ${
+                        location.isComingSoon
+                          ? 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-75'
+                          : isChecked
+                          ? 'border-indigo-600 bg-indigo-50/30 cursor-pointer'
+                          : 'border-gray-50 bg-gray-50/30 hover:border-gray-200 cursor-pointer'
                       }`}
-                      onClick={() => toggleLocation(location.value)}
+                      onClick={() => !location.isComingSoon && toggleLocation(location.value)}
                     >
+                      {location.isComingSoon && (
+                        <div className="absolute top-4 right-4 bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wider animate-pulse">
+                          Coming Soon
+                        </div>
+                      )}
                       <div className="flex items-center justify-between mb-6">
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
                           isChecked 
@@ -118,11 +127,13 @@ export default function MeetingLocationSettings() {
                           {location.icon}
                         </div>
                         <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                          isChecked 
+                          location.isComingSoon
+                            ? 'bg-gray-100 border-gray-200'
+                            : isChecked 
                             ? 'bg-indigo-600 border-indigo-600 shadow-sm shadow-indigo-100' 
                             : 'bg-white border-gray-200'
                         }`}>
-                          {isChecked && <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />}
+                          {isChecked && !location.isComingSoon && <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />}
                         </div>
                       </div>
 
@@ -138,8 +149,12 @@ export default function MeetingLocationSettings() {
                       </div>
 
                       <div className="mt-8 flex items-center justify-between">
-                         <span className={`text-[10px] font-bold uppercase tracking-widest ${isChecked ? 'text-indigo-600' : 'text-gray-400'}`}>
-                           {isChecked ? 'Method Active' : 'Currently Disabled'}
+                         <span className={`text-[10px] font-bold uppercase tracking-widest ${
+                           location.isComingSoon ? 'text-amber-600' :
+                           isChecked ? 'text-indigo-600' : 'text-gray-400'
+                         }`}>
+                           {location.isComingSoon ? 'Development in Progress' :
+                            isChecked ? 'Active' : 'Currently Disabled'}
                          </span>
                       </div>
                     </div>

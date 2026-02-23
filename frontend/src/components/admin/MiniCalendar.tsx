@@ -253,10 +253,11 @@ export function Calendar({
 interface MiniCalendarProps {
   selectedDate?: Date;
   onSelectDate?: (date: Date) => void;
+  isUnavailable?: (date: Date) => boolean;
 }
 
 // Simple MiniCalendar for Dashboard (no time selection)
-export function MiniCalendar({ selectedDate, onSelectDate }: MiniCalendarProps) {
+export function MiniCalendar({ selectedDate, onSelectDate, isUnavailable }: MiniCalendarProps) {
   const { timezone } = useTimezone();
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
@@ -353,24 +354,31 @@ export function MiniCalendar({ selectedDate, onSelectDate }: MiniCalendarProps) 
           ))}
         </div>
         <div className="grid grid-cols-7 gap-1">
-          {days.map((date, index) => (
-            <button
-              key={index}
-              type="button"
-              disabled={!date}
-              onClick={() => date && onSelectDate?.(date)}
-              className={`aspect-square flex items-center justify-center text-sm rounded transition-colors ${!date
-                  ? 'invisible'
-                  : selectedDate && isSameDay(date, selectedDate)
-                    ? 'bg-indigo-600 text-white font-semibold'
-                    : isToday(date)
-                      ? 'bg-indigo-100 text-indigo-700 font-medium'
-                      : 'hover:bg-gray-100'
-                }`}
-            >
-              {date?.getDate()}
-            </button>
-          ))}
+          {days.map((date, index) => {
+            const isUnavailableDate = !!(date && isUnavailable?.(date));
+            const isDisabled = !date || isUnavailableDate;
+
+            return (
+              <button
+                key={index}
+                type="button"
+                disabled={isDisabled}
+                onClick={() => date && !isUnavailableDate && onSelectDate?.(date)}
+                className={`aspect-square flex items-center justify-center text-sm rounded transition-colors ${!date
+                    ? 'invisible'
+                    : isUnavailableDate
+                      ? 'text-gray-300 cursor-not-allowed bg-gray-50/50'
+                      : selectedDate && isSameDay(date, selectedDate)
+                        ? 'bg-indigo-600 text-white font-semibold'
+                        : isToday(date)
+                          ? 'bg-indigo-100 text-indigo-700 font-medium'
+                          : 'hover:bg-gray-100'
+                  }`}
+              >
+                {date?.getDate()}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

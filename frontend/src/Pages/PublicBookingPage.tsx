@@ -43,11 +43,14 @@ export function PublicBooking() {
               
               {/* Booking Details Card */}
               <div 
-                className="bg-gradient-to-br from-slate-50 to-indigo-50 rounded-xl p-6 sm:p-8 mb-8 border-2 border-indigo-100"
+                className="bg-gradient-to-br from-slate-50 to-white rounded-xl p-6 sm:p-8 mb-8 border-2"
+                style={{
+                  borderColor: bookingDetails?.colors?.primaryColor ? `${bookingDetails.colors.primaryColor}33` : undefined, // 20% opacity
+                }}
                 role="region"
                 aria-label="Booking details"
               >
-                <h2 className="text-lg font-bold text-slate-900 mb-4 pb-3 border-b-2 border-indigo-200">Appointment Details</h2>
+                <h2 className="text-lg font-bold text-slate-900 mb-4 pb-3 border-b-2" style={{ borderColor: bookingDetails?.colors?.primaryColor ? `${bookingDetails.colors.primaryColor}1a` : '#e2e8f0' }}>Appointment Details</h2>
                 <div className="grid gap-4">
                   <div className="flex justify-between items-start py-2">
                     <span className="text-slate-700 font-medium">Service:</span>
@@ -78,7 +81,7 @@ export function PublicBooking() {
 
                   <div className="flex justify-between items-start py-2">
                     <span className="text-slate-700 font-medium">Price:</span>
-                    <span className="text-indigo-700 font-bold text-lg text-right">{bookingDetails?.price}</span>
+                    <span className="font-bold text-lg text-right" style={{ color: bookingDetails?.colors?.primaryColor || '#4338ca' }}>{bookingDetails?.price}</span>
                   </div>
 
                   <div className="flex justify-between items-start py-2">
@@ -87,7 +90,7 @@ export function PublicBooking() {
                   </div>
 
                   {bookingDetails?.description && (
-                    <div className="pt-3 border-t-2 border-indigo-100">
+                    <div className="pt-3 border-t-2" style={{ borderColor: bookingDetails?.colors?.primaryColor ? `${bookingDetails.colors.primaryColor}1a` : '#e2e8f0' }}>
                       <span className="text-slate-700 font-medium block mb-2">Description:</span>
                       <p className="text-slate-800 bg-white p-3 rounded-lg border border-slate-200">{bookingDetails.description}</p>
                     </div>
@@ -99,7 +102,11 @@ export function PublicBooking() {
               <div className="text-center">
                 <button
                   onClick={handleNewBooking}
-                  className="px-8 py-4 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white font-semibold rounded-xl hover:from-indigo-700 hover:to-indigo-800 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-indigo-300"
+                  className="px-8 py-4 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50"
+                  style={{ 
+                    backgroundColor: bookingDetails?.colors?.primaryColor || '#4f46e5',
+                    '--tw-ring-color': bookingDetails?.colors?.primaryColor || '#6366f1'
+                  } as React.CSSProperties}
                   aria-label="Book another appointment"
                 >
                   Book Another Appointment

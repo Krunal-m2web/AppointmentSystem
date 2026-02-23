@@ -97,19 +97,30 @@ namespace Appointmentbookingsystem.Backend.Middleware
                     break;
 
                 case DbUpdateException dbEx:
-                    statusCode = HttpStatusCode.Conflict;
-                    var innerMessage = dbEx.InnerException?.Message ?? dbEx.Message;
+                    var dbInnerMessage = dbEx.InnerException?.Message ?? dbEx.Message;
                     
                     // Check for unique constraint violations
-                    if (innerMessage.Contains("UNIQUE") || innerMessage.Contains("duplicate"))
+                    if (dbInnerMessage.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) || 
+                        dbInnerMessage.Contains("duplicate", StringComparison.OrdinalIgnoreCase))
                     {
+                        statusCode = HttpStatusCode.Conflict;
                         errorResponse = ApiErrorResponse.Create(
                             BusinessErrors.DUPLICATE_ENTITY,
                             "A record with this value already exists."
                         );
                     }
+                    else if (dbInnerMessage.Contains("cannot be null", StringComparison.OrdinalIgnoreCase) || 
+                             dbInnerMessage.Contains("null value", StringComparison.OrdinalIgnoreCase))
+                    {
+                        statusCode = HttpStatusCode.BadRequest;
+                        errorResponse = ApiErrorResponse.Create(
+                            ValidationErrors.REQUIRED_FIELD,
+                            "A required database field is missing."
+                        );
+                    }
                     else
                     {
+                        statusCode = HttpStatusCode.InternalServerError;
                         _logger.LogError(dbEx, "Database error occurred");
                         errorResponse = ApiErrorResponse.Create(
                             "DATABASE_ERROR",

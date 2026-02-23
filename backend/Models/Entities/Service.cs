@@ -26,8 +26,8 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
 
         // Duration in minutes
         [Required]
-        [Range(15, 480, ErrorMessage = "Duration must be between 15 minutes and 8 hours")]
-        public int ServiceDuration { get; set; } = 60;
+        [Range(1, 480, ErrorMessage = "Duration must be between 1 minute and 8 hours")]
+        public int ServiceDuration { get; set; } = 30;
 
         public bool IsActive { get; set; } = true;
 

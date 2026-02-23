@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { WidgetIntegration } from "../components/admin/WidgetIntegration";
 import {
   LogOut,
   Calendar as CalendarIcon,
@@ -10,6 +11,12 @@ import {
   UserCheck,
   CalendarDays,
   Clock,
+  Share2,
+  Briefcase,
+  Menu,
+  ChevronLeft,
+  ChevronRight,
+  CalendarCog
 } from "lucide-react";
 import { DashboardHome } from "../components/admin/DashboardHome";
 import { CalendarPage } from "../components/admin/CalendarPage";
@@ -21,11 +28,13 @@ import { CustomersPage } from "../components/admin/Customers";
 import { ServicePricing } from "../components/admin/ServicePricing";
 import { Settings } from "../components/admin/Settings";
 import { UserProfile } from "../components/admin/UserProfile";
+import StaffCalendarSettings from "../components/admin/StaffCalendarSettings";
 import { useTimezone } from "../context/TimezoneContext";
 import { useEffect } from "react";
 import { getRoleFromToken, getToken, getUserNameFromToken, getEmailFromToken } from "../utils/auth";
 import { User, Bell, ChevronDown } from "lucide-react";
 import { jwtDecode } from "jwt-decode";
+import { toast } from "sonner";
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -41,7 +50,9 @@ type Tab =
   | "customers"
   | "pricing"
   | "settings"
-  | "profile";
+  | "profile"
+  | "integration"
+  | "my-calendar";
 
 export function AdminDashboard({
   onLogout,
@@ -52,6 +63,9 @@ export function AdminDashboard({
   });
 
   const [timeOffBadgeCount, setTimeOffBadgeCount] = useState(0);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    return localStorage.getItem("sidebarCollapsed") === "true";
+  });
 
   const token = localStorage.getItem('auth_token');
   const role = token ? getRoleFromToken(token) : undefined;
@@ -90,14 +104,26 @@ export function AdminDashboard({
     {
       id: "services" as Tab,
       label: "Services",
-      icon: SettingsIcon,
-      roles: ['Admin', 'Staff']
+      icon: Briefcase,
+      roles: ['Admin']
+    },
+    {
+      id: "my-calendar" as Tab,
+      label: "Calendar Settings",
+      icon: CalendarCog,
+      roles: ['Staff']  // Only Staff sees this tab - Admin connects via Settings
     },
     { id: "customers" as Tab, label: "Customers", icon: Users, roles: ['Admin'] },
     // {
     //   id: "pricing" as Tab,
     //   label: "Service Pricing",
     //   icon: Tag,
+    //   roles: ['Admin']
+    // },
+    // {
+    //   id: "integration" as Tab,
+    //   label: "Widget Integration",
+    //   icon: Share2,
     //   roles: ['Admin']
     // },
     {
@@ -123,6 +149,35 @@ export function AdminDashboard({
   useEffect(() => {
     refreshTimezone();
   }, [refreshTimezone]);
+
+  useEffect(() => {
+    localStorage.setItem("sidebarCollapsed", String(isSidebarCollapsed));
+  }, [isSidebarCollapsed]);
+
+  // Handle OAuth callback notifications
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const callbackStatus = params.get('calendarConnected');
+    const targetTab = params.get('tab');
+    
+    if (callbackStatus === 'success') {
+      toast.success('Google Calendar connected successfully!');
+      // Preserving tab param if exists for sub-components (like Settings) to use
+      const newUrl = targetTab ? `${window.location.pathname}?tab=${targetTab}` : window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+      
+      // Navigate to appropriate tab based on role and targetTab
+      if (role === 'Staff') {
+        setActiveTab('my-calendar');
+      } else if (role === 'Admin' && targetTab === 'google-calendar') {
+        setActiveTab('settings');
+      }
+    } else if (callbackStatus === 'error') {
+      toast.error('Failed to connect Google Calendar. Please try again.');
+      const newUrl = targetTab ? `${window.location.pathname}?tab=${targetTab}` : window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+    }
+  }, [role]);
 
   // Ensure active tab is valid for current role
   useEffect(() => {
@@ -165,9 +220,35 @@ export function AdminDashboard({
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden text-gray-900">
       {/* Sidebar */}
-      <aside className="hidden md:flex md:w-64 flex-col bg-white border-r border-gray-200">
-        <div className="p-6 h-16 flex items-center border-b border-gray-200">
-          <h2 className="text-xl font-bold text-indigo-600">Admin Panel</h2>
+      <aside className={`hidden md:flex flex-col bg-white border-r border-gray-200 transition-all duration-300 ${
+        isSidebarCollapsed ? "w-20" : "w-64"
+      }`}>
+        <div className={`p-6 h-16 flex items-center border-b border-gray-200 overflow-hidden ${
+          isSidebarCollapsed ? "justify-center" : "justify-between"
+        }`}>
+          {!isSidebarCollapsed && (
+            <>
+              <h2 className="text-xl font-bold text-indigo-600 truncate animate-in fade-in duration-300">
+                Admin Panel
+              </h2>
+              <button
+                onClick={() => setIsSidebarCollapsed(true)}
+                className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-indigo-600 transition-colors"
+                title="Collapse Sidebar"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+            </>
+          )}
+          {isSidebarCollapsed && (
+            <button
+              onClick={() => setIsSidebarCollapsed(false)}
+              className="w-10 h-10 bg-indigo-50 hover:bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 transition-all active:scale-95"
+              title="Expand Sidebar"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
@@ -179,16 +260,26 @@ export function AdminDashboard({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all relative ${
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all relative group ${
                   isActive
                     ? "bg-indigo-600 text-white shadow-md"
                     : "text-gray-700 hover:bg-gray-100"
-                }`}
+                } ${isSidebarCollapsed ? "justify-center" : ""}`}
+                title={isSidebarCollapsed ? tab.label : ""}
               >
-                <Icon className="w-5 h-5 flex-shrink-0" />
-                <span className="font-medium">{tab.label}</span>
+                <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-white" : "text-gray-500 group-hover:text-indigo-600"}`} />
+                {!isSidebarCollapsed && (
+                  <span className="font-medium truncate animate-in slide-in-from-left-2 duration-300">
+                    {tab.label}
+                  </span>
+                )}
                 {badge > 0 && (
-                  <span className="ml-auto min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-md">
+                  <span className={`${
+                    isSidebarCollapsed 
+                      ? "absolute -top-1 -right-1" 
+                      : "ml-auto"
+                    } min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-md animate-in zoom-in duration-300`}
+                  >
                     {badge > 99 ? '99+' : badge}
                   </span>
                 )}
@@ -198,14 +289,18 @@ export function AdminDashboard({
         </nav>
 
         <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3 p-2 rounded-lg bg-gray-50">
-            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border border-indigo-200">
+          <div className={`flex items-center gap-3 p-2 rounded-lg bg-gray-50 transition-all ${
+            isSidebarCollapsed ? "justify-center" : ""
+          }`}>
+            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border border-indigo-200 shrink-0">
               {userInitials}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate">{userName}</p>
-              <p className="text-xs text-gray-500 capitalize">{role?.toLowerCase() || 'Admin'}</p>
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="flex-1 min-w-0 animate-in fade-in duration-300">
+                <p className="text-sm font-semibold truncate">{userName}</p>
+                <p className="text-xs text-gray-500 capitalize">{role?.toLowerCase() || 'Admin'}</p>
+              </div>
+            )}
           </div>
         </div>
       </aside>
@@ -302,8 +397,10 @@ export function AdminDashboard({
             {activeTab === "timeoff" && <TimeOffPage onCountChange={setTimeOffBadgeCount} />}
             {activeTab === "services" && <ManageServices />}
             {activeTab === "customers" && <CustomersPage />}
+            {activeTab === "integration" && <WidgetIntegration />}
             {activeTab === "settings" && <Settings />}
             {activeTab === "profile" && <UserProfile />}
+            {activeTab === "my-calendar" && <StaffCalendarSettings />}
           </div>
         </main>
       </div>

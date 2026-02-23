@@ -1,10 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { MiniCalendar } from './MiniCalendar';
 import { AppointmentFormModal, NewAppointment, StaffOption, ServiceOption, CustomerOption } from './AppointmentFormModal';
-import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Edit2, Save, XCircle, ChevronDown, Phone as PhoneIcon, Mail, User, Loader2, Globe, DollarSign, CalendarDays, Briefcase, FileText, Video, Download } from 'lucide-react';
+import { AdminRescheduleFlow } from './AdminRescheduleFlow';
+import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Pencil, Edit2, Eye, Save, XCircle, ChevronDown, Phone as PhoneIcon, Mail, User, Loader2, Globe, DollarSign, CalendarDays, Briefcase, FileText, Video, Download, CalendarX, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { ConfirmationModal } from '../../components/ConfirmationModal';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { Textarea } from "../ui/textarea";
+import { Button } from '../ui/button';
 import { useTimezone } from '../../context/TimezoneContext';
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '../ui/hover-card';
 import { formatDate, formatTime, formatDateTime, combineDateTimeToUTC, getTimezoneOffset, getDateString, getTimeString } from '../../utils/datetime';
 import type { Appointment } from '../../types/types';
 import { getAppointments, AppointmentResponse, createAppointment, updateAppointment } from '../../services/appointmentApi';
@@ -12,6 +23,9 @@ import { fetchServices } from '../../services/serviceApi';
 import { fetchStaff } from '../../services/staffApi';
 import { fetchCustomers, CustomerResponse } from '../../services/customerApi';
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
+import { Skeleton } from '../ui/skeleton';
+import { TableSkeleton } from '../ui/TableSkeleton';
+import { DateInput } from '../ui/DateInput';
 
 
 type SortField = 'id' | 'date' | 'staff' | 'customer';
@@ -30,6 +44,8 @@ export function AppointmentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'Confirmed' | 'Pending' | 'Cancelled'>('all');
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editedData, setEditedData] = useState<Appointment | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -37,9 +53,14 @@ export function AppointmentsPage() {
   const [selectedStaff, setSelectedStaff] = useState<number[]>([]);
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
+
+  // Helper to get current user info
+  const token = getToken();
+  const currentUserRole = token ? getRoleFromToken(token) : null;
+  const currentUserId = token ? getUserIdFromToken(token) : null;
   
   // Date Range Filter State
-  const [dateRangeFilter, setDateRangeFilter] = useState<string>('any_time');
+  const [dateRangeFilter, setDateRangeFilter] = useState<string>('upcoming');
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
@@ -62,6 +83,8 @@ export function AppointmentsPage() {
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showRepeatDatePicker, setShowRepeatDatePicker] = useState(false);
+  const [showRescheduleFlow, setShowRescheduleFlow] = useState(false);
+  const [rescheduleTarget, setRescheduleTarget] = useState<Appointment | null>(null);
   const datePickerRef = useRef<HTMLDivElement>(null);
   const repeatDatePickerRef = useRef<HTMLDivElement>(null);
   
@@ -88,6 +111,18 @@ export function AppointmentsPage() {
     let endDate: string | undefined;
     
     switch (dateRangeFilter) {
+      case 'upcoming': {
+        const todayStart = new Date(now);
+        todayStart.setHours(0, 0, 0, 0);
+        
+        const thirtyDaysLater = new Date(now);
+        thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+        thirtyDaysLater.setHours(23, 59, 59, 999);
+        
+        startDate = todayStart.toISOString();
+        endDate = thirtyDaysLater.toISOString();
+        break;
+      }
       case 'yesterday': {
         const yesterday = new Date(now);
         yesterday.setDate(yesterday.getDate() - 1);
@@ -135,13 +170,26 @@ export function AppointmentsPage() {
         break;
       }
       case 'custom': {
-        if (customStartDate && customEndDate) {
-          const customStart = new Date(customStartDate);
-          customStart.setHours(0, 0, 0, 0);
-          const customEnd = new Date(customEndDate);
-          customEnd.setHours(23, 59, 59, 999);
-          startDate = customStart.toISOString();
-          endDate = customEnd.toISOString();
+        if (customStartDate || customEndDate) {
+          if (customStartDate) {
+            // Parse mm/dd/yyyy format
+            const [startMonth, startDay, startYear] = customStartDate.split('/').map(Number);
+            if (startMonth && startDay && startYear) {
+              const customStart = new Date(startYear, startMonth - 1, startDay, 0, 0, 0, 0);
+              startDate = customStart.toISOString();
+            }
+          } else {
+            startDate = new Date('2020-01-01').toISOString();
+          }
+          
+          if (customEndDate) {
+            // Parse mm/dd/yyyy format
+            const [endMonth, endDay, endYear] = customEndDate.split('/').map(Number);
+            if (endMonth && endDay && endYear) {
+              const customEnd = new Date(endYear, endMonth - 1, endDay, 23, 59, 59, 999);
+              endDate = customEnd.toISOString();
+            }
+          }
         } else {
           startDate = new Date('2020-01-01').toISOString();
         }
@@ -262,7 +310,8 @@ export function AppointmentsPage() {
       setIsLoading(true);
       setError(null);
       
-      const token = getToken();
+      setError(null);
+      
       if (!token) {
         setError('Authentication required. Please log in.');
         setIsLoading(false);
@@ -271,8 +320,9 @@ export function AppointmentsPage() {
 
       const { startDate: rangeStart, endDate: rangeEnd } = getDateRangeParams();
 
-      const role = getRoleFromToken(token);
-      const userId = getUserIdFromToken(token);
+      // Use the component-level vars or re-fetch for safety inside async
+      const role = currentUserRole; 
+      const userId = currentUserId;
       
       let apiStaffIds: number[] | undefined = undefined;
       if (role === 'Staff' && userId) {
@@ -336,7 +386,8 @@ export function AppointmentsPage() {
           const activeStaff = staffData.filter((s: any) => s.isActive !== false);
           setStaffList(activeStaff.map((s: any) => ({ 
             id: s.id, 
-            name: `${s.firstName} ${s.lastName}` 
+            name: `${s.firstName} ${s.lastName}`,
+            serviceIds: s.services?.map((svc: any) => svc.serviceId) || []
           })));
         } catch (e) {
              console.error('Failed to load staff:', e);
@@ -398,7 +449,7 @@ export function AppointmentsPage() {
     duration: 60,
     meetingType: 'InPerson',
     paymentMethod: 'Card',
-    status: 'Pending',
+    status: 'Confirmed',
     notes: '',
 
     isRecurring: false,
@@ -472,12 +523,12 @@ export function AppointmentsPage() {
     setEditedData(null);
   };
 
-  const handleStatusUpdate = async (id: number, newStatus: Appointment['status']) => {
+  const handleStatusUpdate = async (id: number, newStatus: Appointment['status'], notes?: string) => {
     try {
       const token = getToken() || '';
       // Fetch the existing appointment to get name parts if needed, 
       // but since UpdateAppointmentRequest handles optional fields, we try partial update first.
-      await updateAppointment(id, { status: newStatus }, token);
+      await updateAppointment(id, { status: newStatus, notes: notes }, token);
       loadData(); // Refresh the list
       setSelectedAppointment(null);
     } catch (err: any) {
@@ -486,14 +537,22 @@ export function AppointmentsPage() {
     }
   };
 
-  const confirmCancelAppointment = () => {
+  const confirmCancelAppointment = async () => {
     if (cancelAppointmentId) {
-      handleStatusUpdate(cancelAppointmentId, 'Cancelled');
-      setCancelAppointmentId(null);
+      setIsCancelling(true);
+      try {
+        await handleStatusUpdate(cancelAppointmentId, 'Cancelled', cancelReason);
+        setCancelAppointmentId(null);
+        setCancelReason('');
+        toast.success("Appointment cancelled successfully");
+      } finally {
+        setIsCancelling(false);
+      }
     }
   };
 
   const handleCancelAppointment = (id: number) => {
+     setCancelReason('');
      setCancelAppointmentId(id);
   };
 
@@ -526,7 +585,7 @@ export function AppointmentsPage() {
       duration: 60,
       meetingType: 'InPerson',
       paymentMethod: 'Card',
-      status: 'Pending',
+      status: 'Confirmed',
       notes: '',
 
       isRecurring: false,
@@ -619,11 +678,15 @@ export function AppointmentsPage() {
             meetingType: data.meetingType,
             paymentMethod: data.paymentMethod,
             status: data.status,
-            notes: data.notes
+            notes: data.notes,
+            price: data.price ? parseFloat(data.price) : undefined,
+            duration: data.duration
         }, getToken() || '');
 
-        // Refresh list
-        loadData(); // Re-use loadData or the existing logic
+        toast.success('Appointment updated successfully');
+        
+        // Refresh list and close modal
+        await loadData();
         setShowAddModal(false);
         setEditingAppointmentId(null);
         resetNewAppointmentForm();
@@ -663,7 +726,9 @@ export function AppointmentsPage() {
              startTime: dateTime, // Use generated UTC string
              meetingType: data.meetingType,
              paymentMethod: data.paymentMethod as any,
-             notes: data.notes
+             notes: data.notes,
+             status: data.status,
+             duration: data.duration
           });
         };
 
@@ -691,7 +756,11 @@ export function AppointmentsPage() {
              occurrenceIndex++;
           }
         }
-
+        
+        // Clear filters to ensure the new appointment is visible
+        setSearchTerm('');
+        setFilterStatus('all');
+        
         loadData(); // Reload
         setShowAddModal(false);
         resetNewAppointmentForm();
@@ -734,6 +803,13 @@ export function AppointmentsPage() {
     setShowAddModal(true);
   };
 
+  // Reschedule appointment (Dedicated Flow)
+  const handleReschedule = (appointment: Appointment) => {
+    setRescheduleTarget(appointment);
+    setSelectedAppointment(null); // Close the detail modal
+    setShowRescheduleFlow(true);
+  };
+
 
 
   const SortIcon = ({ field }: { field: SortField }) => {
@@ -745,9 +821,16 @@ export function AppointmentsPage() {
   // Only show full page loader if timezone is not ready or if it's the very first load
   if (!timezoneReady || (isLoading && appointments.length === 0 && !searchTerm)) {
     return (
-      <div className="p-4 md:p-8 flex flex-col items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
-        <p className="text-gray-600">{!timezoneReady ? 'Loading timezone settings...' : 'Loading appointments...'}</p>
+      <div className="px-8 md:px-8">
+        {/* Filter skeleton */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5 mb-8">
+          <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+            <Skeleton className="h-10 w-full md:max-w-md bg-gray-200" />
+            <Skeleton className="h-10 w-40 bg-gray-200" />
+          </div>
+        </div>
+        {/* Table skeleton */}
+        <TableSkeleton rows={8} columns={6} />
       </div>
     );
   }
@@ -786,226 +869,225 @@ export function AppointmentsPage() {
       </div>
 
       {/* Filters and Search */}
-      <div className='flex justify-between'></div>
-      <div className="bg-white rounded-lg shadow p-4 md:p-6 mb-6">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by name, email, or service..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5 mb-8">
+        <div className="flex flex-col space-y-4">
+          
+          {/* Top Row: Search and New Appointment */}
+          <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+            <div className="relative w-full md:max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by name, email, or service..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
+              />
+            </div>
+            
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all shadow-sm hover:shadow-md w-full md:w-auto justify-center font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              <span>New Appointment</span>
+            </button>
           </div>
 
-          <div className="flex flex-wrap gap-2 ">
-            <button
-              onClick={() => setFilterStatus('all')}
-              className={`px-4 py-2 rounded-lg transition-colors ${filterStatus === 'all'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setFilterStatus('Confirmed')}
-              className={`px-4 py-2 rounded-lg transition-colors ${filterStatus === 'Confirmed'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-            >
-              Confirmed
-            </button>
-            <button
-              onClick={() => setFilterStatus('Pending')}
-              className={`px-4 py-2 rounded-lg transition-colors ${filterStatus === 'Pending'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-            >
-              Pending
-            </button>
-            {/* Date Range Filter */}
-            <div className="relative">
-              <button
-                onClick={() => setShowCustomDatePicker(!showCustomDatePicker)}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <CalendarDays className="w-4 h-4" />
-                {dateRangeFilter === 'any_time' ? 'Any Time' :
-                 dateRangeFilter === 'yesterday' ? 'Yesterday' :
-                 dateRangeFilter === 'today' ? 'Today' :
-                 dateRangeFilter === 'this_week' ? 'This Week' :
-                 dateRangeFilter === 'this_month' ? 'This Month' :
-                 dateRangeFilter === 'this_year' ? 'This Year' :
-                 dateRangeFilter === 'custom' ? 'Custom' : 'Any Time'}
-                <ChevronDown className="w-4 h-4" />
-              </button>
-              {showCustomDatePicker && (
-                <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-300 rounded-lg shadow-lg z-20">
-                  <div className="p-3 space-y-1">
-                    {/* Show preset options only when NOT in custom mode */}
-                    {dateRangeFilter !== 'custom' ? (
-                      <>
-                        {/* Preset Options */}
-                        {[
-                          { value: 'any_time', label: 'Any Time' },
-                          { value: 'yesterday', label: 'Yesterday' },
-                          { value: 'today', label: 'Today' },
-                          { value: 'this_week', label: 'This Week' },
-                          { value: 'this_month', label: 'This Month' },
-                          { value: 'this_year', label: 'This Year' },
-                        ].map((option) => (
-                          <button
-                            key={option.value}
-                            onClick={() => {
-                              setDateRangeFilter(option.value);
-                              setShowCustomDatePicker(false);
-                              setCurrentPage(1);
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                              dateRangeFilter === option.value 
-                                ? 'bg-indigo-100 text-indigo-700' 
-                                : 'hover:bg-gray-50'
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                        
-                        {/* Custom Option */}
-                        <div className="border-t border-gray-200 pt-2 mt-2">
-                          <button
-                            onClick={() => setDateRangeFilter('custom')}
-                            className="w-full text-left px-3 py-2 rounded-lg transition-colors hover:bg-gray-50"
-                          >
-                            Custom Range
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      /* Custom Date Range Picker */
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 mb-3">
-                          <CalendarDays className="w-5 h-5 text-indigo-600" />
-                          <span className="font-medium text-gray-700">Custom Date Range</span>
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">Start Date</label>
-                          <input
-                            type="date"
-                            value={customStartDate}
-                            onChange={(e) => setCustomStartDate(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">End Date</label>
-                          <input
-                            type="date"
-                            value={customEndDate}
-                            onChange={(e) => setCustomEndDate(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                          />
-                        </div>
-                        <div className="flex gap-2 pt-2">
-                          <button
-                            onClick={() => {
-                              setDateRangeFilter('any_time');
-                            }}
-                            className="flex-1 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (customStartDate && customEndDate) {
-                                setShowCustomDatePicker(false);
-                                setCurrentPage(1);
-                              }
-                            }}
-                            disabled={!customStartDate || !customEndDate}
-                            className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                          >
-                            Apply
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+          {/* Bottom Row: Status and Action Filters */}
+          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between pt-2 border-t border-gray-50">
+            
+            {/* Status Tabs/Pills */}
+            <div className="flex p-1 bg-gray-100 rounded-xl w-full lg:w-auto">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'Confirmed', label: 'Confirmed' },
+                { id: 'Pending', label: 'Pending' }
+              ].map((pill) => (
+                <button
+                  key={pill.id}
+                  onClick={() => setFilterStatus(pill.id as any)}
+                  className={`flex-1 lg:flex-none px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    filterStatus === pill.id
+                      ? 'bg-white text-indigo-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {pill.label}
+                </button>
+              ))}
             </div>
 
-            {/* Staff Filter */}
-            {!(getRoleFromToken(getToken() || '') === 'Staff') && (
-              <div className="relative">
+            {/* Action Filters */}
+            <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+              {/* Date Range Filter */}
+              <div className="relative flex-1 lg:flex-none">
                 <button
-                  onClick={() => setShowStaffFilter(!showStaffFilter)}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  onClick={() => setShowCustomDatePicker(!showCustomDatePicker)}
+                  className="flex items-center justify-between gap-2 w-full px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
                 >
-                  <Filter className="w-4 h-4" />
-                  Staff {selectedStaff.length > 0 && `(${selectedStaff.length})`}
-                  <ChevronDown className="w-4 h-4" />
+                  <div className="flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-indigo-500" />
+                    <span>
+                      {dateRangeFilter === 'upcoming' ? 'Upcoming (30 Days)' :
+                       dateRangeFilter === 'any_time' ? 'Any Time' :
+                       dateRangeFilter === 'yesterday' ? 'Yesterday' :
+                       dateRangeFilter === 'today' ? 'Today' :
+                       dateRangeFilter === 'this_week' ? 'This Week' :
+                       dateRangeFilter === 'this_month' ? 'This Month' :
+                       dateRangeFilter === 'this_year' ? 'This Year' :
+                       dateRangeFilter === 'custom' ? 'Custom Range' : 'Any Time'}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
                 </button>
-                {showStaffFilter && (
-                  <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                    <div className="p-3 space-y-2">
-                      {staffList.map((staff: StaffOption) => (
-                        <label
-                          key={staff.id}
-                          className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedStaff.includes(staff.id)}
-                            onChange={() => toggleStaff(staff.id)}
-                            className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
-                          />
-                          <span className="text-sm">{staff.name}</span>
-                        </label>
-                      ))}
+                {showCustomDatePicker && (
+                  <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="p-3 space-y-1">
+                      {dateRangeFilter !== 'custom' ? (
+                        <>
+                          {[
+                            { value: 'upcoming', label: 'Upcoming (30 Days)' },
+                            { value: 'today', label: 'Today' },
+                            { value: 'this_week', label: 'This Week' },
+                            { value: 'this_month', label: 'This Month' },
+                            { value: 'any_time', label: 'Any Time' },
+                            { value: 'yesterday', label: 'Yesterday' },
+                            { value: 'this_year', label: 'This Year' },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              onClick={() => {
+                                setDateRangeFilter(option.value);
+                                setShowCustomDatePicker(false);
+                                setCurrentPage(1);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-lg transition-colors text-sm ${
+                                dateRangeFilter === option.value 
+                                  ? 'bg-indigo-50 text-indigo-700 font-semibold' 
+                                  : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                          <div className="border-t border-gray-100 pt-2 mt-2">
+                            <button
+                              onClick={() => setDateRangeFilter('custom')}
+                              className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between"
+                            >
+                              <span>Custom Range</span>
+                              <ChevronDown className="w-4 h-4 -rotate-90 opacity-40" />
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="space-y-3 p-1">
+                          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-50">
+                            <button onClick={() => setDateRangeFilter('upcoming')} className="p-1 hover:bg-gray-100 rounded-full">
+                               <ChevronDown className="w-4 h-4 rotate-90" />
+                            </button>
+                            <span className="font-semibold text-gray-800 text-sm">Select Range</span>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Start Date</label>
+                            <DateInput
+                              value={customStartDate}
+                              onChange={setCustomStartDate}
+                              placeholder="mm/dd/yyyy"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">End Date</label>
+                            <DateInput
+                              value={customEndDate}
+                              onChange={setCustomEndDate}
+                              placeholder="mm/dd/yyyy"
+                            />
+                          </div>
+                          <div className="flex gap-2 pt-2">
+                            <button
+                              onClick={() => setDateRangeFilter('upcoming')}
+                              className="flex-1 px-3 py-2 text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 text-xs font-semibold"
+                            >
+                              Back
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (customStartDate || customEndDate) {
+                                  setShowCustomDatePicker(false);
+                                  setCurrentPage(1);
+                                }
+                              }}
+                              disabled={!customStartDate && !customEndDate}
+                              className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-semibold shadow-sm"
+                            >
+                              Apply
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
-            )}
-            {/* Export CSV Button */}
-            <button 
-              onClick={handleExportCSV}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              title="Export filtered appointments to CSV"
-            >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Export</span>
-            </button>
 
-            <button style={{ width: "fit-content" }}
-              onClick={() => setShowAddModal(true)}
-              className="flex  items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors w-full sm:w-auto justify-center"
-            >
-              <Plus className="w-5 h-5" />
-              New Appointment
-            </button>
+              {/* Staff Filter */}
+              {!(getRoleFromToken(getToken() || '') === 'Staff') && (
+                <div className="relative flex-1 lg:flex-none">
+                  <button
+                    onClick={() => setShowStaffFilter(!showStaffFilter)}
+                    className="flex items-center justify-between gap-2 w-full px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Filter className="w-4 h-4 text-indigo-500" />
+                      <span>Staff {selectedStaff.length > 0 ? `(${selectedStaff.length})` : ''}</span>
+                    </div>
+                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                  </button>
+                  {showStaffFilter && (
+                    <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 p-2">
+                      <div className="max-h-60 overflow-y-auto space-y-1">
+                        {staffList.map((staff: StaffOption) => (
+                          <label
+                            key={staff.id}
+                            className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedStaff.includes(staff.id)}
+                              onChange={() => toggleStaff(staff.id)}
+                              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 transition-all"
+                            />
+                            <span className="text-sm font-medium text-gray-700">{staff.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Export CSV Button */}
+              <button 
+                onClick={handleExportCSV}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-all text-sm font-medium flex-1 lg:flex-none"
+                title="Export filtered appointments to CSV"
+              >
+                <Download className="w-4 h-4 text-gray-400" />
+                <span>Export</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Appointments Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th
-                  onClick={() => handleSort('id')}
-                  className="px-4 md:px-6 py-3 text-left text-sm font-semibold text-gray-600 cursor-pointer hover:bg-gray-100"
-                >
-                  ID <SortIcon field="id" />
-                </th>
                 <th className="px-4 md:px-6 py-3 text-left text-sm font-semibold text-gray-600">Client</th>
                 <th className="px-4 md:px-6 py-3 text-left text-sm font-semibold text-gray-600">Service</th>
                 <th
@@ -1028,7 +1110,7 @@ export function AppointmentsPage() {
               {/* Show loading spinner in table when refreshing data */}
               {isLoading && (
                   <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                           <div className="flex justify-center items-center gap-2">
                               <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
                               <span>Loading...</span>
@@ -1037,66 +1119,64 @@ export function AppointmentsPage() {
                   </tr>
               )}
               {!isLoading && appointments.map((appointment) => {
-                const isEditing = editingId === appointment.id;
-                const data = isEditing && editedData ? editedData : appointment;
+                const isEditingRow = editingId === appointment.id;
+                const rowData = isEditingRow && editedData ? editedData : appointment;
 
                 return (
-                  <tr key={appointment.id} className={`hover:bg-gray-50 transition-colors ${isEditing ? 'bg-blue-50' : ''}`}>
+                  <tr key={appointment.id} className={`hover:bg-gray-50 transition-colors ${isEditingRow ? 'bg-blue-50' : ''}`}>
                     <td className="px-4 md:px-6 py-4">
-                      <p className="font-medium">#{data.id}</p>
-                    </td>
-                    <td className="px-4 md:px-6 py-4">
-                      {isEditing ? (
+                      {isEditingRow ? (
                         <input
                           type="text"
-                          value={data.customerName}
-                          onChange={(e) => setEditedData({ ...data, customerName: e.target.value })}
+                          value={rowData.customerName}
+                          onChange={(e) => setEditedData({ ...rowData, customerName: e.target.value })}
                           className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                       ) : (
                         <div>
-                          <p className="font-medium">{data.customerName}</p>
-                          <p className="text-sm text-gray-600">{data.customerEmail}</p>
-                          <p className="text-sm text-gray-600">{data.customerPhone}</p>
+                          <p className="font-medium">{rowData.customerName}</p>
+                          <p className="text-sm text-gray-600">{rowData.customerEmail}</p>
+                          <p className="text-sm text-gray-600">{rowData.customerPhone}</p>
                         </div>
                       )}
                     </td>
                     <td className="px-4 md:px-6 py-4">
-                      <p>{data.serviceName}</p>
+                      <p>{rowData.serviceName}</p>
                     </td>
-                    <td className="px-4 md:px-6 py-4">
-                      <p>{data.staffName}</p>
+                    <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                      <p>{rowData.staffName}</p>
                     </td>
-                    <td className="px-4 md:px-6 py-4">
-                      <div className="flex items-start gap-2 text-sm">
-                        <div>
-                          <p className="flex items-center gap-1">
-                            <Calendar className="w-4 h-4" />
-                            {/* Debug: Log timezone and raw datetime */}
-                            {(() => { console.log(`Formatting apt #${appointment.id}: raw=${appointment.startDateTime}, tz=${timezone}, formatted=${formatTime(appointment.startDateTime, timezone)}`); return null; })()}
-                            {formatDate(appointment.startDateTime, timezone)}
-                          </p>
-                          <p className="flex items-center gap-1 text-gray-600">
-                            <Clock className="w-4 h-4" />
-                            {formatTime(appointment.startDateTime, timezone)} ({appointment.duration || 60} min)
-                          </p>
+                    <td className="px-4 md:px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-gray-900 font-semibold">
+                          <Calendar className="w-4 h-4 text-indigo-500" />
+                          <span className="text-sm">{formatDate(appointment.startDateTime, timezone)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-gray-500">
+                          <Clock className="w-4 h-4 text-gray-400" />
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span>{formatTime(appointment.startDateTime, timezone)}</span>
+                            <span className="text-gray-400 px-1.5 py-0.5 bg-gray-50 rounded border border-gray-100 font-medium">
+                              {appointment.duration || 60} min
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </td>
                     <td className="px-4 md:px-6 py-4">
                       <span
-                        className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${data.status === 'Confirmed'
+                        className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${rowData.status === 'Confirmed'
                           ? 'bg-green-100 text-green-700'
-                          : data.status === 'Pending'
+                          : rowData.status === 'Pending'
                             ? 'bg-yellow-100 text-yellow-700'
                             : 'bg-red-100 text-red-700'
                           }`}
                       >
-                        {data.status}
+                        {rowData.status}
                       </span>
                     </td>
                     <td className="px-4 md:px-6 py-4">
-                      {isEditing ? (
+                      {isEditingRow ? (
                         <div className="flex gap-2">
                           <button
                             onClick={handleSave}
@@ -1114,19 +1194,20 @@ export function AppointmentsPage() {
                           </button>
                         </div>
                       ) : (
-                        <div className="flex gap-2">
+                        <div className="flex items-center gap-1">
                           <button
                             onClick={() => openEditModal(appointment)}
-                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
                             title="Edit"
                           >
-                            <Edit2 className="w-4 h-4" />
+                            <Pencil className="w-4 h-4" />
                           </button>
-                          <button
+                           <button
                             onClick={() => setSelectedAppointment(appointment)}
-                            className="text-indigo-600 hover:text-indigo-700 text-sm"
+                            className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                            title="View Details"
                           >
-                            View
+                            <Eye className="w-4 h-4" />
                           </button>
                         </div>
                       )}
@@ -1164,7 +1245,7 @@ export function AppointmentsPage() {
               disabled={currentPage === 1 || isLoading}
               className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
             >
-              Previous
+             <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="text-sm text-gray-700">
               Page {currentPage} of {totalPages || 1}
@@ -1174,7 +1255,7 @@ export function AppointmentsPage() {
               disabled={currentPage === totalPages || totalPages === 0 || isLoading}
               className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
             >
-              Next
+             <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -1231,22 +1312,36 @@ export function AppointmentsPage() {
                     </h3>
                   </div>
                   <div className="p-5">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-x-16 gap-y-6">
                       <div className="space-y-1">
                         <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Full Name</p>
-                        <p className="text-base font-semibold text-gray-900">{selectedAppointment.customerName}</p>
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <User className="w-4 h-4 text-indigo-500" />
+                          <p className="text-base font-semibold text-gray-900">{selectedAppointment.customerName}</p>
+                        </div>
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Email Address</p>
                         <div className="flex items-center gap-2 text-gray-700">
-                          <Mail className="w-4 h-4 text-gray-400" />
-                          <p className="text-base font-semibold text-gray-900">{selectedAppointment.customerEmail}</p>
+                          <Mail className="w-4 h-4 text-indigo-500" />
+                          <HoverCard openDelay={0} closeDelay={100}>
+                            <HoverCardTrigger asChild>
+                              <p className="text-base font-semibold text-gray-900 cursor-help">
+                                {selectedAppointment.customerEmail.split('@')[0]}@...
+                              </p>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-fit p-3 bg-gray-900 border-gray-800 text-white shadow-xl">
+                              <p className="text-sm font-medium select-text">
+                                {selectedAppointment.customerEmail}
+                              </p>
+                            </HoverCardContent>
+                          </HoverCard>
                         </div>
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Number</p>
                         <div className="flex items-center gap-2 text-gray-700">
-                          <PhoneIcon className="w-4 h-4 text-gray-400" />
+                          <PhoneIcon className="w-4 h-4 text-indigo-500" />
                           <p className="text-base font-semibold text-gray-900">{selectedAppointment.customerPhone}</p>
                         </div>
                       </div>
@@ -1349,20 +1444,32 @@ export function AppointmentsPage() {
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-200 bg-white flex gap-3">
-              <button
-                onClick={() => handleStatusUpdate(selectedAppointment.id, 'Confirmed')}
-                className="flex-1 px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-medium uppercase tracking-wide text-xs shadow-sm hover:shadow-md"
-              >
-                Confirm Appointment
-              </button>
-              <button
-                onClick={() => handleCancelAppointment(selectedAppointment.id)}
-                className="flex-1 px-5 py-2.5 bg-red-50 border-2 border-red-200 text-red-600 rounded-lg hover:bg-red-600 hover:text-white hover:border-red-600 transition-all font-medium uppercase tracking-wide text-xs"
-              >
-                Cancel Appointment
-              </button>
-            </div>
+            {selectedAppointment.status !== 'Cancelled' && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-white flex gap-3">
+                {selectedAppointment.status === 'Pending' && (
+                  <button
+                    onClick={() => handleStatusUpdate(selectedAppointment.id, 'Confirmed')}
+                    className="flex-1 px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-medium uppercase tracking-wide text-xs shadow-sm hover:shadow-md"
+                  >
+                    Confirm Appointment
+                  </button>
+                )}
+                {selectedAppointment.status === 'Confirmed' && (
+                  <button
+                    onClick={() => handleReschedule(selectedAppointment)}
+                    className="flex-1 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium uppercase tracking-wide text-xs shadow-sm hover:shadow-md"
+                  >
+                    Reschedule
+                  </button>
+                )}
+                <button
+                  onClick={() => handleCancelAppointment(selectedAppointment.id)}
+                  className="flex-1 px-5 py-2.5 bg-red-50 border-2 border-red-200 text-red-600 rounded-lg hover:bg-red-600 hover:text-white hover:border-red-600 transition-all font-medium uppercase tracking-wide text-xs"
+                >
+                  Cancel Appointment
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1389,17 +1496,61 @@ export function AppointmentsPage() {
           email: c.email,
           phone: c.phone || undefined
         }))}
+        currentUserRole={currentUserRole || 'Staff'}
+        currentUserId={currentUserId || 0}
       />
       
-       <ConfirmationModal
-        isOpen={!!cancelAppointmentId}
-        onClose={() => setCancelAppointmentId(null)}
-        onConfirm={confirmCancelAppointment}
-        title="Cancel Appointment"
-        description="Are you sure you want to cancel this appointment?"
-        confirmText="Yes, Cancel"
-        variant="destructive"
-      />
+       <Dialog open={!!cancelAppointmentId} onOpenChange={(open) => !open && setCancelAppointmentId(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <CalendarX className="w-5 h-5" />
+              Cancel Appointment
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to cancel this appointment? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <Textarea 
+              placeholder="Reason for cancellation (optional)"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              className="min-h-[100px] border-gray-200 focus:border-red-500 focus:ring-red-500"
+            />
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setCancelAppointmentId(null)} className="flex-1">
+              Keep Appointment
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={confirmCancelAppointment} 
+              disabled={isCancelling}
+              className="flex-1 bg-red-600 hover:bg-red-700"
+            >
+              {isCancelling ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : null}
+              Confirm Cancellation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {showRescheduleFlow && rescheduleTarget && (
+        <AdminRescheduleFlow
+          appointment={rescheduleTarget}
+          timezone={timezone}
+          onClose={() => setShowRescheduleFlow(false)}
+          onSuccess={() => {
+            setShowRescheduleFlow(false);
+            loadData(); // Refresh the list
+          }}
+        />
+      )}
     </div>
   );
 }

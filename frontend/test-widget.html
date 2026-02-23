@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Booking Widget Test</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      h1 {
+        text-align: center;
+        color: #333;
+      }
+      .info {
+        max-width: 600px;
+        margin: 20px auto;
+        padding: 15px;
+        background: #e7f3ff;
+        border-radius: 8px;
+        border-left: 4px solid #2196f3;
+      }
+      
+    </style>
+  </head>
+  <body>
+    <h1>🧪 Widget Test Page</h1>
+
+    <div class="info">
+      <strong>Testing the Embedded Booking Widget</strong><br />
+      Replace <code>demo-company</code> below with an actual company slug from
+      your database.
+    </div>
+
+    <!-- Widget Container -->
+    <div id="booking-widget"></div>
+
+    <!-- Embed Script - Uses your backend URL -->
+    <script
+      src="http://localhost:5289/widget/embed.js"
+      data-company="trinity"
+      data-theme="light"
+    ></script>
+  </body>
+</html>

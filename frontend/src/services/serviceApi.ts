@@ -104,3 +104,19 @@ export async function deleteService(id: number): Promise<void> {
     throw new Error(`Failed to delete service: ${err}`);
   }
 }
+
+export async function bulkDeleteServices(ids: number[]): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE_URL}/api/services/bulk-delete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(ids),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Failed to delete services: ${err}`);
+  }
+}

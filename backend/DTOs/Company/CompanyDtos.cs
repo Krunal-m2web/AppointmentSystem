@@ -1,15 +1,16 @@
 using System.ComponentModel.DataAnnotations;
 
+using Appointmentbookingsystem.Backend.Attributes;
+
 namespace Appointmentbookingsystem.Backend.DTOs.Company
 {
     public class CreateCompanyDto
     {
         [Required]
-        [MaxLength(100)]
+        [MinLength(3), MaxLength(100)]
         public string CompanyName { get; set; } = null!;
 
-        [Phone]
-        [MaxLength(20)]
+        [PhoneNumber]
         public string? Phone { get; set; }
 
         [Required]
@@ -29,11 +30,10 @@ namespace Appointmentbookingsystem.Backend.DTOs.Company
 
     public class UpdateCompanyDto
     {
-        [MaxLength(100)]
+        [MinLength(3), MaxLength(100)]
         public string? CompanyName { get; set; }
 
-        [Phone]
-        [MaxLength(20)]
+        [PhoneNumber]
         public string? Phone { get; set; }
 
         [EmailAddress]
@@ -50,6 +50,15 @@ namespace Appointmentbookingsystem.Backend.DTOs.Company
         public string? WebsiteUrl { get; set; }
 
         public bool? IsActive { get; set; }
+
+        // Booking Form Customization
+        [MaxLength(7)]
+        public string? BookingFormPrimaryColor { get; set; }
+
+        [MaxLength(7)]
+        public string? BookingFormSecondaryColor { get; set; }
+
+        public string? BookingFormLabels { get; set; } // JSON object
     }
 
     public class CompanyResponseDto
@@ -67,5 +76,10 @@ namespace Appointmentbookingsystem.Backend.DTOs.Company
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+
+        // Booking Form Customization
+        public string? BookingFormPrimaryColor { get; set; }
+        public string? BookingFormSecondaryColor { get; set; }
+        public string? BookingFormLabels { get; set; }
     }
 }
