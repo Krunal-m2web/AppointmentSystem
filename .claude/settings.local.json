@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet ef migrations script --idempotent --output ./database_script.sql)",
+      "Bash(dotnet tool install --global dotnet-ef)",
+      "Bash(dotnet ef database update)",
+      "Bash(dotnet publish -c Release -o ./publish)",
+      "Bash(npm run build)",
+      "Bash(npm install react-phone-number-input)",
+      "Bash(dotnet publish -c Release -r linux-x64 --self-contained false -o ./publish)",
+      "Bash(curl --version)",
+      "Bash(curl -s --list-only \"ftp://192.250.231.31/\" --user \"apptSystem:#79v5h4Dj\")",
+      "Bash(curl -v --list-only \"ftp://192.250.231.31/\" --user \"apptSystem:#79v5h4Dj\")",
+      "Bash(curl -s \"ftp://192.250.231.31/\" --user \"apptSystem:#79v5h4Dj\" --ftp-pasv)",
+      "Bash(curl -s \"ftp://192.250.231.31/\" --user \"apptSystem:#79v5h4Dj\" --ftp-port -)",
+      "Bash(curl -s --list-only \"ftp://192.250.231.31/wwwroot/\" --user \"apptSystem:#79v5h4Dj\")",
+      "Bash(curl -s --list-only \"ftp://192.250.231.31/public_html/\" --user \"apptSystem:#79v5h4Dj\")",
+      "Bash(curl -s --list-only \"ftp://192.250.231.31/site/\" --user \"apptSystem:#79v5h4Dj\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"d:/Projects/M2Projects/AppointmentSystem/AppointmentSystem/upload_ftp.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \":*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"d:/Projects/M2Projects/AppointmentSystem/AppointmentSystem/upload_webconfig.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"d:/Projects/M2Projects/AppointmentSystem/AppointmentSystem/fix_upload.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"d:/Projects/M2Projects/AppointmentSystem/AppointmentSystem/upload_simple_webconfig.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"d:/Projects/M2Projects/AppointmentSystem/AppointmentSystem/list_ftp.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"d:/Projects/M2Projects/AppointmentSystem/AppointmentSystem/upload_minimal.ps1\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"d:/Projects/M2Projects/AppointmentSystem/AppointmentSystem/upload_correct.ps1\")"
+    ]
+  }
+}
