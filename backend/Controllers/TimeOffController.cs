@@ -133,7 +133,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .Include(t => t.ApprovedByAdmin)
                 .FirstOrDefaultAsync(t => t.Id == timeOff.Id);
 
-            return CreatedAtAction(nameof(GetTimeOffByStaff), new { staffId = dto.StaffId }, MapToDto(created!));
+            var dtoList = await MapListToDtoAsync(new[] { created! });
+            return CreatedAtAction(nameof(GetTimeOffByStaff), new { staffId = dto.StaffId }, dtoList.First());
         }
 
         // GET /api/timeoff/staff/{staffId} - Get time-offs for specific staff
@@ -166,7 +167,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .OrderByDescending(t => t.StartDateTimeUtc)
                 .ToListAsync();
 
-            return Ok(list.Select(MapToDto));
+            return Ok(await MapListToDtoAsync(list));
         }
 
         // GET /api/timeoff/all - Get all time-offs (Admin only)
@@ -184,7 +185,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .OrderByDescending(t => t.CreatedAt)
                 .ToListAsync();
 
-            return Ok(list.Select(MapToDto));
+            return Ok(await MapListToDtoAsync(list));
         }
 
         // GET /api/timeoff/pending - Get pending requests (Admin only)
@@ -201,7 +202,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .OrderByDescending(t => t.CreatedAt) // Newest first
                 .ToListAsync();
 
-            return Ok(list.Select(MapToDto));
+            return Ok(await MapListToDtoAsync(list));
         }
 
         // GET /api/timeoff/pending/count - Get count of pending requests (Admin only)
@@ -375,7 +376,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 .Include(t => t.ApprovedByAdmin)
                 .FirstOrDefaultAsync(t => t.Id == id);
 
-            return Ok(MapToDto(updated!));
+            var dtoList = await MapListToDtoAsync(new[] { updated! });
+            return Ok(dtoList.First());
         }
 
         // GET /api/timeoff/check-conflicts - Check for appointment conflicts
@@ -508,6 +510,50 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 ApprovedByAdminName = timeOff.ApprovedByAdmin != null ? $"{timeOff.ApprovedByAdmin.FirstName} {timeOff.ApprovedByAdmin.LastName}" : null,
                 CreatedAt = timeOff.CreatedAt
             };
+        }
+
+        // Helper method to bulk map list and compute conflict status dynamically
+        private async Task<IEnumerable<TimeOffResponseDto>> MapListToDtoAsync(IEnumerable<TimeOff> timeOffs)
+        {
+            var timeOffsList = timeOffs.ToList();
+            if (!timeOffsList.Any()) return Enumerable.Empty<TimeOffResponseDto>();
+
+            var dtos = timeOffsList.Select(MapToDto).ToList();
+
+            // Only compute conflicts for pending or approved time offs (not rejected ones)
+            var activeTimeOffs = timeOffsList.Where(t => t.Status != TimeOffStatus.Rejected).ToList();
+            if (!activeTimeOffs.Any()) return dtos;
+
+            // Get all staff IDs involved
+            var staffIds = activeTimeOffs.Select(t => t.StaffId).Distinct().ToList();
+
+            // Find min start and max end to optimize querying appointments
+            var minStart = activeTimeOffs.Min(t => t.StartDateTimeUtc);
+            var maxEnd = activeTimeOffs.Max(t => t.EndDateTimeUtc);
+
+            // Fetch potentially overlapping appointments for these staff in this range
+            var potentialConflicts = await _context.Appointments
+                .Where(a => a.StaffId != null && staffIds.Contains(a.StaffId.Value) &&
+                            a.Status != AppointmentStatus.Cancelled &&
+                            a.StartDateTimeUtc < maxEnd &&
+                            a.EndDateTimeUtc > minStart)
+                .Select(a => new { a.Id, a.StaffId, a.StartDateTimeUtc, a.EndDateTimeUtc })
+                .ToListAsync();
+
+            // Map conflicts per time off
+            foreach (var dto in dtos)
+            {
+                var timeOff = activeTimeOffs.FirstOrDefault(t => t.Id == dto.Id);
+                if (timeOff != null)
+                {
+                    dto.HasConflicts = potentialConflicts.Any(a => 
+                        a.StaffId == dto.StaffId && 
+                        a.StartDateTimeUtc < dto.EndDateTimeUtc && 
+                        a.EndDateTimeUtc > dto.StartDateTimeUtc);
+                }
+            }
+
+            return dtos;
         }
     }
 }

@@ -29,6 +29,11 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         [Range(1, 480, ErrorMessage = "Duration must be between 1 minute and 8 hours")]
         public int ServiceDuration { get; set; } = 30;
 
+        // Buffer time in minutes added after the service ends (e.g. cleanup/travel)
+        [Range(0, 120, ErrorMessage = "Buffer time must be between 0 and 120 minutes")]
+        public int BufferTimeMinutes { get; set; } = 0;
+
+
         public bool IsActive { get; set; } = true;
 
         public DateTime CreatedAt { get; set; }

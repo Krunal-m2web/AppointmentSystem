@@ -4,6 +4,8 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
 export interface GeneralSettingsData {
+  companyName?: string;
+  domain?: string;
   defaultSenderName: string;
   defaultSenderEmail: string;
   defaultReplyToEmail: string;

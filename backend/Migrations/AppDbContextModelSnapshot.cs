@@ -548,6 +548,51 @@ namespace Backend.Migrations
                     b.ToTable("externalcalendarevents", (string)null);
                 });
 
+            modelBuilder.Entity("Appointmentbookingsystem.Backend.Models.Entities.Holiday", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<int>("CompanyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CountryName")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<bool>("RepeatYearly")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("varchar(10)")
+                        .HasDefaultValue("custom");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "Date")
+                        .HasDatabaseName("IX_Holidays_CompanyId_Date");
+
+                    b.ToTable("holidays", (string)null);
+                });
+
             modelBuilder.Entity("Appointmentbookingsystem.Backend.Models.Entities.NotificationConfig", b =>
                 {
                     b.Property<int>("Id")
@@ -706,6 +751,9 @@ namespace Backend.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    b.Property<int>("BufferTimeMinutes")
                         .HasColumnType("int");
 
                     b.Property<int>("CompanyId")
@@ -1206,6 +1254,17 @@ namespace Backend.Migrations
                     b.Navigation("Staff");
                 });
 
+            modelBuilder.Entity("Appointmentbookingsystem.Backend.Models.Entities.Holiday", b =>
+                {
+                    b.HasOne("Appointmentbookingsystem.Backend.Models.Entities.Company", "Company")
+                        .WithMany("Holidays")
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Company");
+                });
+
             modelBuilder.Entity("Appointmentbookingsystem.Backend.Models.Entities.NotificationConfig", b =>
                 {
                     b.HasOne("Appointmentbookingsystem.Backend.Models.Entities.Company", "Company")
@@ -1323,6 +1382,8 @@ namespace Backend.Migrations
                     b.Navigation("Appointments");
 
                     b.Navigation("Customers");
+
+                    b.Navigation("Holidays");
 
                     b.Navigation("Services");
 

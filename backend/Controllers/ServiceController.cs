@@ -24,11 +24,26 @@ namespace Appointmentbookingsystem.Backend.Controllers
         [HttpGet]
         public async Task<ActionResult<PaginatedServiceResponseDto>> GetAll([FromQuery] GetServiceQueryDto queryDto)
         {
-            var currency = (queryDto.Currency ?? "USD").ToUpperInvariant();
-
             var query = _context.Services
                 .Include(s => s.Prices)
+                .Include(s => s.Company) // Added for efficient currency resolution
                 .Where(s => s.IsActive);
+
+            var currency = queryDto.Currency?.ToUpperInvariant();
+
+            if (string.IsNullOrEmpty(currency) && queryDto.CompanyId.HasValue)
+            {
+                // We'll resolve it from the first service or a separate check if list is empty
+                // But for now, let's keep the direct check for the company if needed, 
+                // but let's optimize it to only happen once.
+                var company = await _context.Companies.FindAsync(queryDto.CompanyId.Value);
+                if (company != null)
+                {
+                    currency = company.Currency.ToUpperInvariant();
+                }
+            }
+
+            currency ??= "USD";
 
             if (queryDto.CompanyId.HasValue)
             {
@@ -79,8 +94,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     Description = s.Description,
                     Currency = currency,
                     Price = price?.Amount ?? s.Price,
-                    ServiceDuration = s.ServiceDuration
+                    ServiceDuration = s.ServiceDuration,
+                    BufferTimeMinutes = s.BufferTimeMinutes
                 };
+
             }).ToList();
 
             var result = new PaginatedServiceResponseDto
@@ -106,6 +123,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
         {
             var query = _context.Services
                 .Include(s => s.Prices)
+                .Include(s => s.Company) // Added to resolve currency
                 .AsQueryable();
 
             if (companyId.HasValue)
@@ -123,7 +141,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Description = s.Description,
                 Price = s.Price,
                 ServiceDuration = s.ServiceDuration,
+                BufferTimeMinutes = s.BufferTimeMinutes,
+                Currency = s.Company?.Currency ?? "USD",
                 IsActive = s.IsActive,
+
                 Prices = s.Prices.Select(p => new ServicePriceDto
                 {
                     Amount = p.Amount,
@@ -156,17 +177,35 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Description = dto.Description,
                 Price = dto.Price,
                 ServiceDuration = dto.ServiceDuration,
+                BufferTimeMinutes = dto.BufferTimeMinutes,
                 IsActive = true
             };
 
-            // Add multi-currency prices if provided
+            // Register multi-currency price
+            var currencyStr = (dto.Currency ?? company.Currency).ToUpperInvariant();
+            service.Prices = new List<ServicePrice>
+            {
+                new ServicePrice
+                {
+                    Amount = dto.Price,
+                    Currency = currencyStr
+                }
+            };
+
+            // Add additional multi-currency prices if provided via Prices list
             if (dto.Prices != null && dto.Prices.Any())
             {
-                service.Prices = dto.Prices.Select(p => new ServicePrice
+                foreach (var p in dto.Prices)
                 {
-                    Amount = p.Amount,
-                    Currency = p.Currency.ToUpperInvariant()
-                }).ToList();
+                    if (p.Currency.ToUpperInvariant() != currencyStr)
+                    {
+                        service.Prices.Add(new ServicePrice
+                        {
+                            Amount = p.Amount,
+                            Currency = p.Currency.ToUpperInvariant()
+                        });
+                    }
+                }
             }
 
             try
@@ -188,6 +227,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Description = service.Description,
                 Price = service.Price,
                 ServiceDuration = service.ServiceDuration,
+                BufferTimeMinutes = service.BufferTimeMinutes,
                 IsActive = service.IsActive,
                 Prices = service.Prices.Select(p => new ServicePriceDto
                 {
@@ -197,6 +237,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             };
 
             return CreatedAtAction(nameof(GetAll), new { id = service.Id }, response);
+
         }
 
         /// <summary>
@@ -211,6 +252,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             var service = await _context.Services
                 .Include(s => s.Prices)
+                .Include(s => s.Company)
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (service == null)
@@ -219,8 +261,31 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (dto.Name != null) service.Name = dto.Name;
             if (dto.Description != null) service.Description = dto.Description;
             if (dto.IsActive.HasValue) service.IsActive = dto.IsActive.Value;
-            if (dto.Price.HasValue) service.Price = dto.Price.Value;
+            if (dto.Price.HasValue) 
+            {
+                service.Price = dto.Price.Value;
+                
+                // Also update/add in Prices collection
+                var currencyStr = (dto.Currency ?? service.Company.Currency).ToUpperInvariant();
+                var existingPrice = service.Prices.FirstOrDefault(p => p.Currency == currencyStr);
+                
+                if (existingPrice != null)
+                {
+                    existingPrice.Amount = dto.Price.Value;
+                }
+                else
+                {
+                    service.Prices.Add(new ServicePrice
+                    {
+                        Amount = dto.Price.Value,
+                        Currency = currencyStr
+                    });
+                }
+            }
+            
             if (dto.ServiceDuration.HasValue) service.ServiceDuration = dto.ServiceDuration.Value;
+            if (dto.BufferTimeMinutes.HasValue) service.BufferTimeMinutes = dto.BufferTimeMinutes.Value;
+
 
             try
             {
@@ -239,6 +304,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Description = service.Description,
                 Price = service.Price,
                 ServiceDuration = service.ServiceDuration,
+                BufferTimeMinutes = service.BufferTimeMinutes,
                 IsActive = service.IsActive,
                 Prices = service.Prices.Select(p => new ServicePriceDto
                 {
@@ -246,6 +312,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     Currency = p.Currency
                 }).ToList()
             };
+
 
             return Ok(response);
         }

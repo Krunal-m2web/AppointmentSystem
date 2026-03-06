@@ -8,14 +8,26 @@ import { toast } from 'sonner';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
+// Detect browser timezone (same as booking page)
+function getBrowserTimezone(): string {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+        return 'UTC';
+    }
+}
+
 export const SettingsPage: React.FC = () => {
     const { timezone, setTimezone, refreshTimezone } = useTimezone();
     const [loading, setLoading] = useState(false);
-    const [selectedTimezone, setSelectedTimezone] = useState(timezone);
+    // Use browser timezone as fallback if context hasn't loaded a company timezone yet
+    const [selectedTimezone, setSelectedTimezone] = useState(timezone || getBrowserTimezone());
 
     // Sync local state if context updates (initial load)
     React.useEffect(() => {
-        setSelectedTimezone(timezone);
+        if (timezone) {
+            setSelectedTimezone(timezone);
+        }
     }, [timezone]);
 
     const handleSave = async () => {

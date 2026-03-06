@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Clock, Check, X, Plus, Search, Loader2, Calendar, User, AlertCircle, ChevronDown, Filter, Pencil, Edit2, Trash2, AlertTriangle } from 'lucide-react';
+import { Clock, Check, X, Plus, Search, Loader2, Calendar, User, AlertCircle, ChevronDown, Filter, Trash2, AlertTriangle } from 'lucide-react';
+import { HolidaysPage } from './HolidaysPage';
 import { 
   TimeOff, 
   fetchPendingTimeOffs, 
@@ -8,7 +9,6 @@ import {
   approveTimeOff, 
   rejectTimeOff,
   createTimeOff,
-  updateTimeOff,
   deleteTimeOff,
   checkTimeOffConflicts,
   fetchStaff,
@@ -23,6 +23,13 @@ import type { Staff } from '../../types/types';
 import { toast } from 'sonner';
 import { TableSkeleton } from '../ui/TableSkeleton';
 import { DateInput } from '../ui/DateInput';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 // Helper to convert YYYY-MM-DD to mm/dd/yyyy
 const toDisplayDate = (isoDate: string) => {
@@ -42,17 +49,19 @@ interface TimeOffPageProps {
   onCountChange: (count: number) => void;
 }
 
+type MainTabType = 'staffTimeOff' | 'holidays';
 type TabType = 'pending' | 'approved' | 'rejected' | 'all';
 type TypeFilter = 'all' | 'fullday' | 'partial';
 
 export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
   const { timezone } = useTimezone();
+  const [mainTab, setMainTab] = useState<MainTabType>('staffTimeOff');
   const [activeTab, setActiveTab] = useState<TabType>('pending');
   const [timeOffs, setTimeOffs] = useState<TimeOff[]>([]);
+  const [pendingCount, setPendingCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingTimeOff, setEditingTimeOff] = useState<TimeOff | null>(null);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<TimeOff | null>(null);
   
@@ -73,12 +82,17 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
   // Fetch data
   const fetchData = async () => {
     setLoading(true);
-    setTimeOffs([]); // Clear previous data to prevent stale counts
     try {
       if (isAdmin) {
+        // Always fetch pending count in the background for the badge if not on pending tab
+        if (activeTab !== 'pending') {
+          fetchPendingTimeOffs().then(pendingData => setPendingCount(pendingData.length)).catch(console.error);
+        }
+
         if (activeTab === 'pending') {
           const data = await fetchPendingTimeOffs();
           setTimeOffs(data);
+          setPendingCount(data.length);
           refreshBadgeCount();
         } else {
           const data = await fetchAllTimeOffs();
@@ -189,10 +203,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
     }
   };
 
-  const handleEdit = (timeOff: TimeOff) => {
-    setEditingTimeOff(timeOff);
-    setShowAddModal(true);
-  };
+
 
   // Calculate duration
   const getDuration = (start: string, end: string, isFullDay: boolean) => {
@@ -266,112 +277,145 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
   );
 
   return (
-    <div className="p-4 md:p-8">
-      {/* Header */}
-      <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Time Off
-          </h1>
-          <p className="text-gray-600 mt-1">
-            Block dates or times when you or your staff are unavailable.
-          </p>
+    <div className="p-4 md:px-8 md:pt-4 md:pb-8">
+
+
+      {/* Main Tabs: Staff Time Off / Holidays */}
+      <div className="mb-6 border-b border-gray-200">
+        <div className="flex gap-1">
+          <button
+            onClick={() => setMainTab('staffTimeOff')}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+              mainTab === 'staffTimeOff'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            Staff Time Off
+          </button>
+          <button
+            onClick={() => setMainTab('holidays')}
+            className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+              mainTab === 'holidays'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            Holidays
+          </button>
         </div>
-        <button
-          onClick={() => {
-            setEditingTimeOff(null);
-            setShowAddModal(true);
-          }}
-          className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100 font-semibold"
-        >
-          <Plus className="w-4 h-4" />
-          Add Time Off
-        </button>
       </div>
 
-      {/* Admin Tabs */}
-      {isAdmin && (
-        <div className="mb-6 border-b border-gray-200 overflow-x-auto">
-          <div className="flex gap-4 min-w-max">
+      {/* Holidays tab content */}
+      {mainTab === 'holidays' && (
+        <div className="-mx-4 md:-mx-8 -mb-4 md:-mb-8">
+          <HolidaysPage />
+        </div>
+      )}
+
+      {/* Staff Time Off tab content */}
+      {mainTab === 'staffTimeOff' && (<>
+      
+      {/* Page Header for Staff / Admin Sub-Tabs */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {!isAdmin ? (
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">My Time Off Requests</h2>
+            <p className="text-sm text-gray-500">Manage your personal time off and leave requests</p>
+          </div>
+        ) : (
+          /* Pill-style sub-tabs for Admin */
+          <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
             {[
-              { id: 'pending' as TabType, label: 'Pending', count: activeTab === 'pending' ? filteredTimeOffs.length : undefined },
+              { id: 'pending' as TabType, label: 'Pending', count: pendingCount },
               { id: 'approved' as TabType, label: 'Approved' },
               { id: 'rejected' as TabType, label: 'Rejected' },
               { id: 'all' as TabType, label: 'All' }
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => {
-                  setTimeOffs([]);
+                onClick={(e) => {
+                  e.preventDefault();
                   setLoading(true);
                   setActiveTab(tab.id);
                 }}
-                className={`pb-3 px-2 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
                   activeTab === tab.id
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
                 {tab.label}
                 {tab.count !== undefined && tab.count > 0 && (
-                  <span className="ml-2 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                  <span className="px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full leading-none">
                     {tab.count}
                   </span>
                 )}
               </button>
             ))}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Add Time Off button - Visible for both Admin and Staff */}
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 font-semibold text-sm whitespace-nowrap cursor-pointer active:scale-95"
+        >
+          <Plus className="w-4 h-4" />
+          {isAdmin ? "Add Time Off" : "New Request"}
+        </button>
+      </div>
 
       {/* Filters */}
       <div className="mb-6 bg-gray-50 rounded-xl p-4 border border-gray-200">
         <div className="flex flex-wrap gap-4 items-center">
-          {/* Search */}
-          <div className="relative flex-1 min-w-[200px] max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by staff name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
-            />
-          </div>
-
-          {/* Staff Filter */}
+          {/* Search - Only for Admins */}
           {isAdmin && (
-            <div className="relative">
-              <select
-                value={staffFilter}
-                onChange={(e) => setStaffFilter(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm font-medium"
-              >
-                <option value="all">All Staff</option>
-                <option value="me">Me</option>
-                {staffList.map(staff => (
-                  <option key={staff.id} value={staff.id}>
-                    {staff.firstName} {staff.lastName}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <div className="relative flex-1 min-w-[200px] max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by staff name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
+              />
             </div>
           )}
 
+          {/* Staff Filter */}
+          {isAdmin && (
+            <Select value={staffFilter} onValueChange={setStaffFilter}>
+              <SelectTrigger className="w-[150px] bg-white border-gray-200">
+                <SelectValue placeholder="Staff Filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Staff</SelectItem>
+                {staffList.map(staff => (
+                  <SelectItem key={staff.id} value={staff.id.toString()}>
+                    {staff.firstName} {staff.lastName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
           {/* Type Filter */}
-          <div className="relative">
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
-              className="appearance-none pl-3 pr-8 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm font-medium"
-            >
-              <option value="all">All Types</option>
-              <option value="fullday">Full Day</option>
-              <option value="partial">Partial Day</option>
-            </select>
-            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          </div>
+          <Select 
+            value={typeFilter} 
+            onValueChange={(val) => setTypeFilter(val as TypeFilter)}
+          >
+            <SelectTrigger className="w-[140px] bg-white border-gray-200">
+              <SelectValue placeholder="Type Filter" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="fullday">Full Day</SelectItem>
+              <SelectItem value="partial">Partial Day</SelectItem>
+            </SelectContent>
+          </Select>
 
           {/* Date Range */}
           <div className="flex items-center gap-2">
@@ -414,7 +458,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
             <TableSkeleton rows={5} columns={isAdmin ? 7 : 6} />
           </div>
         ) : filteredTimeOffs.length === 0 ? (
-          <div className="text-center py-12 px-4">
+          <div className="text-center py-12 px-4 shadow-sm border-t border-gray-100">
             <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-500 max-w-xs mx-auto">
               {isAdmin 
@@ -469,7 +513,15 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                       </td>
                     )}
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <TypeBadge isFullDay={timeOff.isFullDay} />
+                      <div className="flex flex-col gap-2 items-start">
+                        <TypeBadge isFullDay={timeOff.isFullDay} />
+                        {isAdmin && timeOff.hasConflicts && (
+                          <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-xs font-medium" title="This time off overlaps with one or more appointments">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span>Conflict</span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
@@ -507,14 +559,14 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                           <>
                             <button
                               onClick={() => handleApprove(timeOff.id)}
-                              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
                               title="Approve"
                             >
                               <Check className="w-5 h-5" />
                             </button>
                             <button
                               onClick={() => handleReject(timeOff.id)}
-                              className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                               title="Reject"
                             >
                               <X className="w-5 h-5" />
@@ -524,15 +576,8 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                         {(isAdmin || timeOff.status === 'Pending') && (
                           <>
                             <button
-                              onClick={() => handleEdit(timeOff)}
-                              className="p-1.5 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-lg transition-all duration-200"
-                              title="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
                               onClick={() => handleDelete(timeOff)}
-                              className="p-1.5 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-lg transition-all duration-200"
+                              className="p-1.5 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-lg transition-all duration-200 cursor-pointer"
                               title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -555,14 +600,11 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
           staffList={staffList}
           isAdmin={isAdmin}
           currentUserId={userId}
-          editingTimeOff={editingTimeOff}
           onClose={() => {
             setShowAddModal(false);
-            setEditingTimeOff(null);
           }}
           onSuccess={() => {
             setShowAddModal(false);
-            setEditingTimeOff(null);
             fetchData();
           }}
         />
@@ -576,6 +618,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
           onConfirm={confirmDelete}
         />
       )}
+      </>)}
     </div>
   );
 }
@@ -585,35 +628,78 @@ function AddTimeOffModal({
   staffList,
   isAdmin,
   currentUserId,
-  editingTimeOff,
   onClose,
   onSuccess
 }: {
   staffList: Staff[];
   isAdmin: boolean;
   currentUserId: number | null;
-  editingTimeOff: TimeOff | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const { timezone } = useTimezone();
-  const [isFullDay, setIsFullDay] = useState(editingTimeOff?.isFullDay ?? true);
+  const [isFullDay, setIsFullDay] = useState(true);
   const [formData, setFormData] = useState({
-    staffId: editingTimeOff?.staffId?.toString() || (isAdmin ? '' : (currentUserId?.toString() || '')),
-    startDate: editingTimeOff ? getDateString(new Date(editingTimeOff.startDateTimeUtc), timezone) : '',
-    endDate: editingTimeOff ? getDateString(new Date(editingTimeOff.endDateTimeUtc), timezone) : '',
-    startTime: editingTimeOff && !editingTimeOff.isFullDay 
-      ? getTimeString(new Date(editingTimeOff.startDateTimeUtc), timezone) 
-      : '09:00',
-    endTime: editingTimeOff && !editingTimeOff.isFullDay 
-      ? getTimeString(new Date(editingTimeOff.endDateTimeUtc), timezone)
-      : '17:00',
-    reason: editingTimeOff?.reason || ''
+    staffId: isAdmin ? '' : (currentUserId?.toString() || ''),
+    startDate: '',
+    endDate: '',
+    startTime: '09:00',
+    endTime: '17:00',
+    reason: ''
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [conflictInfo, setConflictInfo] = useState<ConflictInfo | null>(null);
   const [showConflictWarning, setShowConflictWarning] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setFormErrors({});
+  }, [isFullDay]);
+
+  const validateField = (name: string, value: any) => {
+    let error = '';
+    switch (name) {
+      case 'staffId':
+        if (isAdmin && !value) error = 'Please select a staff member';
+        break;
+      case 'startDate':
+        if (!value) error = 'Start date is required';
+        break;
+      case 'endDate':
+        if (isFullDay && value && new Date(value) < new Date(formData.startDate)) {
+          error = 'End date cannot be before start date';
+        }
+        break;
+      case 'startTime':
+        if (!isFullDay && !value) error = 'Start time is required';
+        break;
+      case 'endTime':
+        if (!isFullDay) {
+          if (!value) error = 'End time is required';
+          else if (value <= formData.startTime) error = 'End time must be after start time';
+        }
+        break;
+    }
+    setFormErrors(prev => ({ ...prev, [name]: error }));
+    return error;
+  };
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    if (isAdmin && !formData.staffId) errors.staffId = 'Please select a staff member';
+    if (!formData.startDate) errors.startDate = 'Start date is required';
+    if (isFullDay && formData.endDate && new Date(formData.endDate) < new Date(formData.startDate)) {
+      errors.endDate = 'End date cannot be before start date';
+    }
+    if (!isFullDay) {
+      if (!formData.startTime) errors.startTime = 'Start time is required';
+      if (!formData.endTime) errors.endTime = 'End time is required';
+      else if (formData.endTime <= formData.startTime) errors.endTime = 'End time must be after start time';
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const checkConflicts = async () => {
     if (!formData.staffId || !formData.startDate) return;
@@ -647,20 +733,11 @@ function AddTimeOffModal({
     e.preventDefault();
     setError('');
 
-    if (!formData.staffId || !formData.startDate) {
-      setError('Please fill in all required fields');
+    if (!validateForm()) {
       return;
     }
 
-    if (isFullDay && formData.endDate && new Date(formData.endDate) < new Date(formData.startDate)) {
-      setError('End date must be after start date');
-      return;
-    }
 
-    if (!isFullDay && formData.endTime <= formData.startTime) {
-      setError('End time must be after start time');
-      return;
-    }
 
     // Check for conflicts before submitting
     if (!forceSubmit) {
@@ -692,15 +769,10 @@ function AddTimeOffModal({
         isFullDay
       };
 
-      if (editingTimeOff) {
-        await updateTimeOff(editingTimeOff.id, payload);
-        toast.success('Time off updated successfully');
-      } else {
-        await createTimeOff(payload);
-        toast.success('Time off added. Customers won\'t be able to book during this time.', {
-          icon: '✅'
-        });
-      }
+      await createTimeOff(payload);
+      toast.success('Time off added. Customers won\'t be able to book during this time.', {
+        icon: '✅'
+      });
       onSuccess();
     } catch (err: any) {
       setError(err.message || 'Failed to save time-off');
@@ -721,7 +793,7 @@ function AddTimeOffModal({
           <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-600 to-purple-600">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-white">
-                {editingTimeOff ? 'Edit Time Off' : 'Add Time Off'}
+                Add Time Off
               </h2>
               <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-full transition-colors">
                 <X className="w-5 h-5 text-white" />
@@ -825,17 +897,27 @@ function AddTimeOffModal({
                       <label className="block text-xs text-gray-500 mb-1">Start Date <span className="text-red-500">*</span></label>
                       <DateInput
                         value={toDisplayDate(formData.startDate)}
-                        onChange={(val) => setFormData({ ...formData, startDate: toInternalDate(val) })}
-                        className="w-full"
+                        onChange={(val) => {
+                          const internalDate = toInternalDate(val);
+                          setFormData({ ...formData, startDate: internalDate });
+                          validateField('startDate', internalDate);
+                        }}
+                        className={`w-full ${formErrors.startDate ? 'border-red-500' : ''}`}
                       />
+                      {formErrors.startDate && <p className="mt-1 text-[10px] text-red-500 font-medium">{formErrors.startDate}</p>}
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">End Date</label>
                       <DateInput
                         value={toDisplayDate(formData.endDate)}
-                        onChange={(val) => setFormData({ ...formData, endDate: toInternalDate(val) })}
-                        className="w-full"
+                        onChange={(val) => {
+                          const internalDate = toInternalDate(val);
+                          setFormData({ ...formData, endDate: internalDate });
+                          validateField('endDate', internalDate);
+                        }}
+                        className={`w-full ${formErrors.endDate ? 'border-red-500' : ''}`}
                       />
+                      {formErrors.endDate && <p className="mt-1 text-[10px] text-red-500 font-medium">{formErrors.endDate}</p>}
                     </div>
                   </div>
                 ) : (
@@ -844,9 +926,14 @@ function AddTimeOffModal({
                       <label className="block text-xs text-gray-500 mb-1">Date <span className="text-red-500">*</span></label>
                       <DateInput
                         value={toDisplayDate(formData.startDate)}
-                        onChange={(val) => setFormData({ ...formData, startDate: toInternalDate(val) })}
-                        className="w-full"
+                        onChange={(val) => {
+                          const internalDate = toInternalDate(val);
+                          setFormData({ ...formData, startDate: internalDate });
+                          validateField('startDate', internalDate);
+                        }}
+                        className={`w-full ${formErrors.startDate ? 'border-red-500' : ''}`}
                       />
+                      {formErrors.startDate && <p className="mt-1 text-[10px] text-red-500 font-medium">{formErrors.startDate}</p>}
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -854,18 +941,26 @@ function AddTimeOffModal({
                         <input
                           type="time"
                           value={formData.startTime}
-                          onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                          className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-transparent outline-none transition-all"
+                          onChange={(e) => {
+                            setFormData({ ...formData, startTime: e.target.value });
+                            validateField('startTime', e.target.value);
+                          }}
+                          className={`w-full px-4 py-2.5 bg-gray-50 border ${formErrors.startTime ? 'border-red-500' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-transparent outline-none transition-all`}
                         />
+                        {formErrors.startTime && <p className="mt-1 text-[10px] text-red-500 font-medium">{formErrors.startTime}</p>}
                       </div>
                       <div>
                         <label className="block text-xs text-gray-500 mb-1">End Time <span className="text-red-500">*</span></label>
                         <input
                           type="time"
                           value={formData.endTime}
-                          onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                          className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-transparent outline-none transition-all"
+                          onChange={(e) => {
+                            setFormData({ ...formData, endTime: e.target.value });
+                            validateField('endTime', e.target.value);
+                          }}
+                          className={`w-full px-4 py-2.5 bg-gray-50 border ${formErrors.endTime ? 'border-red-500' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-transparent outline-none transition-all`}
                         />
+                        {formErrors.endTime && <p className="mt-1 text-[10px] text-red-500 font-medium">{formErrors.endTime}</p>}
                       </div>
                     </div>
                   </div>
@@ -878,19 +973,25 @@ function AddTimeOffModal({
                   <label className="block text-sm font-semibold text-gray-700 mb-3">
                     3. Applies To
                   </label>
-                  <select
-                    value={formData.staffId}
-                    onChange={(e) => setFormData({ ...formData, staffId: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:border-transparent outline-none transition-all"
+                  <Select 
+                    value={formData.staffId} 
+                    onValueChange={(val) => {
+                      setFormData({ ...formData, staffId: val });
+                      validateField('staffId', val);
+                    }}
                   >
-                    <option value="">Select staff member...</option>
-                    <option value={currentUserId?.toString()}>Me</option>
-                    {staffList.filter(s => s.id !== currentUserId).map(staff => (
-                      <option key={staff.id} value={staff.id}>
-                        {staff.firstName} {staff.lastName}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger className={`w-full bg-gray-50 border ${formErrors.staffId ? 'border-red-500' : 'border-gray-200'} rounded-xl h-[44px]`}>
+                      <SelectValue placeholder="Select staff member..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {staffList.map(staff => (
+                        <SelectItem key={staff.id} value={staff.id.toString()}>
+                          {staff.firstName} {staff.lastName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {formErrors.staffId && <p className="mt-1 text-[10px] text-red-500 font-medium">{formErrors.staffId}</p>}
                 </div>
               )}
 

@@ -22,16 +22,18 @@ import {
 import { EnhancedCalendar } from './EnhancedCalendar';
 import { fetchServices, CustomerServiceDto } from '../services/servicesService';
 import { fetchStaffByService, StaffMemberDto } from '../services/staffService';
-import { getCurrencySymbol } from '../utils/currency';
+import { getCurrencySymbol, formatPrice } from '../utils/currency';
 import { createAppointment, CreateAppointmentRequest } from '../services/appointmentApi';
-import { getPaymentSettings, getMeetingLocationSettings } from '../services/settingsService';
+import { getPaymentSettings, getMeetingLocationSettings, getDefaultCurrency } from '../services/settingsService';
+
 import '../styles/globals.css';
 import { combineDateTimeToUTC, formatDate, formatTime, getTimezoneOffset } from "../utils/datetime";
 import { fetchAvailableSlots, fetchStaffTimeOffs, fetchAnyStaffSlots } from '../services/availabilityService';
+import { fetchPublicHolidays } from '../services/holidayApi';
 import { getPublicCompanyProfile, getPublicCompanyProfileBySlug } from '../services/CompanyService';
 import { useParams } from 'react-router-dom';
 import { TimezoneSelect } from './TimezoneSelect';
-import PhoneInput, { isValidPhoneNumber } from './ui/PhoneInput';
+import PhoneInput, { isValidPhoneNumber, getCountryFromTimezone } from './ui/PhoneInput';
 
 // Use widget API URL if available, otherwise fall back to env/default
 const API_BASE_URL = (window as any).__BOOKING_WIDGET_API_URL__ || import.meta.env.VITE_API_BASE_URL || "http://localhost:5289";
@@ -198,93 +200,115 @@ const CustomSelect = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`w-full px-4 py-3 border-2 rounded-lg text-left flex items-center justify-between transition-all duration-200 bg-white ${
-          disabled ? 'bg-slate-100 cursor-not-allowed border-slate-200 text-slate-400' :
+        className={`w-full px-4 py-3.5 border-2 rounded-xl text-left flex items-center justify-between transition-all duration-200 bg-white cursor-pointer ${
+          disabled ? 'bg-slate-50 cursor-not-allowed border-slate-200 text-slate-400' :
           error ? 'border-rose-300 hover:border-rose-400' :
-          isOpen ? 'ring-4' :
-          'border-slate-300 hover:border-slate-400'
+          isOpen ? 'shadow-lg' :
+          'border-slate-200 hover:border-slate-300 shadow-sm'
         }`}
         style={isOpen && !error ? { 
           borderColor: primaryColor, 
-          boxShadow: `0 0 0 4px ${primaryColor}1a` // 10% opacity for ring
+          boxShadow: `0 0 0 3px ${primaryColor}1a, 0 10px 15px -3px rgba(0,0,0,0.05)` 
         } : undefined}
       >
-        <span className={`block truncate ${!selectedOption?.label ? 'text-slate-500' : 'text-slate-900'}`}>
-          {isLoading ? "Loading..." : selectedOption?.label || placeholder}
-        </span>
-        <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <div className="flex items-center gap-3 min-w-0">
+          {selectedOption ? (
+            <div className="min-w-0">
+              <span className="block truncate font-semibold text-slate-900 text-[15px]">{selectedOption.label}</span>
+              {selectedOption.subLabel && (
+                <span className="block truncate text-xs mt-0.5" style={{ color: primaryColor }}>{selectedOption.subLabel}</span>
+              )}
+            </div>
+          ) : (
+            <span className="text-slate-400 font-medium">{isLoading ? "Loading..." : placeholder}</span>
+          )}
+        </div>
+        <div className={`flex-shrink-0 p-1 rounded-lg transition-all duration-200 ${isOpen ? 'rotate-180' : ''}`} style={isOpen ? { backgroundColor: `${primaryColor}14` } : undefined}>
+          <ChevronDown className="w-4 h-4" style={{ color: isOpen ? primaryColor : '#94a3b8' }} />
+        </div>
       </button>
       
       {isOpen && !disabled && !isLoading && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-[500px] overflow-y-auto custom-scrollbar">
+        <div className="absolute z-50 w-full mt-2 bg-white border border-slate-200/80 rounded-xl shadow-[0_12px_40px_-8px_rgba(0,0,0,0.12)] max-h-[340px] overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-top-1 duration-150">
           {options.length === 0 ? (
-            <div className="px-4 py-3 text-sm text-slate-500 italic">No options available</div>
+            <div className="px-4 py-8 text-sm text-slate-400 italic text-center">No options available</div>
           ) : filteredOptions.length === 0 ? (
-             <div className="px-4 py-3 text-sm text-slate-500 italic">No matches for "{searchTerm}"</div>
+             <div className="px-4 py-8 text-sm text-slate-400 italic text-center">No matches for "{searchTerm}"</div>
           ) : (
-            <>
-              <ul className="py-1 group/list">
-                {/* Optional: Show search indicator if typing */}
-                {searchTerm && (
-                  <li 
-                    className="px-4 py-1 text-xs font-medium border-b"
-                    style={{
+            <div className="p-1.5">
+              {/* Search indicator */}
+              {searchTerm && (
+                <div 
+                  className="px-3 py-1.5 mb-1 text-xs font-semibold rounded-lg"
+                  style={{
+                    color: primaryColor,
+                    backgroundColor: `${primaryColor}0d`,
+                  }}
+                >
+                  🔍 Filtering: "{searchTerm}"
+                </div>
+              )}
+              {filteredOptions.map((option) => {
+                const isSelected = option.value === value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(option.value);
+                      setIsOpen(false);
+                      setSearchTerm("");
+                    }}
+                    className={`
+                      w-full px-3.5 py-3 text-left text-sm rounded-lg transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 group/item
+                      ${isSelected 
+                        ? 'font-semibold' 
+                        : 'hover:bg-slate-50'
+                      }
+                    `}
+                    style={isSelected ? {
+                      backgroundColor: `${primaryColor}0d`,
                       color: primaryColor,
-                      backgroundColor: `${primaryColor}0d`, // 5% opacity
-                      borderColor: `${primaryColor}1a` // 10% opacity
+                    } : undefined}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.backgroundColor = '#f8fafc';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }
                     }}
                   >
-                    Filtering: "{searchTerm}"
-                  </li>
-                )}
-                {filteredOptions.map((option) => (
-                  <li key={option.value}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onChange(option.value);
-                        setIsOpen(false);
-                        setSearchTerm("");
-                      }}
-                      className={`
-                        w-full px-4 py-2.5 text-left text-sm transition-colors duration-150 group/item
-                        ${option.value === value 
-                          ? 'text-white' 
-                          : 'text-slate-700 hover:text-white'
-                        }
-                      `}
-                      style={{
-                        backgroundColor: option.value === value ? primaryColor : undefined,
-                      }}
-                      onMouseEnter={(e) => {
-                        if (option.value !== value) {
-                          e.currentTarget.style.backgroundColor = primaryColor;
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (option.value !== value) {
-                          e.currentTarget.style.backgroundColor = 'transparent';
-                        }
-                      }}
-                    >
-                      <span className="font-medium block">{option.label}</span>
+                    <div className="min-w-0 flex-1">
+                      <span className={`block truncate ${isSelected ? 'font-semibold' : 'font-medium text-slate-800'}`}>
+                        {option.label}
+                      </span>
                       {option.subLabel && (
-                        <span className={`text-xs block mt-0.5 ${
-                          option.value === value 
-                            ? 'text-indigo-100' // Keep light text for contrast
-                            : 'text-slate-500 group-hover/item:text-indigo-100'
-                        }`}>
+                        <span className={`text-xs block mt-0.5 truncate ${
+                          isSelected 
+                            ? '' 
+                            : 'text-slate-400'
+                        }`}
+                          style={isSelected ? { color: primaryColor, opacity: 0.7 } : undefined}
+                        >
                           {option.subLabel}
                         </span>
                       )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <div className="px-4 py-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-500 sticky bottom-0">
-                 Showing {filteredOptions.length} option{filteredOptions.length !== 1 ? 's' : ''}
-              </div>
-            </>
+                    </div>
+                    {isSelected && (
+                      <div 
+                        className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -302,6 +326,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
   const [step, setStep] = useState(1);
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<number | null>(null);
+  const [companyCurrency, setCompanyCurrency] = useState<string>('USD');
 
   // Services state
   const [services, setServices] = useState<CustomerServiceDto[]>([]);
@@ -333,11 +358,13 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
 
   // Availability state
   const [unavailableDates, setUnavailableDates] = useState<Date[]>([]);
+  const [holidays, setHolidays] = useState<Date[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
 
   // Customer timezone
   const [customerTimezone, setCustomerTimezone] = useState<string>(getBrowserTimezone());
+  const [selectedPhoneCountry, setSelectedPhoneCountry] = useState<string>(getCountryFromTimezone(getBrowserTimezone()));
 
   // Dynamic settings
   const [availableLocations, setAvailableLocations] = useState(LOCATIONS);
@@ -374,22 +401,37 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
           errors.lastName = 'Must be at least 3 characters';
         }
         
-        // Require at least one contact method (email OR phone)
-        const hasEmail = email.trim().length > 0;
         const hasPhone = phone.trim().length > 0;
         
-        if (!hasEmail && !hasPhone) {
-          errors.email = 'Please provide either email or phone';
-          errors.phone = 'Please provide either email or phone';
+        if (meetingType === 'Phone' && !hasPhone) {
+          errors.phone = 'Phone number is required for phone call meetings';
+        }
+        
+        if (!email.trim()) {
+          errors.email = 'Email address is required';
         } else {
-          // Validate email if provided
-          if (hasEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            errors.email = 'Please enter a valid email';
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(email)) {
+            errors.email = 'Please enter a valid email address';
           }
-          
-          // Validate phone if provided
-          if (hasPhone && !isValidPhoneNumber(phone)) {
-            errors.phone = 'Please enter a valid phone number';
+        }
+    
+        // Validate phone if provided
+        if (hasPhone) {
+          const isValid = isValidPhoneNumber(phone);
+          if (!isValid) {
+            const countryNameMap: Record<string, string> = {
+              'IN': 'Indian',
+              'DE': 'German',
+              'US': 'US',
+              'GB': 'UK',
+              'CA': 'Canadian',
+              'AU': 'Australian'
+            };
+            const countryName = countryNameMap[selectedPhoneCountry] || '';
+            errors.phone = `Invalid ${countryName} phone number format`.replace('  ', ' ');
+          } else if (selectedPhoneCountry === 'IN' && phone.replace(/\D/g, '').length > 12) {
+             errors.phone = 'phone numbers must be 10 digits';
           }
         }
         break;
@@ -408,6 +450,37 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
+
+  // Real-time phone validation
+  useEffect(() => {
+    if (phone && phone.trim().length > 0) {
+      const isValid = isValidPhoneNumber(phone);
+      const newErrors = { ...formErrors };
+      
+      const countryNameMap: Record<string, string> = {
+        'IN': 'Indian',
+        'DE': 'German',
+        'US': 'US',
+        'GB': 'UK',
+        'CA': 'Canadian',
+        'AU': 'Australian'
+      };
+      const countryName = countryNameMap[selectedPhoneCountry] || '';
+      const formatError = `Invalid ${countryName} phone number format`.replace('  ', ' ');
+
+      if (!isValid) {
+        newErrors.phone = formatError;
+      } else if (selectedPhoneCountry === 'IN' && phone.replace(/\D/g, '').length > 12) {
+        newErrors.phone = 'phone numbers must be 10 digits';
+      } else {
+        delete newErrors.phone;
+      }
+      
+      if (JSON.stringify(newErrors) !== JSON.stringify(formErrors)) {
+        setFormErrors(newErrors);
+      }
+    }
+  }, [phone, selectedPhoneCountry]);
 
   // Fetch services
   const params = useParams<{ slug: string }>();
@@ -533,6 +606,33 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
     loadSettings();
   }, [companyId]);
 
+  // Load company default currency when companyId resolves
+  useEffect(() => {
+    if (!companyId) return;
+    getDefaultCurrency(companyId).then(setCompanyCurrency).catch(() => {/* keep USD fallback */});
+  }, [companyId]);
+
+  // Fetch company holidays
+  useEffect(() => {
+    const loadHolidays = async () => {
+      if (!companyId) return;
+      try {
+        const year = new Date().getFullYear();
+        // Fetch current and next year to handle future bookings
+        const [currHolidays, nextHolidays] = await Promise.all([
+          fetchPublicHolidays(companyId, year),
+          fetchPublicHolidays(companyId, year + 1)
+        ]);
+        
+        const holidayDates = [...currHolidays, ...nextHolidays].map(h => new Date(h.date));
+        setHolidays(holidayDates);
+      } catch (err) {
+        console.error("Error loading company holidays:", err);
+      }
+    };
+    loadHolidays();
+  }, [companyId]);
+
   // Fetch staff
   useEffect(() => {
     const loadStaff = async () => {
@@ -574,6 +674,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
         const timeOffs = await fetchStaffTimeOffs(selectedStaffId);
         const disabledDates: Date[] = [];
         timeOffs.forEach((t) => {
+          if (t.status === 'Rejected') return; // Ignore rejected time-offs
           const start = new Date(t.startDateTimeUtc);
           const end = new Date(t.endDateTimeUtc);
           
@@ -687,8 +788,9 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
       case 3:
         return selectedDate && selectedTime;
       case 4:
-        // Require first name, last name, and at least one contact method (email OR phone)
-        return firstName && lastName && (phone || email);
+        // Require first name, last name, and email
+        if (meetingType === 'Phone' && (!phone || phone.trim() === '')) return false;
+        return firstName && lastName && email;
       case 5:
         return paymentTiming === 'later' || paymentMethod;
       default:
@@ -716,8 +818,9 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
 
   const getServiceCurrency = (): string => {
     const selectedService = getSelectedService();
-    return selectedService?.currency || 'USD';
+    return selectedService?.currency || companyCurrency;
   };
+
 
   const getCurrencySymbolForService = (): string => {
     return getCurrencySymbol(getServiceCurrency());
@@ -776,6 +879,8 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
         paymentMethod: mapPaymentMethod(paymentMethod),
         timezone: customerTimezone,
         notes: description.trim() || undefined,
+        price: getServicePrice(),
+        currencyCode: getServiceCurrency(),
       };
       
       const response = await createAppointment(request);
@@ -802,7 +907,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
         }),
         time: formatTime(startTimeUtc, customerTimezone),
         duration: `${getSelectedService()?.serviceDuration || 60} min`,
-        price: `${getCurrencySymbolForService()}${response.price}`,
+        price: formatPrice(response.price, response.currencyCode || getServiceCurrency()),
         paymentMethod: paymentTiming === "later" ? "Pay Later" : paymentMethod,
         paymentTiming,
         status: response.status,
@@ -931,7 +1036,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                   options={Array.isArray(services) ? services.map(s => ({
                     value: s.id,
                     label: s.name,
-                    subLabel: `${getCurrencySymbol(s.currency)}${s.price} (${s.serviceDuration} min)`
+                    subLabel: `${formatPrice(s.price || 0, s.currency || companyCurrency)} (${s.serviceDuration} min)`
                   })) : []}
                   isLoading={servicesLoading}
                   placeholder={`Choose a ${customLabels.serviceLabel.toLowerCase()}...`}
@@ -974,36 +1079,42 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
           {step === 2 && (
             <div className="space-y-6 animate-fadeIn">
               <div>
-                <label className="flex items-center gap-2 mb-4 text-slate-900 font-semibold text-lg">
+                <label className="flex items-center gap-2 mb-5 text-slate-900 font-semibold text-lg">
                   <MapPin className="w-5 h-5" style={{ color: customColors.primaryColor }} aria-hidden="true" />
                   Meeting Location
                 </label>
                 <div 
-                  className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+                  className="grid grid-cols-1 sm:grid-cols-2 gap-4"
                   role="radiogroup"
                   aria-label="Meeting location options"
                 >
                   {availableLocations.map((loc) => {
                     const Icon = loc.icon;
+                    const isSelected = meetingType === loc.value;
                     return (
                       <button
                         key={loc.value}
                         type="button"
                         role="radio"
-                        aria-checked={meetingType === loc.value}
+                        aria-checked={isSelected}
                         aria-label={`${loc.label}: ${loc.description}`}
                         className={`
-                          relative p-6 rounded-xl border-2 transition-all duration-300 text-center flex flex-col items-center justify-center gap-3 min-h-[140px]
-                          focus:outline-none focus:ring-4 focus:ring-indigo-300
+                          relative rounded-2xl border-2 transition-all duration-300 text-left cursor-pointer group
+                          focus:outline-none focus:ring-4
                           ${loc.isComingSoon
                             ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed'
-                            : meetingType === loc.value
-                            ? `border-indigo-600 bg-gradient-to-br ${loc.gradient} text-white shadow-lg scale-105 cursor-pointer`
+                            : isSelected
+                            ? 'shadow-lg scale-[1.02]'
                             : formErrors.meetingType
-                            ? 'border-rose-500 hover:border-rose-400 bg-white cursor-pointer'
-                            : 'border-slate-200 hover:border-indigo-300 bg-white hover:shadow-md cursor-pointer'
+                            ? 'border-rose-400 bg-white hover:border-rose-300'
+                            : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
                           }
                         `}
+                        style={isSelected ? {
+                          borderColor: customColors.primaryColor,
+                          backgroundColor: `${customColors.primaryColor}08`,
+                          boxShadow: `0 0 0 3px ${customColors.primaryColor}1a, 0 8px 25px -5px ${customColors.primaryColor}20`,
+                        } : undefined}
                         onClick={() => {
                           if (loc.isComingSoon) return;
                           setMeetingType(loc.value);
@@ -1015,33 +1126,65 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                         }}
                       >
                         {loc.isComingSoon && (
-                          <div className="absolute top-2 right-2 bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
+                          <div className="absolute top-3 right-3 bg-amber-100 text-amber-700 text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm">
                             Coming Soon
                           </div>
                         )}
-                        {meetingType === loc.value && (
-                          <div className="absolute top-3 right-3">
-                            <CheckCircle2 className="w-6 h-6" aria-hidden="true" />
+
+                        <div className="flex items-center gap-4 p-5">
+                          {/* Icon */}
+                          <div 
+                            className={`
+                              flex-shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300
+                              ${isSelected 
+                                ? 'shadow-md' 
+                                : 'group-hover:scale-105'
+                              }
+                            `}
+                            style={isSelected 
+                              ? { 
+                                  background: `linear-gradient(135deg, ${customColors.primaryColor}, ${customColors.primaryColor}dd)`,
+                                  boxShadow: `0 4px 14px ${customColors.primaryColor}40` 
+                                } 
+                              : { backgroundColor: '#f1f5f9' }
+                            }
+                          >
+                            <Icon 
+                              className={`w-6 h-6 transition-colors duration-300 ${isSelected ? 'text-white' : ''}`} 
+                              style={!isSelected ? { color: customColors.primaryColor } : undefined}
+                              aria-hidden="true" 
+                            />
                           </div>
-                        )}
-                        
-                        <div className={`
-                          p-4 rounded-lg transition-all duration-300
-                          ${meetingType === loc.value
-                            ? 'bg-white/20 backdrop-blur-sm'
-                            : 'bg-slate-50'
-                          }
-                        `}>
-                          <Icon className={`w-8 h-8 ${meetingType === loc.value ? 'text-white' : ''}`} style={meetingType !== loc.value ? { color: customColors.primaryColor } : undefined} aria-hidden="true" />
-                        </div>
-                        
-                        <div>
-                          <p className={`font-bold text-base mb-1 ${meetingType === loc.value ? 'text-white' : 'text-slate-900'}`}>
-                            {loc.label}
-                          </p>
-                          <p className={`text-sm ${meetingType === loc.value ? 'text-white/90' : 'text-slate-600'}`}>
-                            {loc.description}
-                          </p>
+
+                          {/* Text */}
+                          <div className="flex-1 min-w-0">
+                            <p className={`font-bold text-[15px] mb-0.5 transition-colors duration-200 ${isSelected ? '' : 'text-slate-900'}`}
+                              style={isSelected ? { color: customColors.primaryColor } : undefined}
+                            >
+                              {loc.label}
+                            </p>
+                            <p className={`text-sm transition-colors duration-200 ${isSelected ? '' : 'text-slate-500'}`}
+                              style={isSelected ? { color: `${customColors.primaryColor}99` } : undefined}
+                            >
+                              {loc.description}
+                            </p>
+                          </div>
+
+                          {/* Radio indicator */}
+                          <div 
+                            className={`
+                              flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300
+                              ${isSelected 
+                                ? '' 
+                                : 'border-slate-300 group-hover:border-slate-400'
+                              }
+                            `}
+                            style={isSelected ? { borderColor: customColors.primaryColor, backgroundColor: customColors.primaryColor } : undefined}
+                          >
+                            {isSelected && (
+                              <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
+                            )}
+                          </div>
                         </div>
                       </button>
                     );
@@ -1070,7 +1213,12 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                 <div className="flex items-center gap-3">
                   <TimezoneSelect
                     value={customerTimezone}
-                    onChange={setCustomerTimezone}
+                    onChange={(val) => {
+                      setCustomerTimezone(val);
+                      if (!phone) {
+                        setSelectedPhoneCountry(getCountryFromTimezone(val));
+                      }
+                    }}
                     className="flex-1"
                   />
                 </div>
@@ -1081,11 +1229,14 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
 
               <EnhancedCalendar
                 selectedDate={selectedDate}
-                onSelectDate={setSelectedDate}
+                onSelectDate={(date) => {
+                  setSelectedDate(date);
+                  setSelectedTime(''); // Reset time when date changes
+                }}
                 selectedTime={selectedTime}
                 onSelectTime={setSelectedTime}
                 timezone={customerTimezone}
-                unavailableDates={unavailableDates}
+                unavailableDates={[...unavailableDates, ...holidays]}
                 timeSlots={availableSlots}
                 isLoadingSlots={slotsLoading}
               />
@@ -1111,7 +1262,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                   <span className="text-slate-600 font-medium">Time:</span> {selectedTime}
                 </span>
                 <span className="text-sm text-slate-900">
-                  <span className="text-slate-600 font-medium">Price:</span> {getCurrencySymbolForService()}{getServicePrice()}
+                  <span className="text-slate-600 font-medium">Price:</span> {formatPrice(getServicePrice(), getServiceCurrency())}
                 </span>
               </div>
 
@@ -1187,43 +1338,35 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
 
                 <div className="pt-4 border-t border-slate-100">
                   <label className="block mb-4 text-slate-900 font-semibold text-base">
-                    Contact Information <span className="text-slate-500 font-normal text-sm ml-1">(One required)</span>
+                    Contact Information
                   </label>
                   
                   <div className="space-y-4">
                     <div>
                       <label htmlFor="phone" className="block mb-2 text-slate-700 text-sm font-medium">
-                        Phone Number
+                        Phone Number {meetingType === 'Phone' && <span className="text-rose-600">*</span>}
                       </label>
-                      <PhoneInput
-                        id="phone"
-                        value={phone}
-                        timezone={customerTimezone}
-                        onChange={(val) => {
-                          setPhone(val);
-                          if (formErrors.phone) {
-                            const newErrors = { ...formErrors };
-                            delete newErrors.phone;
-                            setFormErrors(newErrors);
-                          }
-                        }}
-                        placeholder="Enter phone number"
-                        error={formErrors.phone}
-                      />
-                    </div>
-
-                    <div className="relative flex items-center justify-center">
-                      <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-slate-200"></div>
-                      </div>
-                      <div className="relative px-3 bg-white">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">OR</span>
-                      </div>
+                        <PhoneInput
+                          id="phone"
+                          value={phone}
+                          timezone={customerTimezone}
+                          onCountryChange={(c) => setSelectedPhoneCountry(c)}
+                          onChange={(val) => {
+                            setPhone(val);
+                            if (formErrors.phone) {
+                              const newErrors = { ...formErrors };
+                              delete newErrors.phone;
+                              setFormErrors(newErrors);
+                            }
+                          }}
+                          placeholder="Enter phone number"
+                          error={formErrors.phone}
+                        />
                     </div>
 
                     <div>
                       <label htmlFor="email" className="block mb-2 text-slate-700 text-sm font-medium">
-                        Email Address
+                        Email Address <span className="text-rose-600">*</span>
                       </label>
                       <input
                         id="email"
@@ -1326,14 +1469,14 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                         setPaymentMethod('');
                       }}
                       className={`
-                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)]
+                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer
                         ${paymentTiming === 'now'
                           ? 'shadow-md'
                           : 'border-slate-300 hover:shadow-sm'
                         }
                       `}
-                      style={paymentTiming === 'now' ? { 
-                        borderColor: customColors.primaryColor, 
+                      style={paymentTiming === 'now' ? {
+                        borderColor: customColors.primaryColor,
                         backgroundColor: `${customColors.primaryColor}0d` // 5% opacity
                       } : undefined}
                     >
@@ -1349,15 +1492,15 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                         setPaymentMethod('');
                       }}
                       className={`
-                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)]
+                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer
                         ${paymentTiming === 'later'
                           ? 'shadow-md'
                           : 'border-slate-300 hover:shadow-sm'
                         }
                       `}
-                      style={paymentTiming === 'later' ? { 
-                        borderColor: customColors.primaryColor, 
-                        backgroundColor: `${customColors.primaryColor}0d` 
+                      style={paymentTiming === 'later' ? {
+                        borderColor: customColors.primaryColor,
+                        backgroundColor: `${customColors.primaryColor}0d`
                       } : undefined}
                     >
                       <DollarSign className={`w-6 h-6 mx-auto mb-2 ${paymentTiming !== 'later' ? 'text-slate-600' : ''}`} style={paymentTiming === 'later' ? { color: customColors.primaryColor } : undefined} aria-hidden="true" />
@@ -1385,15 +1528,15 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                         type="button"
                         onClick={() => setPaymentMethod(method.name)}
                         className={`
-                          py-4 px-3 rounded-xl border-2 transition-all duration-300 text-center focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)]
+                          py-4 px-3 rounded-xl border-2 transition-all duration-300 text-center focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer
                           ${paymentMethod === method.name
                             ? 'shadow-md scale-[1.02]'
                             : 'border-slate-300 bg-white hover:shadow-sm'
                           }
                         `}
-                        style={paymentMethod === method.name ? { 
-                          borderColor: customColors.primaryColor, 
-                          backgroundColor: `${customColors.primaryColor}0d` 
+                        style={paymentMethod === method.name ? {
+                          borderColor: customColors.primaryColor,
+                          backgroundColor: `${customColors.primaryColor}0d`
                         } : undefined}
                       >
                         <div className="text-2xl mb-2">{method.icon}</div>
@@ -1419,13 +1562,13 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                   <div className="flex justify-between py-2 border-b border-slate-200">
                     <span className="text-slate-700 font-medium">Staff:</span>
                     <span className="text-slate-900 font-semibold">
-                      {selectedStaffId === -1 
-                        ? 'Any Staff' 
+                      {selectedStaffId === -1
+                        ? 'Any Staff'
                         : (staffMembers.find(s => s.id === selectedStaffId)?.fullName || 'No staff selected')}
                     </span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-slate-200">
-                    <span className="text-slate-700 font-medium">Location:</span>
+                    <span className="text-slate-700 font-medium">Meeting Type:</span>
                     <span className="text-slate-900 font-semibold">{meetingType}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-slate-200">
@@ -1440,7 +1583,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                   </div>
                   <div className="flex justify-between py-3 mt-3 bg-white rounded-lg px-3">
                     <span className="text-slate-900 font-bold text-base">Total:</span>
-                    <span className="font-bold text-xl" style={{ color: customColors.primaryColor }}>{getCurrencySymbolForService()}{getServicePrice()}</span>
+                    <span className="font-bold text-xl" style={{ color: customColors.primaryColor }}>{formatPrice(getServicePrice(), getServiceCurrency())}</span>
                   </div>
                 </div>
               </div>
@@ -1453,7 +1596,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                   <button
                     type="button"
                     onClick={handleBack}
-                    className="flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-slate-700 hover:bg-slate-100 rounded-lg transition-all duration-200 border-2 border-slate-300 font-medium focus:outline-none focus:ring-4 focus:ring-slate-300 min-h-[44px] sm:min-h-[48px] text-sm sm:text-base"
+                    className="flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 text-slate-700 hover:bg-slate-100 rounded-lg transition-all duration-200 border-2 border-slate-300 font-medium focus:outline-none focus:ring-4 focus:ring-slate-300 min-h-[44px] sm:min-h-[48px] text-sm sm:text-base cursor-pointer"
                     aria-label="Go back to previous step"
                   >
                     <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
@@ -1473,7 +1616,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                     className={`
                       flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg transition-all duration-300 font-semibold min-h-[44px] sm:min-h-[48px] text-sm sm:text-base focus:outline-none focus:ring-4
                       ${canProceed()
-                        ? 'text-white shadow-md hover:shadow-lg hover:brightness-110 focus:ring-indigo-300 transform hover:scale-105'
+                        ? 'text-white shadow-md hover:shadow-lg hover:brightness-110 focus:ring-indigo-300 transform hover:scale-105 cursor-pointer'
                         : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
                       }
                     `}
@@ -1497,7 +1640,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                       className={`
                         flex items-center gap-2 px-8 py-3 rounded-lg transition-all duration-300 font-semibold min-h-[48px] focus:outline-none focus:ring-4
                         ${canProceed() && !isSubmitting
-                          ? 'text-white shadow-md hover:shadow-lg hover:brightness-110 focus:ring-emerald-300 transform hover:scale-105'
+                          ? 'text-white shadow-md hover:shadow-lg hover:brightness-110 focus:ring-emerald-300 transform hover:scale-105 cursor-pointer'
                           : 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60'
                         }
                       `}

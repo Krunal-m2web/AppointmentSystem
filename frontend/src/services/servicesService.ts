@@ -33,9 +33,9 @@ export const fetchServices = async (
   pageSize: number = 10
 ): Promise<PaginatedCustomerServiceResponse> => {
   try {
-    // If currency not provided, fetch default from backend
+    // If currency not provided, fetch default from backend using companyId
     if (!currency) {
-      currency = await getDefaultCurrency();
+      currency = await getDefaultCurrency(companyId);
     }
 
     // Construct the full URL with companyId, currency, and pagination query parameters

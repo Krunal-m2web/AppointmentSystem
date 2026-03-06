@@ -84,7 +84,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                     a.Customer.FirstName.ToLower().Contains(lowerTerm) || 
                     a.Customer.LastName.ToLower().Contains(lowerTerm) || 
                     (a.Customer.FirstName + " " + a.Customer.LastName).ToLower().Contains(lowerTerm) ||
-                    a.Customer.Email.ToLower().Contains(lowerTerm) ||
+                    (a.Customer.Email != null && a.Customer.Email.ToLower().Contains(lowerTerm)) ||
                     a.Service.Name.ToLower().Contains(lowerTerm)
                 );
             }
@@ -114,8 +114,8 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             if (query.EndDate.HasValue)
             {
                 var endDateUtc = query.EndDate.Value.Kind == DateTimeKind.Utc
-                    ? query.EndDate.Value.AddDays(1).AddTicks(-1)
-                    : DateTime.SpecifyKind(query.EndDate.Value.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+                    ? query.EndDate.Value
+                    : DateTime.SpecifyKind(query.EndDate.Value, DateTimeKind.Utc);
 
                 appointmentsQuery = appointmentsQuery.Where(a => a.StartDateTimeUtc <= endDateUtc);
             }
@@ -132,8 +132,8 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                     : appointmentsQuery.OrderByDescending(a => a.Service.Name),
 
                 "staff" => query.SortDirection.ToLower() == "asc"
-                    ? appointmentsQuery.OrderBy(a => a.Staff.FirstName)
-                    : appointmentsQuery.OrderByDescending(a => a.Staff.FirstName),
+                    ? appointmentsQuery.OrderBy(a => a.Staff != null ? a.Staff.FirstName : string.Empty)
+                    : appointmentsQuery.OrderByDescending(a => a.Staff != null ? a.Staff.FirstName : string.Empty),
 
                 "status" => query.SortDirection.ToLower() == "asc"
                     ? appointmentsQuery.OrderBy(a => a.Status)
@@ -167,7 +167,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 Id = a.Id,
                 CustomerId = a.CustomerId,
                 CustomerName = $"{a.Customer.FirstName} {a.Customer.LastName}",
-                CustomerEmail = a.Customer.Email,
+                CustomerEmail = a.Customer.Email ?? "",
                 CustomerPhone = a.Customer.Phone ?? "",
                 ServiceId = a.ServiceId,
                 ServiceName = a.Service.Name,
@@ -177,6 +177,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                     : "Unassigned",
                 StartDateTime = a.StartDateTimeUtc,
                 EndDateTime = a.EndDateTimeUtc,
+                Duration = (int)Math.Round((a.EndDateTimeUtc - a.StartDateTimeUtc).TotalMinutes),
                 MeetingType = a.MeetingType,
                 Status = a.Status,
                 CurrencyCode = a.CurrencyCode,
@@ -184,6 +185,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 PaymentMethod = a.PaymentMethod,
                 PaymentStatus = a.PaymentStatus,
                 CreatedAt = a.CreatedAt,
+                Notes = a.Notes,
                 CompanyPhone = a.Company?.Phone,
                 CompanySlug = a.Company?.Slug
             }).ToList();
@@ -296,17 +298,32 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 return NotFound("Service not found or is not active.");
 
             // STEP 2: GET PRICE FOR DEFAULT CURRENCY
-            string defaultCurrency = _configuration["AppSettings:DefaultCurrency"] ?? "USD";
+            int companyId = service.CompanyId;
+            var company = await _context.Companies.FindAsync(companyId);
+            string currencyCode = dto.CurrencyCode?.ToUpperInvariant() 
+                                 ?? company?.Currency 
+                                 ?? _configuration["AppSettings:DefaultCurrency"] 
+                                 ?? "USD";
 
             var servicePrice = service.Prices
-                .FirstOrDefault(p => p.Currency == defaultCurrency.ToUpperInvariant());
+                .FirstOrDefault(p => p.Currency == currencyCode.ToUpperInvariant());
 
             // If no specific currency price, use base service price
             decimal finalPrice = servicePrice?.Amount ?? service.Price;
 
+            // STEP 2.5: HOLIDAY BLOCK (highest booking priority)
+            // Convert the requested start time to the company timezone date, then check holidays.
+            var companyTimezone = company?.Timezone ?? "UTC";
+            TimeZoneInfo tz;
+            try { tz = TimeZoneInfo.FindSystemTimeZoneById(companyTimezone); }
+            catch { tz = TimeZoneInfo.Utc; }
+            var startInCompanyTz = TimeZoneInfo.ConvertTimeFromUtc(dto.StartTime, tz);
+            var appointmentDate = DateOnly.FromDateTime(startInCompanyTz);
+
+            if (await IsHolidayAsync(companyId, appointmentDate))
+                return BadRequest(new { message = "This date is a company holiday. Appointments cannot be booked on holidays." });
+
             // STEP 3: FIND OR CREATE CUSTOMER
-            // Get companyId from service
-            int companyId = service.CompanyId;
 
             // Enforce at least one contact method
             if (string.IsNullOrWhiteSpace(dto.Email) && string.IsNullOrWhiteSpace(dto.Phone))
@@ -419,7 +436,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 var candidateIds = availableCandidates.Select(s => s.Id).ToList();
                 
                 var appointmentCounts = await _context.Appointments
-                    .Where(a => candidateIds.Contains(a.StaffId.Value) && // StaffId is nullable in Appointment
+                    .Where(a => a.StaffId.HasValue && candidateIds.Contains(a.StaffId.Value) && // StaffId is nullable in Appointment
                                 a.StartDateTimeUtc.Date == dto.StartTime.Date &&
                                 a.Status != AppointmentStatus.Cancelled)
                     .GroupBy(a => a.StaffId)
@@ -504,11 +521,12 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 Status = status,
                 RecurrenceRuleId = null,
                 ParentAppointmentId = null,
-                CurrencyCode = defaultCurrency,
+                CurrencyCode = currencyCode,
                 Price = dto.Price ?? finalPrice,
                 PaymentStatus = PaymentStatus.Unpaid,
                 PaymentMethod = paymentMethod,
-                Timezone = dto.Timezone
+                Timezone = dto.Timezone,
+                Notes = dto.Notes
             };
 
             _context.Appointments.Add(appointment);
@@ -531,7 +549,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             }
 
             // STEP 9: SEND EMAIL NOTIFICATIONS
-            var company = await _context.Companies.FindAsync(companyId);
+            // We already have the company object from Step 2
 
             try 
             {
@@ -622,7 +640,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 Id = appointment.Id,
                 CustomerId = customer.Id,
                 CustomerName = $"{customer.FirstName} {customer.LastName}",
-                CustomerEmail = customer.Email,
+                CustomerEmail = customer.Email ?? "",
                 CustomerPhone = customer.Phone ?? "",
                 ServiceId = service.Id,
                 ServiceName = service.Name,
@@ -639,6 +657,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 PaymentMethod = appointment.PaymentMethod,
                 PaymentStatus = appointment.PaymentStatus,
                 CreatedAt = appointment.CreatedAt,
+                Notes = appointment.Notes,
                 CompanyPhone = company?.Phone,
                 CompanySlug = company?.Slug
             };
@@ -671,6 +690,8 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             // Update basic fields
             if (dto.Notes != null) appointment.Notes = dto.Notes;
             if (dto.Timezone != null) appointment.Timezone = dto.Timezone;
+            if (dto.CurrencyCode != null) appointment.CurrencyCode = dto.CurrencyCode;
+            if (dto.Price.HasValue) appointment.Price = dto.Price.Value;
             
             // Update Status if provided
             if (!string.IsNullOrEmpty(dto.Status))
@@ -903,8 +924,8 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             // Update Customer info if provided
             if (!string.IsNullOrEmpty(dto.Email) || !string.IsNullOrEmpty(dto.FirstName) || !string.IsNullOrEmpty(dto.LastName) || !string.IsNullOrEmpty(dto.Phone))
             {
-                string newEmail = !string.IsNullOrEmpty(dto.Email) ? dto.Email.Trim().ToLowerInvariant() : appointment.Customer.Email;
-                string currentEmail = appointment.Customer.Email;
+                string? newEmail = !string.IsNullOrEmpty(dto.Email) ? dto.Email.Trim().ToLowerInvariant() : appointment.Customer.Email;
+                string? currentEmail = appointment.Customer.Email;
 
                 // Case 1: Email Changed
                 if (newEmail != currentEmail)
@@ -996,7 +1017,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 Id = appointment.Id,
                 CustomerId = appointment.CustomerId,
                 CustomerName = $"{appointment.Customer.FirstName} {appointment.Customer.LastName}",
-                CustomerEmail = appointment.Customer.Email,
+                CustomerEmail = appointment.Customer.Email ?? "",
                 ServiceId = appointment.ServiceId,
                 ServiceName = appointment.Service.Name,
                 StaffId = appointment.StaffId,
@@ -1008,6 +1029,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 PaymentMethod = appointment.PaymentMethod,
                 Price = appointment.Price,
                 CreatedAt = appointment.CreatedAt,
+                Notes = appointment.Notes,
                 CompanyPhone = appointment.Company?.Phone,
                 CompanySlug = appointment.Company?.Slug
             });
@@ -1023,15 +1045,24 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
         {
             if (staffId == 0) return true;
 
-            // Check existing appointments
-            var hasAppointmentConflict = await _context.Appointments
-                .AnyAsync(a =>
-                    a.StaffId == staffId &&
-                    a.Status != AppointmentStatus.Cancelled &&
-                    a.StartDateTimeUtc < endTime &&
-                    a.EndDateTimeUtc > startTime);
+            // Check existing appointments (including their buffer time)
+            var appointmentsWithBuffer = await _context.Appointments
+                .Include(a => a.Service)
+                .Where(a => a.StaffId == staffId && a.Status != AppointmentStatus.Cancelled)
+                .ToListAsync();
 
-            if (hasAppointmentConflict) return false;
+            foreach (var a in appointmentsWithBuffer)
+            {
+                int buffer = a.Service?.BufferTimeMinutes ?? 0;
+                DateTime blockedEnd = a.EndDateTimeUtc.AddMinutes(buffer);
+
+                // Check if the new appointment overlaps with the existing appointment OR its buffer
+                if (startTime < blockedEnd && endTime > a.StartDateTimeUtc)
+                {
+                    return false;
+                }
+            }
+
 
             // Check active reservations
             var now = DateTime.UtcNow;
@@ -1051,7 +1082,35 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                     e.StartDateTimeUtc < endTime &&
                     e.EndDateTimeUtc > startTime);
 
-            return !hasExternalConflict;
+            if (hasExternalConflict) return false;
+
+            // Check if it's a holiday (highest priority)
+            // Resolve companyId from staff
+            var staff = await _context.Staff.FindAsync(staffId);
+            if (staff != null)
+            {
+                var appointmentDate = DateOnly.FromDateTime(startTime);
+                if (await IsHolidayAsync(staff.CompanyId, appointmentDate))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="date"/> is a holiday for <paramref name="companyId"/>.
+        /// Handles both exact-date holidays and RepeatYearly (same month+day every year).
+        /// </summary>
+        private async Task<bool> IsHolidayAsync(int companyId, DateOnly date)
+        {
+            return await _context.Holidays.AnyAsync(h =>
+                h.CompanyId == companyId &&
+                (
+                    // Exact date (non-repeating)
+                    (!h.RepeatYearly && h.Date == date) ||
+                    // Repeating: same month and day, any year
+                    (h.RepeatYearly && h.Date.Month == date.Month && h.Date.Day == date.Day)
+                ));
         }
 
         // --- Token-Based Access (Public/Manage Booking) ---
@@ -1108,7 +1167,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 Id = appointment.Id,
                 CustomerId = appointment.CustomerId,
                 CustomerName = $"{appointment.Customer.FirstName} {appointment.Customer.LastName}",
-                CustomerEmail = appointment.Customer.Email,
+                CustomerEmail = appointment.Customer.Email ?? "",
                 CustomerPhone = appointment.Customer.Phone ?? "",
                 ServiceId = appointment.ServiceId,
                 ServiceName = appointment.Service.Name,
@@ -1121,6 +1180,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 PaymentMethod = appointment.PaymentMethod,
                 Price = appointment.Price,
                 CreatedAt = appointment.CreatedAt,
+                Notes = appointment.Notes,
                 CurrencyCode = appointment.CurrencyCode,
                 PaymentStatus = appointment.PaymentStatus,
                 CompanyPhone = appointment.Company?.Phone,
@@ -1197,8 +1257,10 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                         subject = Appointmentbookingsystem.Backend.Utils.PlaceholderHelper.ReplacePlaceholders(subject, appointment, company, frontendUrl);
                         body = Appointmentbookingsystem.Backend.Utils.PlaceholderHelper.ReplacePlaceholders(body, appointment, company, frontendUrl);
 
-                        await _emailService.SendEmailAsync(
-                            appointment.Customer.Email,
+                        if (!string.IsNullOrWhiteSpace(appointment.Customer.Email))
+                        {
+                            await _emailService.SendEmailAsync(
+                                appointment.Customer.Email,
                             subject,
                             body,
                             company.DefaultSenderName ?? company.CompanyName,
@@ -1208,6 +1270,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                             config.Id
                         );
                     }
+                }
                 }
             }
             catch(Exception ex)
@@ -1321,8 +1384,10 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                         subject = Appointmentbookingsystem.Backend.Utils.PlaceholderHelper.ReplacePlaceholders(subject, appointment, company, frontendUrl);
                         body = Appointmentbookingsystem.Backend.Utils.PlaceholderHelper.ReplacePlaceholders(body, appointment, company, frontendUrl);
 
-                        await _emailService.SendEmailAsync(
-                            appointment.Customer.Email,
+                        if (!string.IsNullOrWhiteSpace(appointment.Customer.Email))
+                        {
+                            await _emailService.SendEmailAsync(
+                                appointment.Customer.Email,
                             subject,
                             body,
                             company.DefaultSenderName ?? company.CompanyName,
@@ -1332,6 +1397,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                             config.Id
                         );
                     }
+                }
                 }
             }
             catch(Exception ex)

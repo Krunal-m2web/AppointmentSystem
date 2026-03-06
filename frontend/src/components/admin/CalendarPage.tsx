@@ -4,6 +4,7 @@ import { fetchServices } from '../../services/serviceApi';
 import { fetchStaff } from '../../services/staffApi';
 import { fetchCustomers, CustomerResponse } from '../../services/customerApi';
 import { getAppointments, createAppointment, deleteAppointment, updateAppointment } from '../../services/appointmentApi';
+import { fetchHolidays, Holiday } from '../../services/holidayApi';
 import { Staff, Service } from '../../types/types';
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
 import { combineDateTimeToUTC, formatTime, getDateString, formatDuration } from '../../utils/datetime';
@@ -13,6 +14,13 @@ import { AppointmentFormModal, NewAppointment } from './AppointmentFormModal';
 import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { googleCalendarApi } from '../../services/googleCalendarApi';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+  } from "../ui/select";
 
 const TIME_SLOTS = [
   '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
@@ -64,6 +72,7 @@ export function CalendarPage() {
   const [staffList, setStaffList] = useState<CalendarStaff[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(false);
   const [timezoneReady, setTimezoneReady] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -247,9 +256,25 @@ export function CalendarPage() {
     }
   };
 
+  const loadHolidays = async () => {
+    try {
+      const year = currentDate.getFullYear();
+      // Fetch for previous, current and next month's years to be safe
+      const prevYear = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1).getFullYear();
+      const nextYear = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1).getFullYear();
+      
+      const yearsToFetch = Array.from(new Set([prevYear, year, nextYear]));
+      const allHolidays = await Promise.all(yearsToFetch.map(y => fetchHolidays(y)));
+      setHolidays(allHolidays.flat());
+    } catch (err) {
+      console.error("Failed to load holidays:", err);
+    }
+  };
+
   useEffect(() => {
     if (!timezoneReady) return;
     loadAppointments();
+    loadHolidays();
   }, [currentDate, selectedStaff, selectedService, timezone, timezoneReady]);
 
   const getFilteredAppointments = () => {
@@ -707,18 +732,19 @@ export function CalendarPage() {
           )}
           <div className="flex items-center gap-2 bg-white px-3 py-2 border border-gray-200 rounded-lg shadow-sm">
             <Filter className="w-4 h-4 text-gray-500" />
-            <select
-              value={selectedService}
-              onChange={(e) => setSelectedService(e.target.value)}
-              className="text-sm bg-transparent border-none focus:outline-none focus:ring-0 text-gray-700 cursor-pointer"
-            >
-              <option value="all">All services</option>
-              {services.map((service) => (
-                <option key={service.id} value={service.id}>
-                  {service.name}
-                </option>
-              ))}
-            </select>
+            <Select value={selectedService} onValueChange={setSelectedService}>
+              <SelectTrigger className="w-[140px] bg-white border-gray-200">
+                <SelectValue placeholder="All services" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All services</SelectItem>
+                {services.map((service) => (
+                  <SelectItem key={service.id} value={service.id.toString()}>
+                    {service.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
@@ -783,6 +809,7 @@ export function CalendarPage() {
           }}
           staff={staffList}
           onAppointmentClick={handleAppointmentClick}
+          holidays={holidays}
         />
       )}
 
@@ -800,6 +827,7 @@ export function CalendarPage() {
           }}
           staff={staffList}
           onAppointmentClick={handleAppointmentClick}
+          holidays={holidays}
         />
       )}
 
@@ -829,6 +857,7 @@ export function CalendarPage() {
           }}
           staff={staffList}
           onAppointmentClick={handleAppointmentClick}
+          holidays={holidays}
         />
       )}
 
@@ -1069,7 +1098,8 @@ function MonthView({
   getAppointmentsForDate,
   onCreateAppointment,
   staff,
-  onAppointmentClick
+  onAppointmentClick,
+  holidays
 }: {
   currentDate: Date;
   selectedDate: Date;
@@ -1078,6 +1108,7 @@ function MonthView({
   onCreateAppointment: (date: Date) => void;
   staff: CalendarStaff[];
   onAppointmentClick: (apt: CalendarAppointment) => void;
+  holidays: Holiday[];
 }) {
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
@@ -1135,6 +1166,10 @@ function MonthView({
           const today = date && isToday(date);
           const appointments = date ? getAppointmentsForDate(date) : [];
           const hasApts = appointments.length > 0;
+          
+          const dateStr = date ? date.toISOString().split('T')[0] : '';
+          const dayHolidays = holidays.filter(h => h.date === dateStr);
+          const hasHolidays = dayHolidays.length > 0;
 
           return (
             <div
@@ -1174,6 +1209,17 @@ function MonthView({
                     </button>
                   </div>
                   
+                  {hasHolidays && (
+                    <div className="mb-2 space-y-1">
+                      {dayHolidays.map((h: Holiday, i: number) => (
+                        <div key={i} className="text-[10px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold flex items-center gap-1">
+                          <AlertCircle className="w-2 h-2" />
+                          <span className="truncate">{h.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {hasApts && (
                     <div className="space-y-1">
                       {appointments.slice(0, 2).map((apt) => {
@@ -1216,13 +1262,15 @@ function WeekView({
   getAppointmentsForDate,
   onCreateAppointment,
   staff,
-  onAppointmentClick
+  onAppointmentClick,
+  holidays
 }: {
   currentDate: Date;
   getAppointmentsForDate: (date: Date) => CalendarAppointment[];
   onCreateAppointment: (date: Date) => void;
   staff: CalendarStaff[];
   onAppointmentClick: (apt: CalendarAppointment) => void;
+  holidays: Holiday[];
 }) {
   const getWeekDays = (date: Date) => {
     const week = [];
@@ -1264,6 +1312,8 @@ function WeekView({
         
         {weekDays.map((date, index) => {
           const appointments = getAppointmentsForDate(date);
+          const dateStr = date.toISOString().split('T')[0];
+          const dayHolidays = holidays.filter(h => h.date === dateStr);
 
           return (
             <div 
@@ -1273,6 +1323,13 @@ function WeekView({
                    onCreateAppointment(date);
                 }}
             >
+              {dayHolidays.map((h: Holiday, i: number) => (
+                <div key={i} className="text-xs p-2 rounded border-l-4 bg-orange-50 border-orange-400 text-orange-700 font-bold mb-2 flex items-center gap-2">
+                  <AlertCircle className="w-3 h-3" />
+                  {h.name}
+                </div>
+              ))}
+
               {appointments.map((apt) => {
                 const staffMember = staff.find(s => s.id === apt.staffId);
                 const color = staffMember?.color || '#3b82f6';
@@ -1320,13 +1377,15 @@ function DayView({
   appointments,
   onCreateAppointment,
   staff,
-  onAppointmentClick
+  onAppointmentClick,
+  holidays
 }: {
   currentDate: Date;
   appointments: CalendarAppointment[];
   onCreateAppointment: (time: string) => void;
   staff: CalendarStaff[];
   onAppointmentClick: (apt: CalendarAppointment) => void;
+  holidays: Holiday[];
 }) {
   const timeSlots = ['8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM'];
 
@@ -1340,8 +1399,26 @@ function DayView({
     return h;
   };
 
+  const dateStr = currentDate.toISOString().split('T')[0];
+  const dayHolidays = holidays.filter(h => h.date === dateStr);
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      {dayHolidays.length > 0 && (
+        <div className="mb-6 space-y-2">
+          {dayHolidays.map((h: Holiday, i: number) => (
+            <div key={i} className="p-4 bg-orange-50 border border-orange-200 rounded-xl flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-5 h-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-orange-900">{h.name}</p>
+                <p className="text-xs text-orange-700">Company Holiday • Business is closed</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="space-y-2">
         {timeSlots.map((time) => {
           const slotHour = getSlotHour(time);

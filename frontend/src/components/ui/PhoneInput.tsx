@@ -109,9 +109,11 @@ const timezoneToCountry: Record<string, Country> = {
   'Africa/Luanda': 'AO',
   'Africa/Maputo': 'MZ',
   'Africa/Tunis': 'TN',
+  'UTC': 'US',
+  'GMT': 'GB',
 };
 
-function getCountryFromTimezone(timezone?: string): Country {
+export function getCountryFromTimezone(timezone?: string): Country {
   if (!timezone) return 'US';
   return timezoneToCountry[timezone] || 'US';
 }
@@ -170,8 +172,8 @@ const PhoneInput = forwardRef<HTMLDivElement, PhoneInputProps>(
             disabled={disabled}
             className={`flex h-12 w-full rounded-xl border bg-gray-50 ${prefixIcon ? 'pl-10' : 'px-3'} py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-within:outline-none focus-within:ring-2 transition-all duration-200 ${
               error
-                ? 'border-red-400 focus-within:ring-red-500 focus-within:border-red-400'
-                : 'border-gray-200 focus-within:border-gray-200 focus-within:ring-indigo-500'
+                ? 'border-rose-500 focus-within:ring-rose-200 focus-within:border-rose-500 shadow-[0_0_0_1px_rgba(244,63,94,0.1)]'
+                : 'border-slate-200 focus-within:border-indigo-500 focus-within:ring-indigo-100'
             }`}
             numberInputProps={{
               className: "flex-1 bg-transparent outline-none border-none ml-2 text-slate-900 placeholder:text-slate-400 h-full w-full",

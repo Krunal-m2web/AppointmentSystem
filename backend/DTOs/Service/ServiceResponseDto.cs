@@ -15,6 +15,8 @@ namespace Appointmentbookingsystem.Backend.DTOs.Service
 
         public int ServiceDuration { get; set; }
 
+        public int BufferTimeMinutes { get; set; }
+        public string Currency { get; set; } = "USD";
         public bool IsActive { get; set; } = true;
 
         // Multi-currency prices

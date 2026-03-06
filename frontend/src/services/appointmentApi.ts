@@ -19,6 +19,7 @@ export interface CreateAppointmentRequest {
   notes?: string;
   status?: string;
   price?: number;
+  currencyCode?: string;
   duration?: number;
 }
 
@@ -61,6 +62,7 @@ export interface AppointmentResponse {
   paymentStatus: "Unpaid" | "Paid" | "Refunded";
   createdAt: string;
   notes?: string;
+  duration?: number;
 }
 
 export interface GetAppointmentsQuery {

@@ -39,9 +39,8 @@ export function TimezoneSelect({ value, onChange, className }: TimezoneSelectPro
           aria-expanded={open}
           className={cn("w-full justify-between font-normal", !value && "text-muted-foreground", className)}
         >
-          {value
-            ? TIMEZONES.find((timeZone) => timeZone.value === value)?.label + 
-              ` (${TIMEZONES.find((timeZone) => timeZone.value === value)?.offset})`
+          {value && TIMEZONES.find((tz) => tz.value === value)
+            ? `${TIMEZONES.find((tz) => tz.value === value)?.label} (${TIMEZONES.find((tz) => tz.value === value)?.offset})`
             : "Select timezone..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>

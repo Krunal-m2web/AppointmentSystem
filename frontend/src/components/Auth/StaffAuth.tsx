@@ -6,6 +6,7 @@ import { validateInvite } from '../../services/inviteApi';
 import { StaffLoginDto, StaffRegisterDto } from '../../types/auth.types';
 import { getToken, isTokenExpired } from '../../utils/auth';
 import { parseApiError } from '../../utils/error';
+import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
 
 interface LoginFieldErrors {
   email?: string;
@@ -168,8 +169,14 @@ const StaffAuth = () => {
     if (!regEmail.trim()) errors.email = 'Email is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail)) errors.email = 'Invalid email address';
     
-    if (!regPassword) errors.password = 'Password is required';
-    else if (regPassword.length < 6) errors.password = 'Password must be at least 6 characters';
+    if (!regPassword) {
+      errors.password = 'Password is required';
+    } else {
+      const passValid = validatePassword(regPassword, regEmail);
+      if (!passValid.isValid) {
+        errors.password = 'Password does not meet requirements';
+      }
+    }
     
     setRegFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -196,7 +203,12 @@ const StaffAuth = () => {
 
   const handleRegPasswordChange = (value: string) => {
     setRegPassword(value);
-    if (regFieldErrors.password) setRegFieldErrors(prev => ({ ...prev, password: undefined }));
+    const passValid = validatePassword(value, regEmail);
+    if (value.length > 0 && !passValid.isValid) {
+      setRegFieldErrors(prev => ({ ...prev, password: 'Does not meet requirements' }));
+    } else {
+      if (regFieldErrors.password) setRegFieldErrors(prev => ({ ...prev, password: undefined }));
+    }
     setRegError(null);
   };
 
@@ -533,8 +545,38 @@ const StaffAuth = () => {
                         )}
                       </button>
                     </div>
+
+                    {/* Password Requirements Checklist */}
+                    <div className="mt-3 bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Password Requirements</p>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {PASSWORD_REQUIREMENTS.map((req) => {
+                          const isMet = req.test(regPassword);
+                          return (
+                            <div key={req.id} className="flex items-center gap-2">
+                              <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${isMet ? 'bg-emerald-500' : 'bg-gray-200'}`}>
+                                {isMet && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                              </div>
+                              <span className={`text-[11px] ${isMet ? 'text-emerald-600 font-medium' : 'text-gray-500'}`}>
+                                {req.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {/* Email match check */}
+                        <div className="flex items-center gap-2">
+                          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${regPassword && regEmail && regPassword.toLowerCase() !== regEmail.toLowerCase() ? 'bg-emerald-500' : 'bg-gray-200'}`}>
+                            {regPassword && regEmail && regPassword.toLowerCase() !== regEmail.toLowerCase() && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                          </div>
+                          <span className={`text-[11px] ${regPassword && regEmail && regPassword.toLowerCase() !== regEmail.toLowerCase() ? 'text-emerald-600 font-medium' : 'text-gray-500'}`}>
+                            Must not match email
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
                     {regFieldErrors.password && (
-                      <p className="mt-1 text-sm text-red-500">{regFieldErrors.password}</p>
+                      <p className="mt-2 text-sm text-red-500 font-medium">{regFieldErrors.password}</p>
                     )}
                   </div>
 

@@ -6,6 +6,7 @@ using Appointmentbookingsystem.Backend.Helpers;
 using Appointmentbookingsystem.Backend.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Appointmentbookingsystem.Backend.Controllers
 {
@@ -16,12 +17,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
         private readonly AppDbContext _context;
         private readonly IJwtTokenService _jwt;
         private readonly IEmailService _emailService;
+        private readonly IConfiguration _configuration;
 
-        public AdminAuthController(AppDbContext context, IJwtTokenService jwt, IEmailService emailService)
+        public AdminAuthController(AppDbContext context, IJwtTokenService jwt, IEmailService emailService, IConfiguration configuration)
         {
             _context = context;
             _jwt = jwt;
             _emailService = emailService;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -35,11 +38,9 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (string.IsNullOrWhiteSpace(dto.Email))
                 throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Email is required.", "email");
             
-            if (string.IsNullOrWhiteSpace(dto.Password))
-                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Password is required.", "password");
-            
-            if (dto.Password.Length < 6)
-                throw new ValidationException(ValidationErrors.PASSWORD_TOO_SHORT, "Password must be at least 6 characters.", "password");
+            var passwordValidation = PasswordValidator.Validate(dto.Password, dto.Email);
+            if (!passwordValidation.IsValid)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, passwordValidation.ErrorMessage!, "password");
             
             if (string.IsNullOrWhiteSpace(dto.CompanyName))
                 throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Company name is required.", "companyName");
@@ -103,6 +104,16 @@ namespace Appointmentbookingsystem.Backend.Controllers
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                // Extract domain for default email settings
+                string frontendUrl = _configuration["AppSettings:FrontendUrl"] ?? "localhost";
+                string domain = "localhost";
+                try {
+                    if (frontendUrl.StartsWith("http"))
+                        domain = new Uri(frontendUrl).Host;
+                    else
+                        domain = frontendUrl;
+                } catch { }
+
                 // Create the company first
                 var company = new Company
                 {
@@ -111,6 +122,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     Email = normalizedEmail,
                     Country = dto.CompanyCountry,
                     Currency = dto.Currency,
+                    Timezone = dto.Timezone,
+                    DefaultSenderName = dto.CompanyName,
+                    DefaultSenderEmail = $"noreply@{domain}",
+                    DefaultReplyToEmail = $"noreply@{domain}",
                     IsActive = true
                 };
 
@@ -211,30 +226,33 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (userExists || companyExists)
                 return Conflict(new { Message = "This email is already registered.", Field = "email" });
 
-            // Invalidate ANY existing OTPs for this email — mark used AND expired
-            // This ensures resend immediately kills old codes on BOTH checks
-            var existingOtps = await _context.EmailVerifications
-                .Where(ev => ev.Email == normalizedEmail && !ev.IsUsed)
-                .ToListAsync();
-            foreach (var oldOtp in existingOtps)
-            {
-                oldOtp.IsUsed = true;
-                oldOtp.ExpiresAt = DateTime.UtcNow.AddSeconds(-1); // force-expire immediately
-            }
-            await _context.SaveChangesAsync(); // flush invalidations before creating new OTP
+            // Try to reuse an existing unused OTP record for this email to avoid table bloat
+            var verification = await _context.EmailVerifications
+                .FirstOrDefaultAsync(ev => ev.Email == normalizedEmail && !ev.IsUsed);
 
             // Generate new 6-digit OTP
             var otp = new Random().Next(100000, 999999).ToString();
 
-            var verification = new EmailVerification
+            if (verification != null)
             {
-                Email = normalizedEmail,
-                OtpCode = otp,
-                ExpiresAt = DateTime.UtcNow.AddMinutes(10),
-                IsUsed = false,
-                CreatedAt = DateTime.UtcNow
-            };
-            _context.EmailVerifications.Add(verification);
+                // Update existing record
+                verification.OtpCode = otp;
+                verification.ExpiresAt = DateTime.UtcNow.AddMinutes(10);
+                verification.CreatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                // Create new record
+                verification = new EmailVerification
+                {
+                    Email = normalizedEmail,
+                    OtpCode = otp,
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+                    IsUsed = false,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.EmailVerifications.Add(verification);
+            }
             await _context.SaveChangesAsync();
 
             // Send OTP email via Mailgun
@@ -345,12 +363,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (string.IsNullOrWhiteSpace(dto.CurrentPassword))
                 throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Current password is required.", "currentPassword");
             
-            if (string.IsNullOrWhiteSpace(dto.NewPassword))
-                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "New password is required.", "newPassword");
-            
-            if (dto.NewPassword.Length < 6)
-                throw new ValidationException(ValidationErrors.PASSWORD_TOO_SHORT, "Password must be at least 6 characters.", "newPassword");
-
             var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
             if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
                 throw new UnauthorizedException(AuthorizationErrors.TOKEN_INVALID, "Invalid user token.");
@@ -358,6 +370,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
             var user = await _context.Users.FindAsync(userId);
             if (user == null)
                 throw new NotFoundException(NotFoundErrors.USER_NOT_FOUND, "User not found.");
+
+            var passwordValidation = PasswordValidator.Validate(dto.NewPassword, user.Email);
+            if (!passwordValidation.IsValid)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, passwordValidation.ErrorMessage!, "newPassword");
 
             if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
                 throw new ValidationException(ValidationErrors.INVALID_FORMAT, "Incorrect current password.", "currentPassword");

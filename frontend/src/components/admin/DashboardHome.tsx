@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, User, TrendingUp, DollarSign, Filter, ChevronDown, ExternalLink, Loader2, RefreshCw, ChevronLeft, ChevronRight, CalendarDays, Download, Printer } from 'lucide-react';
+import { Calendar, Clock, User, TrendingUp, CreditCard, Filter, ChevronDown, ExternalLink, Loader2, RefreshCw, ChevronLeft, ChevronRight, CalendarDays, Download, Printer } from 'lucide-react';
 import { AnalyticsChart } from './AnalyticsChart';
 import { MiniCalendar } from './MiniCalendar';
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken, getUserNameFromToken } from '../../utils/auth';
@@ -13,6 +13,15 @@ import { toast } from 'sonner';
 import { Skeleton } from '../ui/skeleton';
 import { CardSkeleton, ChartSkeleton } from '../ui/CardSkeleton';
 import { DateInput } from '../ui/DateInput';
+import { getCurrencySymbol, formatPrice } from '../../utils/currency';
+import { getDefaultCurrency } from '../../services/settingsService';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 // Types
 interface DashboardStats {
@@ -86,6 +95,7 @@ export function DashboardHome() {
   const [staffList, setStaffList] = useState<StaffOption[]>([]);
   const [fullStaffList, setFullStaffList] = useState<Staff[]>([]);
   const [servicesList, setServicesList] = useState<ServiceOption[]>([]);
+  const [defaultCurrency, setDefaultCurrency] = useState('');
   const userName = getToken() ? getUserNameFromToken(getToken()!) : 'Admin';
 
   const toggleStaff = (staffId: number) => {
@@ -563,7 +573,6 @@ export function DashboardHome() {
       printWindow.document.write(`<h2>Dashboard Statistics</h2>`);
       printWindow.document.write(`<p class="subtitle">Range: ${rangeTitle} (${dateRange.replace('_', ' ')})</p>`);
       printWindow.document.write(printContent.outerHTML);
-      printWindow.document.write('</body></html>');
       printWindow.document.close();
       printWindow.focus();
       printWindow.print();
@@ -608,6 +617,17 @@ export function DashboardHome() {
   useEffect(() => {
     fetchMetadata();
     refreshTimezone();
+    
+    // Load default currency
+    const loadCurrency = async () => {
+      try {
+        const currency = await getDefaultCurrency();
+        setDefaultCurrency(currency);
+      } catch (err) {
+        console.error('Failed to load currency:', err);
+      }
+    };
+    loadCurrency();
   }, []);
 
   useEffect(() => {
@@ -615,8 +635,12 @@ export function DashboardHome() {
   }, [selectedDate, listPage, selectedStaff, selectedServices, timezone]);
 
   useEffect(() => {
-    fetchAnalyticsData();
-  }, [dateRange, customStartDate, customEndDate, selectedServices, selectedStaff, fullStaffList, timezone]); 
+    // Wait until we have the company ID and currency loaded
+    if (defaultCurrency) {
+      fetchAnalyticsData(); // Assuming fetchAnalyticsData is the function to be renamed/replaced by fetchDashboardData
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange, customStartDate, customEndDate, selectedServices, selectedStaff, fullStaffList, timezone, defaultCurrency]); 
 
   useEffect(() => {
      fetchGlobalStats();
@@ -680,16 +704,16 @@ export function DashboardHome() {
         <div className="flex gap-3">
             <button
               onClick={handleRefresh}
-              className="p-2 bg-white text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+              className="p-2 bg-white text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm cursor-pointer"
               title="Refresh Dashboard"
             >
               <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
             <a 
-              href={companySlug ? `/book/${companySlug}` : `/?companyId=${getCompanyIdFromToken(getToken() || '')}`} 
+              href={companySlug ? `/book/${companySlug}` : `/book?companyId=${getCompanyIdFromToken(getToken() || '')}`} 
               target="_blank" 
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors cursor-pointer"
             >
               <ExternalLink className="w-4 h-4" />
               View Booking Page
@@ -753,10 +777,10 @@ export function DashboardHome() {
               <p className="text-xs text-gray-500 mt-0.5">
                 {dateRange === 'this_week' ? 'This Week' : dateRange === 'this_month' ? 'This Month' : dateRange === 'this_year' ? 'This Year' : 'Custom Period'}
               </p>
-              <p className="text-2xl font-bold mt-2">${stats.revenue.toLocaleString()}</p>
+              <p className="text-2xl font-bold mt-2">{formatPrice(stats.revenue, defaultCurrency)}</p>
             </div>
             <div className="bg-purple-100 p-3 rounded-lg">
-              <DollarSign className="w-5 h-5 text-purple-600" />
+              <CreditCard className="w-5 h-5 text-purple-600" />
             </div>
           </div>
         </div>
@@ -769,10 +793,9 @@ export function DashboardHome() {
           <div className="flex flex-wrap items-center gap-3">
             {/* Date Range */}
             <div className="relative">
-              <select
+              <Select
                 value={dateRange}
-                onChange={(e) => {
-                  const val = e.target.value;
+                onValueChange={(val) => {
                   setDateRange(val);
                   if (val === 'custom') {
                     setShowCustomDatePicker(true);
@@ -780,13 +803,17 @@ export function DashboardHome() {
                     setShowCustomDatePicker(false);
                   }
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                <option value="this_week">This Week</option>
-                <option value="this_month">This Month</option>
-                <option value="this_year">This Year</option>
-                <option value="custom">Custom</option>
-              </select>
+                <SelectTrigger className="w-[140px] bg-white border-gray-300">
+                  <SelectValue placeholder="Select Range" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="this_week">This Week</SelectItem>
+                  <SelectItem value="this_month">This Month</SelectItem>
+                  <SelectItem value="this_year">This Year</SelectItem>
+                  <SelectItem value="custom">Custom Range</SelectItem>
+                </SelectContent>
+              </Select>
               
               {/* Custom Date Range Picker */}
               {showCustomDatePicker && dateRange === 'custom' && (
@@ -818,7 +845,7 @@ export function DashboardHome() {
                           setDateRange('this_week');
                           setShowCustomDatePicker(false);
                         }}
-                        className="flex-1 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                        className="flex-1 px-3 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -830,7 +857,7 @@ export function DashboardHome() {
                             toast.error('Please select both start and end dates');
                           }
                         }}
-                        className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer"
                       >
                         Apply
                       </button>
@@ -845,7 +872,7 @@ export function DashboardHome() {
               <div className="relative">
                 <button
                   onClick={() => setShowStaffFilter(!showStaffFilter)}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
                 >
                   <Filter className="w-4 h-4" />
                   Staff {selectedStaff.length > 0 && `(${selectedStaff.length})`}
@@ -879,7 +906,7 @@ export function DashboardHome() {
               <div className="relative">
                 <button
                   onClick={() => setShowServiceFilter(!showServiceFilter)}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
                 >
                   <Filter className="w-4 h-4" />
                   Services {selectedServices.length > 0 && `(${selectedServices.length})`}
@@ -923,7 +950,12 @@ export function DashboardHome() {
                  <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
              </div>
           ) : (
-            <AnalyticsChart data={chartData} />
+             <div className="h-[350px] w-full">
+            <AnalyticsChart 
+              data={chartData} 
+              currencyCode={defaultCurrency} 
+            />
+          </div>
           )}
         </div>
       </div>
@@ -937,14 +969,14 @@ export function DashboardHome() {
                   <button 
                       onClick={handleExportCSV}
                       disabled={tableData.length === 0}
-                      className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                       <Download className="w-4 h-4" /> Export to CSV
                   </button>
                   <button 
                       onClick={handlePrint}
                       disabled={tableData.length === 0}
-                      className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                       <Printer className="w-4 h-4" /> Print
                   </button>
@@ -988,7 +1020,7 @@ export function DashboardHome() {
                                       <td className="px-4 py-3 text-center border-r border-gray-100 text-gray-400">{row.rejected}</td>
                                       <td className="px-4 py-3 text-center border-r border-gray-100 text-red-600">{row.cancelled}</td>
                                       <td className="px-4 py-3 text-center border-r border-gray-100">{row.customersTotal}</td>
-                                      <td className="px-4 py-3 font-medium text-gray-900 text-right">${row.revenue.toFixed(2)}</td>
+                                      <td className="px-4 py-3 font-medium text-gray-900 text-right">{getCurrencySymbol(defaultCurrency)}{row.revenue.toFixed(2)}</td>
                                   </tr>
                               ))}
                               {/* Total Row */}
@@ -1000,7 +1032,7 @@ export function DashboardHome() {
                                   <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.rejected, 0)}</td>
                                   <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.cancelled, 0)}</td>
                                   <td className="px-4 py-3 text-center border-r border-gray-200">{tableData.reduce((s, r) => s + r.customersTotal, 0)}</td>
-                                  <td className="px-4 py-3 text-right">${tableData.reduce((s, r) => s + r.revenue, 0).toFixed(2)}</td>
+                                  <td className="px-4 py-3 text-right">{getCurrencySymbol(defaultCurrency)}{tableData.reduce((s, r) => s + r.revenue, 0).toFixed(2)}</td>
                               </tr>
                           </>
                       )}
@@ -1030,7 +1062,7 @@ export function DashboardHome() {
                     <button
                         onClick={() => setListPage(p => Math.max(1, p - 1))}
                         disabled={listPage === 1 || isLoadingList}
-                        className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+                        className="p-1 hover:bg-gray-100 rounded disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                     >
                         <ChevronLeft className="w-5 h-5" />
                     </button>
@@ -1040,7 +1072,7 @@ export function DashboardHome() {
                     <button
                         onClick={() => setListPage(p => Math.min(Math.ceil(listTotalCount / listPageSize), p + 1))}
                         disabled={listPage >= Math.ceil(listTotalCount / listPageSize) || isLoadingList}
-                        className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+                        className="p-1 hover:bg-gray-100 rounded disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                     >
                         <ChevronRight className="w-5 h-5" />
                     </button>

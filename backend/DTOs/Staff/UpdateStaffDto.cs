@@ -29,7 +29,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Staff
         public bool? IsActive { get; set; }
 
         // Update services (will replace existing assignments)
-        public List<int>? ServiceIds { get; set; }
+        public List<StaffServiceUpdateDto>? Services { get; set; }
 
         [MinLength(6, ErrorMessage = "Your password must be at least 6 characters long")]
         public string? Password { get; set; }

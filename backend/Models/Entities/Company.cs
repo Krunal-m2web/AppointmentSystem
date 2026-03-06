@@ -93,5 +93,6 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         public ICollection<Customer> Customers { get; set; } = new List<Customer>();
         public ICollection<Service> Services { get; set; } = new List<Service>();
         public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();
+        public ICollection<Holiday> Holidays { get; set; } = new List<Holiday>();
     }
 }

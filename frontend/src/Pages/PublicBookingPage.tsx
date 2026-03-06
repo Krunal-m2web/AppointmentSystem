@@ -102,7 +102,7 @@ export function PublicBooking() {
               <div className="text-center">
                 <button
                   onClick={handleNewBooking}
-                  className="px-8 py-4 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50"
+                  className="px-8 py-4 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 cursor-pointer"
                   style={{ 
                     backgroundColor: bookingDetails?.colors?.primaryColor || '#4f46e5',
                     '--tw-ring-color': bookingDetails?.colors?.primaryColor || '#6366f1'

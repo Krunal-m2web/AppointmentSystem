@@ -6,15 +6,15 @@ import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { getToken, getCompanyIdFromToken, getRoleFromToken } from '../../utils/auth';
 import { getDefaultCurrency } from '../../services/settingsService';
-import { getCurrencySymbol } from '../../utils/currency';
+import { getCurrencySymbol, formatPrice } from '../../utils/currency';
 import { Skeleton } from '../ui/skeleton';
 
 export function ManageServices() {
   const [services, setServices] = useState<Service[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editingService, setEditingService] = useState<Partial<Service>>({});
-  const [loading, setLoading] = useState(false);
-  const [defaultCurrency, setDefaultCurrency] = useState('USD');
+  const [loading, setLoading] = useState(true);
+  const [defaultCurrency, setDefaultCurrency] = useState('');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -60,26 +60,33 @@ export function ManageServices() {
 
   useEffect(() => {
     loadDefaultCurrency();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    loadServices();
+    // Only load services if we have the default currency loaded
+    if (defaultCurrency) {
+      loadServices();
+    }
      // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, itemsPerPage, searchQuery]);
+  }, [currentPage, itemsPerPage, searchQuery, defaultCurrency]);
 
   const loadDefaultCurrency = async () => {
-    const currency = await getDefaultCurrency();
-    setDefaultCurrency(currency);
+    const token = getToken();
+    const companyId = token ? getCompanyIdFromToken(token) : undefined;
+    const currency = await getDefaultCurrency(companyId);
+    setDefaultCurrency(currency || 'USD'); // Fallback to USD only if API fails/returns nothing
+    return currency;
   };
 
-  const loadServices = async () => {
+  const loadServices = async (currencyOverride?: string) => {
     try {
       setLoading(true);
       const data = await fetchServices({
         page: currentPage,
         pageSize: itemsPerPage,
-        searchTerm: searchQuery
+        searchTerm: searchQuery,
+        currency: currencyOverride || defaultCurrency
       });
       
       // Handle potential race condition or stale backend (which might return an array)
@@ -142,7 +149,11 @@ export function ManageServices() {
 
 
   const handleEdit = (service: Service) => {
-    setEditingService(service);
+    setEditingService({
+        ...service,
+        // Ensure price is a number if it comes as a string
+        price: typeof service.price === 'string' ? parseFloat(service.price) : service.price
+    });
     setIsEditing(true);
   };
 
@@ -172,7 +183,7 @@ export function ManageServices() {
       const servicePayload = { 
         ...editingService, 
         companyId,
-        currency: defaultCurrency // Ensure currency is set
+        currency: editingService.currency || defaultCurrency
       };
 
       if (editingService.id) {
@@ -233,7 +244,7 @@ export function ManageServices() {
     setDeleteServiceId(id);
   };
 
-  const currencySymbol = getCurrencySymbol(defaultCurrency);
+  const currencySymbol = defaultCurrency ? getCurrencySymbol(defaultCurrency) : '';
 
   return (
     <div className="p-8">
@@ -256,7 +267,7 @@ export function ManageServices() {
                 </div>
                 <button
                   onClick={() => setIsEditing(false)}
-                  className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-white hover:rotate-90"
+                  className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-white hover:rotate-90 cursor-pointer"
                   type="button"
                 >
                   <X className="w-5 h-5" />
@@ -346,78 +357,103 @@ export function ManageServices() {
                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
                       <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                         <div className="p-1.5 bg-emerald-100 rounded-lg">
-                          <DollarSign className="w-4 h-4 text-emerald-600" />
+                          <span className="w-4 h-4 text-emerald-600 flex items-center justify-center font-bold text-xs">{currencySymbol}</span>
                         </div>
                         Pricing & Duration
                       </h3>
                     </div>
                     <div className="p-5">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Price ({currencySymbol}) <span className="text-red-500">*</span>
-                          </label>
-                          <div className="relative">
-                            <span className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-gray-400 font-medium">{currencySymbol}</span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={editingService.price ?? ''}
-                              onChange={e => {
-                                setEditingService({...editingService, price: e.target.value === '' ? undefined : parseFloat(e.target.value)});
-                                if (formErrors.price) {
-                                  const newErrors = { ...formErrors };
-                                  delete newErrors.price;
-                                  setFormErrors(newErrors);
-                                }
-                              }}
-                              placeholder="0.00"
-                              className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
-                                formErrors.price ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
-                              }`}
-                            />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Price field */}
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Price ({currencySymbol}) <span className="text-red-500">*</span>
+                            </label>
+                            <div className="relative">
+                              <span className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-gray-400 font-medium">{currencySymbol}</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={editingService.price ?? ''}
+                                onChange={e => {
+                                  setEditingService({...editingService, price: e.target.value === '' ? undefined : parseFloat(e.target.value)});
+                                  if (formErrors.price) {
+                                    const newErrors = { ...formErrors };
+                                    delete newErrors.price;
+                                    setFormErrors(newErrors);
+                                  }
+                                }}
+                                placeholder="0.00"
+                                className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
+                                  formErrors.price ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
+                                }`}
+                              />
+                            </div>
+                            {formErrors.price && (
+                              <p className="text-red-600 text-xs mt-1.5 font-medium">
+                                {formErrors.price}
+                              </p>
+                            )}
                           </div>
-                          {formErrors.price && (
-                            <p className="text-red-600 text-xs mt-1.5 font-medium">
-                              {formErrors.price}
-                            </p>
-                          )}
+                          {/* Duration field */}
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Duration (minutes) <span className="text-red-500">*</span>
+                            </label>
+                            <div className="relative">
+                              <Clock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={editingService.serviceDuration ?? ''}
+                                onChange={e => {
+                                  setEditingService({...editingService, serviceDuration: e.target.value === '' ? undefined : parseInt(e.target.value)});
+                                  if (formErrors.serviceDuration) {
+                                    const newErrors = { ...formErrors };
+                                    delete newErrors.serviceDuration;
+                                    setFormErrors(newErrors);
+                                  }
+                                }}
+                                placeholder="30"
+                                className={`w-full pl-10 pr-16 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
+                                  formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
+                                }`}
+                              />
+                              <span className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">min</span>
+                            </div>
+                            {formErrors.serviceDuration && (
+                              <p className="text-red-600 text-xs mt-1.5 font-medium">
+                                {formErrors.serviceDuration}
+                              </p>
+                            )}
+                          </div>
+                          {/* Buffer Time field */}
+                          <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Buffer Time After Appointment
+                            </label>
+                            <div className="relative">
+                              <Clock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                              <select
+                                value={editingService.bufferTimeMinutes ?? 0}
+                                onChange={e => setEditingService({...editingService, bufferTimeMinutes: parseInt(e.target.value)})}
+                                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white appearance-none"
+                              >
+                                <option value={0}>No buffer</option>
+                                <option value={5}>5 minutes</option>
+                                <option value={10}>10 minutes</option>
+                                <option value={15}>15 minutes</option>
+                                <option value={30}>30 minutes</option>
+                                <option value={45}>45 minutes</option>
+                                <option value={60}>60 minutes</option>
+                              </select>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1.5">Blocks the calendar after each appointment (e.g. for cleanup or travel).</p>
+                          </div>
                         </div>
 
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Duration (minutes) <span className="text-red-500">*</span>
-                          </label>
-                          <div className="relative">
-                            <Clock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={editingService.serviceDuration ?? ''}
-                              onChange={e => {
-                                setEditingService({...editingService, serviceDuration: e.target.value === '' ? undefined : parseInt(e.target.value)});
-                                if (formErrors.serviceDuration) {
-                                  const newErrors = { ...formErrors };
-                                  delete newErrors.serviceDuration;
-                                  setFormErrors(newErrors);
-                                }
-                              }}
-                              placeholder="30"
-                              className={`w-full pl-10 pr-16 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
-                                formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
-                              }`}
-                            />
-                            <span className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">min</span>
-                          </div>
-                          {formErrors.serviceDuration && (
-                            <p className="text-red-600 text-xs mt-1.5 font-medium">
-                              {formErrors.serviceDuration}
-                            </p>
-                          )}
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -428,19 +464,19 @@ export function ManageServices() {
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  className="flex-1 px-5 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium"
+                  className="flex-1 px-5 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all font-medium shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all font-medium shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {isSubmitting ? (
                     <span className="flex items-center justify-center gap-2">
-                       <Loader2 className="w-4 h-4 animate-spin" />
-                       Saving...
+                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                       {editingService.id ? 'Update Service' : 'Create Service'}
                     </span>
                   ) : (
                     editingService.id ? 'Update Service' : 'Create Service'
@@ -471,7 +507,7 @@ export function ManageServices() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleAddNew}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm shadow-sm cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Add Service
@@ -481,7 +517,7 @@ export function ManageServices() {
       </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            {loading ? (
+            {(!defaultCurrency || loading) ? (
                 <div className="divide-y divide-gray-100">
                   {Array.from({ length: 5 }).map((_, i) => (
                     <div key={i} className="px-6 py-4">
@@ -518,7 +554,7 @@ export function ManageServices() {
                                 <div className="col-span-3 cursor-pointer hover:bg-gray-100">Service Name</div>
                                 <div className="col-span-4 cursor-pointer hover:bg-gray-100">Description</div>
                                 <div className="col-span-2 cursor-pointer hover:bg-gray-100">Duration</div>
-                                <div className="col-span-1 cursor-pointer hover:bg-gray-100">Price</div>
+                                <div className="col-span-1 cursor-pointer hover:bg-gray-100">Price ({currencySymbol})</div>
                                 <div className="col-span-1 text-right">Actions</div>
                             </div>
                         </div>
@@ -546,25 +582,25 @@ export function ManageServices() {
                                         <Clock className="w-4 h-4 text-gray-400" /> {service.serviceDuration} min
                                     </span>
                                 </div>
-                                <div className="col-span-1">
-                                    <span className="text-sm text-gray-600">
-                                        {currencySymbol}{service.price}
-                                    </span>
-                                </div>
+                                 <div className="col-span-1">
+                                     <span className="text-sm text-gray-600">
+                                         {formatPrice(service.price, service.currency || defaultCurrency)}
+                                     </span>
+                                 </div>
                                 <div className="col-span-1 flex justify-end">
                                     {/* Edit/Delete Actions - Restricted */}
                                     {!(getRoleFromToken(getToken() || '') === 'Staff') && (
                                       <div className="flex items-center gap-1">
                                           <button 
                                               onClick={() => handleEdit(service)}
-                                              className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                                              className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200 cursor-pointer"
                                               title="Edit Service"
                                           >
                                               <Pencil className="w-4 h-4" />
                                           </button>
                                           <button 
                                               onClick={() => handleDelete(service.id)}
-                                              className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                                              className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200 cursor-pointer"
                                               title="Delete Service"
                                           >
                                               <Trash2 className="w-4 h-4" />
@@ -602,7 +638,7 @@ export function ManageServices() {
                                 <button
                                     onClick={() => setShowBulkDeleteConfirm(true)}
                                     disabled={isBulkDeleting}
-                                    className="flex items-center gap-2 px-4 py-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-all text-sm shadow-sm active:scale-95 font-medium disabled:opacity-50"
+                                    className="flex items-center gap-2 px-4 py-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-all text-sm shadow-sm active:scale-95 font-medium disabled:opacity-50 cursor-pointer"
                                 >
                                     {isBulkDeleting ? (
                                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -615,7 +651,7 @@ export function ManageServices() {
                             <button
                                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                 disabled={currentPage === 1 || loading}
-                                className="p-2 border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+                                className="p-2 border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 cursor-pointer disabled:cursor-not-allowed"
                             >
                                 <ChevronLeft className="w-4 h-4" />
                             </button>
@@ -625,7 +661,7 @@ export function ManageServices() {
                             <button
                                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                                 disabled={currentPage === totalPages || totalPages === 0 || loading}
-                                className="p-2 border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+                                className="p-2 border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 cursor-pointer disabled:cursor-not-allowed"
                             >
                                 <ChevronRight className="w-4 h-4" />
                             </button>

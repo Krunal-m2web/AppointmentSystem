@@ -49,4 +49,26 @@ namespace Appointmentbookingsystem.Backend.DTOs.Availability
 
         public bool IsAvailable { get; set; } = true;
     }
+
+    public class BulkAvailabilityDto
+    {
+        [Required]
+        public int StaffId { get; set; }
+
+        public List<AvailabilitySlotDto> Slots { get; set; } = new();
+    }
+
+    public class AvailabilitySlotDto
+    {
+        [Required]
+        public DayOfWeek DayOfWeek { get; set; }
+
+        [Required]
+        public TimeSpan StartTime { get; set; }
+
+        [Required]
+        public TimeSpan EndTime { get; set; }
+
+        public bool IsAvailable { get; set; } = true;
+    }
 }

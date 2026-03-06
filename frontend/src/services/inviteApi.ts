@@ -36,3 +36,28 @@ export const validateInvite = async (token: string) => {
   if (!res.ok) return { isValid: false };
   return res.json() as Promise<ValidateInviteResponse>;
 };
+
+export const sendInviteEmail = async (
+  inviteToken: string,
+  email: string,
+  registrationLink: string
+) => {
+  const token = getToken();
+  const res = await fetch(`${API_BASE_URL}/api/staff-invites/send-email`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      token: inviteToken,
+      email,
+      registrationLink,
+    }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || "Failed to send invite email");
+  }
+  return res.json();
+};

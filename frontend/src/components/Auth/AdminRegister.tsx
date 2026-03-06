@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { adminRegister, sendOtp, verifyOtp } from '../../services/authService';
 import type { AdminRegisterDto } from '../../types/auth.types';
 import { parseApiError } from '../../utils/error';
+import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
 import { getCountries, Country } from 'react-phone-number-input/input';
 import en from 'react-phone-number-input/locale/en';
 
@@ -56,6 +57,30 @@ const AdminRegister = () => {
     return () => clearTimeout(timer);
   }, [resendCooldown]);
 
+  // Auto-detect country on mount
+  useEffect(() => {
+    if (!companyCountryCode) {
+      try {
+        const locale = navigator.language;
+        // Simple way to get country code from locale (e.g., 'en-IN' -> 'IN')
+        const region = locale.includes('-') ? locale.split('-')[1].toUpperCase() : undefined;
+        
+        if (region && getCountries().includes(region as Country)) {
+          handleCompanyCountryChange(region as Country);
+        } else {
+          // Fallback check: sometimes locale is just 'en' or similar
+          // We can't do much without a region, but let's check if the whole locale is a country code
+          const upperLocale = locale.toUpperCase();
+          if (getCountries().includes(upperLocale as Country)) {
+            handleCompanyCountryChange(upperLocale as Country);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to auto-detect country:", err);
+      }
+    }
+  }, []);
+
   // Country List Logic
   const countryOptions = useMemo(() => {
     return getCountries().map((country) => ({
@@ -77,9 +102,15 @@ const AdminRegister = () => {
   };
 
   const handleCompanyCountryChange = (code: Country) => {
+    if (!code) return;
+    const countryName = en[code] || code;
     setCompanyCountryCode(code);
-    setCompanyCountry(en[code] || code);
-    setCurrency(getCurrencyForCountry(code));
+    setCompanyCountry(countryName);
+    
+    const mappedCurrency = getCurrencyForCountry(code);
+    setCurrency(mappedCurrency);
+    
+    console.log(`Country changed to: ${countryName} (${code}), mapping currency to: ${mappedCurrency}`);
     clearFieldError('companyCountry');
   };
 
@@ -96,8 +127,14 @@ const AdminRegister = () => {
     if (!email.trim()) errors.email = 'Email is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Invalid email address';
 
-    if (!password) errors.password = 'Password is required';
-    else if (password.length < 6) errors.password = 'Min 6 characters';
+    if (!password) {
+      errors.password = 'Password is required';
+    } else {
+      const passValid = validatePassword(password, email);
+      if (!passValid.isValid) {
+        errors.password = 'Password does not meet requirements';
+      }
+    }
 
     setFieldErrors(prev => ({ ...prev, ...errors }));
     return Object.keys(errors).length === 0;
@@ -143,8 +180,12 @@ const AdminRegister = () => {
 
   const handlePasswordChange = (val: string) => {
     setPassword(val);
-    if (val.length > 0 && val.length < 6) setFieldErrors(prev => ({ ...prev, password: 'Min 6 characters' }));
-    else clearFieldError('password');
+    const passValid = validatePassword(val, email);
+    if (val.length > 0 && !passValid.isValid) {
+      setFieldErrors(prev => ({ ...prev, password: 'Does not meet requirements' }));
+    } else {
+      clearFieldError('password');
+    }
   };
 
   // --- OTP input handlers ---
@@ -451,7 +492,7 @@ const AdminRegister = () => {
                         value={password}
                         onChange={e => handlePasswordChange(e.target.value)}
                         className={getInputClass('password')}
-                        placeholder="Min 6 characters"
+                        placeholder="Enter a strong password"
                       />
                       <button
                         type="button"
@@ -461,7 +502,37 @@ const AdminRegister = () => {
                         {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
                     </div>
-                    {fieldErrors.password && <p className="mt-1 text-sm text-red-500">{fieldErrors.password}</p>}
+                    
+                    {/* Password Requirements Checklist */}
+                    <div className="mt-3 bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Password Requirements</p>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {PASSWORD_REQUIREMENTS.map((req) => {
+                          const isMet = req.test(password);
+                          return (
+                            <div key={req.id} className="flex items-center gap-2">
+                              <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${isMet ? 'bg-emerald-500' : 'bg-gray-200'}`}>
+                                {isMet && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                              </div>
+                              <span className={`text-[11px] ${isMet ? 'text-emerald-600 font-medium' : 'text-gray-500'}`}>
+                                {req.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {/* Email match check */}
+                        <div className="flex items-center gap-2">
+                          <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${password && email && password.toLowerCase() !== email.toLowerCase() ? 'bg-emerald-500' : 'bg-gray-200'}`}>
+                            {password && email && password.toLowerCase() !== email.toLowerCase() && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                          </div>
+                          <span className={`text-[11px] ${password && email && password.toLowerCase() !== email.toLowerCase() ? 'text-emerald-600 font-medium' : 'text-gray-500'}`}>
+                            Must not match email
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {fieldErrors.password && <p className="mt-2 text-sm text-red-500 font-medium">{fieldErrors.password}</p>}
                   </div>
 
                   {/* VERIFY EMAIL button (replaces Next Step) */}

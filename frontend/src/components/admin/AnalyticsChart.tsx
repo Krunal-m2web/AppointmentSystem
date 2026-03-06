@@ -9,6 +9,7 @@ import {
     Tooltip,
     Legend,
 } from 'recharts';
+import { formatPrice, formatPriceShort } from '../../utils/currency';
 
 interface ChartDataPoint {
     date: string;
@@ -18,10 +19,11 @@ interface ChartDataPoint {
 
 interface AnalyticsChartProps {
     data: ChartDataPoint[];
+    currencyCode?: string;
 }
 
 // Custom tooltip for clean display
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label, currencyCode = 'USD' }: any) => {
     if (active && payload && payload.length) {
         return (
             <div className="bg-white p-4 rounded-lg shadow-lg border border-gray-200">
@@ -33,7 +35,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
                     </div>
                     <div className="flex justify-between gap-4">
                         <span className="text-green-600">Revenue:</span>
-                        <span className="font-medium">${(payload.find((p: any) => p.dataKey === 'revenue')?.value || 0).toLocaleString()}</span>
+                        <span className="font-medium">{formatPrice(payload.find((p: any) => p.dataKey === 'revenue')?.value || 0, currencyCode)}</span>
                     </div>
                 </div>
             </div>
@@ -42,7 +44,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
-export function AnalyticsChart({ data }: AnalyticsChartProps) {
+export function AnalyticsChart({ data, currencyCode = 'USD' }: AnalyticsChartProps) {
     // Calculate max values for proper axis scaling
     const maxAppointments = Math.max(...data.map(d => d.appointments), 1);
     const maxRevenue = Math.max(...data.map(d => d.revenue), 100);
@@ -66,10 +68,10 @@ export function AnalyticsChart({ data }: AnalyticsChartProps) {
                 <YAxis
                     yAxisId="left"
                     orientation="left"
-                    label={{ value: 'Revenue ($)', angle: -90, position: 'insideLeft', style: { fill: '#10B981', fontWeight: 600 } }}
+                    label={{ value: `Revenue`, angle: -90, position: 'insideLeft', style: { fill: '#10B981', fontWeight: 600 } }}
                     tick={{ fill: '#10B981', fontSize: 12 }}
                     domain={[0, revenueAxisMax]}
-                    tickFormatter={(value) => `$${value}`}
+                    tickFormatter={(value) => formatPriceShort(value, currencyCode)}
                 />
 
                 {/* Right Y-Axis for Appointments */}
@@ -82,7 +84,7 @@ export function AnalyticsChart({ data }: AnalyticsChartProps) {
                     allowDecimals={false}
                 />
 
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<CustomTooltip currencyCode={currencyCode} />} />
 
                 <Legend
                     wrapperStyle={{ paddingTop: '20px' }}
@@ -94,7 +96,7 @@ export function AnalyticsChart({ data }: AnalyticsChartProps) {
                     yAxisId="left"
                     dataKey="revenue"
                     fill="#10B981"
-                    name="Revenue ($)"
+                    name={`Revenue`}
                     radius={[4, 4, 0, 0]}
                     opacity={0.8}
                     isAnimationActive={true}

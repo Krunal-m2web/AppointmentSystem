@@ -1,11 +1,12 @@
 import { getAuthHeaders } from "./staffApi";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
 export interface CompanyResponse {
   companyName: string;
   email: string;
   phone?: string;
+  address?: string;
   websiteUrl?: string;
   logoUrl?: string;
   slug?: string;

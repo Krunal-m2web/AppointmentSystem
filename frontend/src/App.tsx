@@ -11,14 +11,24 @@ import AdminRegister from './components/Auth/AdminRegister';
 import { ProtectedRoute } from './components/Auth/ProtectedRoute';
 import { AdminDashboard } from './Pages/AdminPage';
 import { SettingsPage } from './components/admin/SettingsPage';
-import { getToken, clearToken } from './utils/auth';
+import { getToken, clearToken, getRoleFromToken } from './utils/auth';
 import { jwtDecode } from 'jwt-decode';
 import { Toaster } from './components/ui/sonner';
 
 import { ManageBookingPage } from './Pages/ManageBookingPage';
 
 export default function App() {
-  const handleLogout = (redirectPath: string) => {
+  const handleLogout = () => {
+    const token = getToken();
+    let redirectPath = '/auth/staff'; // Default to staff login
+    
+    if (token) {
+      const role = getRoleFromToken(token);
+      if (role === 'Admin') {
+        redirectPath = '/'; // Admin login is at root
+      }
+    }
+    
     clearToken();
     window.location.href = redirectPath;
   };
@@ -45,7 +55,7 @@ export default function App() {
           path="/appointment/staff" 
           element={
             <ProtectedRoute>
-              <AdminDashboard onLogout={() => handleLogout('/auth/staff')} />
+              <AdminDashboard onLogout={handleLogout} />
             </ProtectedRoute>
           } 
         />

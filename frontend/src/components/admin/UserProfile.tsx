@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { User, Mail, Lock, Shield, Save, Eye, EyeOff, Key } from 'lucide-react';
+import { User, Mail, Lock, Shield, Save, Eye, EyeOff, Key, AlertCircle } from 'lucide-react';
 import { getToken, getUserNameFromToken, getRoleFromToken, getEmailFromToken } from '../../utils/auth';
 import { changePassword } from '../../services/authService';
 import { jwtDecode } from 'jwt-decode';
 import { toast } from 'sonner';
+import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
 
 export function UserProfile() {
   const [userName, setUserName] = useState('');
@@ -22,6 +23,7 @@ export function UserProfile() {
   
   const [isUpdating, setIsUpdating] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [failedPasswordRequirements, setFailedPasswordRequirements] = useState<string[]>([]);
 
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export function UserProfile() {
 
   const validatePasswordForm = () => {
     const errors: Record<string, string> = {};
+    let failedReqs: string[] = [];
     
     if (!passwords.current) {
       errors.current = "Current password is required";
@@ -46,8 +49,12 @@ export function UserProfile() {
 
     if (!passwords.new) {
       errors.new = "New password is required";
-    } else if (passwords.new.length < 6) {
-      errors.new = "Password must be at least 6 characters long";
+    } else {
+      const validation = validatePassword(passwords.new, userEmail);
+      if (!validation.isValid) {
+        errors.new = "Password does not meet requirements";
+        failedReqs = validation.errors;
+      }
     }
 
     if (!passwords.confirm) {
@@ -57,6 +64,7 @@ export function UserProfile() {
     }
 
     setFormErrors(errors);
+    setFailedPasswordRequirements(failedReqs);
     return Object.keys(errors).length === 0;
   };
 
@@ -229,6 +237,22 @@ export function UserProfile() {
                   {formErrors.new && (
                       <p className="text-red-500 text-xs mt-1.5 font-medium">{formErrors.new}</p>
                   )}
+
+                  {/* FAILED REQUIREMENTS LIST */}
+                  {failedPasswordRequirements.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {PASSWORD_REQUIREMENTS.map((req) => {
+                        const isMet = req.test(passwords.new);
+                        if (isMet) return null;
+                        return (
+                          <div key={req.id} className="flex items-center gap-1.5 text-[11px] text-red-500 font-medium">
+                            <AlertCircle className="w-3 h-3" />
+                            <span>{req.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -265,10 +289,14 @@ export function UserProfile() {
                 <button
                   type="submit"
                   disabled={isUpdating}
-                  className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:bg-gray-300 transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 active:scale-[0.98]"
+                  className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:bg-gray-300 transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
                 >
-                  <Save className="w-4.5 h-4.5" />
-                  {isUpdating ? 'Saving...' : 'Save Password'}
+                  {isUpdating ? (
+                    <div className="w-4.5 h-4.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Save className="w-4.5 h-4.5" />
+                  )}
+                  Save Password
                 </button>
               </div>
             </form>

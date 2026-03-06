@@ -128,7 +128,7 @@ const RescheduleCalendar: React.FC<RescheduleCalendarProps> = ({
                       Select Date
                   </h3>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => changeMonth(-1)} className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors">
+                    <button onClick={() => changeMonth(-1)} className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors cursor-pointer">
                         <ChevronLeft className="w-4 h-4" />
                     </button>
                     <AnimatePresence mode="wait" custom={direction}>
@@ -144,7 +144,7 @@ const RescheduleCalendar: React.FC<RescheduleCalendarProps> = ({
                             {currentMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
                         </motion.span>
                     </AnimatePresence>
-                    <button onClick={() => changeMonth(1)} className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors">
+                    <button onClick={() => changeMonth(1)} className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors cursor-pointer">
                         <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
@@ -221,6 +221,7 @@ const RescheduleCalendar: React.FC<RescheduleCalendarProps> = ({
                                                 ${isSelected 
                                                     ? "bg-indigo-600 text-white border-indigo-600 shadow-sm scale-[1.05]" 
                                                     : "bg-white text-indigo-700 border-indigo-100 hover:border-indigo-600 hover:bg-indigo-50"}
+                                                cursor-pointer
                                             `}
                                         >
                                             {time}
@@ -435,6 +436,7 @@ export const ManageBookingPage: React.FC = () => {
                 const timeOffs = await fetchStaffTimeOffs(appointment.staffId);
                 const disabledDates: Date[] = [];
                 timeOffs.forEach((t) => {
+                    if (t.status === 'Rejected') return;
                     const start = new Date(t.startDateTimeUtc);
                     const end = new Date(t.endDateTimeUtc);
                     let d = new Date(start);

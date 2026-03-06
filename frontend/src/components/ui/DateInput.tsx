@@ -171,7 +171,7 @@ export function DateInput({ value, onChange, placeholder = 'mm/dd/yyyy', classNa
             <button
               type="button"
               onClick={previousMonth}
-              className="p-1 hover:bg-gray-100 rounded transition-colors"
+              className="p-1 hover:bg-gray-100 rounded transition-colors cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -209,7 +209,7 @@ export function DateInput({ value, onChange, placeholder = 'mm/dd/yyyy', classNa
             <button
               type="button"
               onClick={nextMonth}
-              className="p-1 hover:bg-gray-100 rounded transition-colors"
+              className="p-1 hover:bg-gray-100 rounded transition-colors cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -231,7 +231,7 @@ export function DateInput({ value, onChange, placeholder = 'mm/dd/yyyy', classNa
                   type="button"
                   disabled={!date}
                   onClick={() => date && handleDateSelect(date)}
-                  className={`aspect-square flex items-center justify-center text-sm rounded transition-colors ${
+                  className={`aspect-square flex items-center justify-center text-sm rounded transition-colors cursor-pointer ${
                     !date
                       ? 'invisible'
                       : selectedDate && isSameDay(date, selectedDate)

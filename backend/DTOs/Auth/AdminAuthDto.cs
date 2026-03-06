@@ -35,6 +35,10 @@ namespace Appointmentbookingsystem.Backend.DTOs.Auth
         public string CompanyCountry { get; set; } = null!;
 
         [Required]
+        [MaxLength(100)]
+        public string Timezone { get; set; } = "UTC";
+
+        [Required]
         [StringLength(6, MinimumLength = 6)]
         public string OtpCode { get; set; } = null!;
     }

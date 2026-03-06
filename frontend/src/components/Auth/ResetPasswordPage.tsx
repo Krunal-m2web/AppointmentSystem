@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { resetPassword } from '../../services/authService';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Lock, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, Lock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -14,6 +15,8 @@ export default function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [failedRequirements, setFailedRequirements] = useState<string[]>([]);
+  const [showFailedReqs, setShowFailedReqs] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -26,8 +29,11 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     if (!token) return;
 
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    const validation = validatePassword(password);
+    if (!validation.isValid) {
+      setFailedRequirements(validation.errors);
+      setShowFailedReqs(true);
+      toast.error("Password does not meet requirements");
       return;
     }
 
@@ -91,7 +97,7 @@ export default function ResetPasswordPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                placeholder="Min 6 characters"
+                placeholder="Enter a strong password"
                 required
               />
               <button
@@ -102,6 +108,30 @@ export default function ResetPasswordPage() {
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
+
+            {/* FAILED REQUIREMENTS LIST */}
+            {showFailedReqs && failedRequirements.length > 0 && (
+              <div className="mt-3 bg-red-50 rounded-xl p-4 border border-red-100 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertCircle className="w-4 h-4 text-red-500" />
+                  <p className="text-xs font-bold text-red-700 uppercase tracking-wider">Required Improvements:</p>
+                </div>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {PASSWORD_REQUIREMENTS.map((req) => {
+                    const isMet = req.test(password);
+                    if (isMet) return null;
+                    return (
+                      <div key={req.id} className="flex items-start gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-red-400 mt-1.5 shrink-0" />
+                        <span className="text-sm text-red-600 font-medium leading-tight">
+                          {req.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

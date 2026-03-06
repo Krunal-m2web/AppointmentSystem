@@ -15,11 +15,11 @@ namespace Appointmentbookingsystem.Backend.DTOs.Customer
 
     public class LogEntryDto
     {
-        public string Id { get; set; }
-        public string Type { get; set; }
+        public string Id { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
         public DateTime Date { get; set; }
-        public string Subject { get; set; } // For Email
-        public string Message { get; set; } // For SMS
-        public string Status { get; set; }
+        public string Subject { get; set; } = string.Empty; // For Email
+        public string Message { get; set; } = string.Empty; // For SMS
+        public string Status { get; set; } = string.Empty;
     }
 }

@@ -26,6 +26,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
         // Appointment Details (renamed to match entity)
         public DateTime StartDateTime { get; set; }
         public DateTime EndDateTime { get; set; }
+        public int Duration { get; set; } // Duration in minutes
         public MeetingType MeetingType { get; set; }
         public AppointmentStatus Status { get; set; }
 
@@ -36,6 +37,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
         public PaymentStatus PaymentStatus { get; set; }
 
         public DateTime CreatedAt { get; set; }
+        public string? Notes { get; set; }
         
         // Admin Rules
         public bool AllowCustomerRescheduling { get; set; }

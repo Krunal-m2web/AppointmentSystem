@@ -175,14 +175,14 @@ export function Calendar({
           <button
             type="button"
             onClick={previousPeriod}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <button
             type="button"
             onClick={nextPeriod}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
@@ -213,7 +213,7 @@ export function Calendar({
                     ? 'bg-indigo-600 text-white'
                     : isToday(date)
                       ? 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'
-                      : 'hover:bg-gray-100'
+                      : 'hover:bg-gray-100 cursor-pointer'
                 }`}
             >
               {date?.getDate()}
@@ -313,7 +313,7 @@ export function MiniCalendar({ selectedDate, onSelectDate, isUnavailable }: Mini
           <button
             type="button"
             onClick={previousMonth}
-            className="p-1 hover:bg-gray-100 rounded transition-colors"
+            className="p-1 hover:bg-gray-100 rounded transition-colors cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -323,7 +323,7 @@ export function MiniCalendar({ selectedDate, onSelectDate, isUnavailable }: Mini
            <button
             type="button"
             onClick={nextMonth}
-            className="p-1 hover:bg-gray-100 rounded transition-colors"
+            className="p-1 hover:bg-gray-100 rounded transition-colors cursor-pointer"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -372,7 +372,7 @@ export function MiniCalendar({ selectedDate, onSelectDate, isUnavailable }: Mini
                         ? 'bg-indigo-600 text-white font-semibold'
                         : isToday(date)
                           ? 'bg-indigo-100 text-indigo-700 font-medium'
-                          : 'hover:bg-gray-100'
+                          : 'hover:bg-gray-100 cursor-pointer'
                   }`}
               >
                 {date?.getDate()}

@@ -19,4 +19,11 @@ namespace Appointmentbookingsystem.Backend.DTOs
         public string InviteLink { get; set; } = string.Empty;
         public DateTime ExpiresAt { get; set; }
     }
+
+    public class SendInviteEmailDto
+    {
+        public string Token { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string RegistrationLink { get; set; } = string.Empty;
+    }
 }

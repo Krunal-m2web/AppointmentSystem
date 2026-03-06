@@ -30,5 +30,8 @@ namespace Appointmentbookingsystem.Backend.DTOs.Appointment
         public string? Notes { get; set; }
 
         public decimal? Price { get; set; }
+        
+        [MaxLength(3)]
+        public string? CurrencyCode { get; set; }
     }
 }

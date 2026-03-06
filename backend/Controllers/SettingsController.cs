@@ -30,91 +30,65 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
         /// <summary>
         /// GET /api/settings/currency
-        /// Returns the current default currency from configuration
+        /// Returns the company's default currency from the database.
+        /// Accepts optional companyId query param (for public booking page);
+        /// otherwise reads CompanyId from the JWT token.
         /// </summary>
         [HttpGet("currency")]
-        public ActionResult<string> GetDefaultCurrency()
+        public async Task<ActionResult<string>> GetDefaultCurrency([FromQuery] int? companyId)
         {
-            var currency = _configuration["AppSettings:DefaultCurrency"] ?? "USD";
-            return Ok(currency);
+            // Resolve companyId: prefer query param (public booking), then JWT claim (admin)
+            if (!companyId.HasValue)
+            {
+                var claimId = User.FindFirst("CompanyId")?.Value;
+                if (!string.IsNullOrEmpty(claimId))
+                    companyId = int.Parse(claimId);
+            }
+
+            // Fallback to global config default if no company resolved
+            if (!companyId.HasValue)
+            {
+                var fallback = _configuration["AppSettings:DefaultCurrency"] ?? "USD";
+                return Ok(fallback);
+            }
+
+            var company = await _context.Companies.FindAsync(companyId.Value);
+            if (company == null)
+                return Ok(_configuration["AppSettings:DefaultCurrency"] ?? "USD");
+
+            return Ok(company.Currency);
         }
 
         /// <summary>
         /// PUT /api/settings/currency
-        /// Updates the default currency in appsettings.json
-        /// Admin only - requires authentication
+        /// Updates the company's default currency in the database.
+        /// Admin only - requires authentication.
         /// </summary>
         [HttpPut("currency")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> UpdateDefaultCurrency([FromBody] string currency)
         {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(currency))
-                {
-                    return BadRequest("Currency code cannot be empty");
-                }
+            if (string.IsNullOrWhiteSpace(currency))
+                return BadRequest("Currency code cannot be empty");
 
-                // Validate currency code (basic validation - 3 letter code)
-                currency = currency.ToUpperInvariant().Trim();
-                if (currency.Length != 3)
-                {
-                    return BadRequest("Currency code must be a 3-letter code (e.g., USD, EUR, INR)");
-                }
+            // Validate currency code (basic validation - 3 letter ISO code)
+            currency = currency.ToUpperInvariant().Trim();
+            if (currency.Length != 3)
+                return BadRequest("Currency code must be a 3-letter code (e.g., USD, EUR, INR)");
 
-                // Determine which appsettings file to update
-                var fileName = _environment.IsDevelopment() 
-                    ? "appsettings.Development.json" 
-                    : "appsettings.json";
-                
-                var filePath = Path.Combine(_environment.ContentRootPath, fileName);
+            var claimId = User.FindFirst("CompanyId")?.Value;
+            if (string.IsNullOrEmpty(claimId))
+                return Unauthorized();
 
-                if (!System.IO.File.Exists(filePath))
-                {
-                    return NotFound($"Configuration file {fileName} not found");
-                }
+            var companyId = int.Parse(claimId);
+            var company = await _context.Companies.FindAsync(companyId);
+            if (company == null)
+                return NotFound("Company not found");
 
-                // Read current appsettings
-                var json = await System.IO.File.ReadAllTextAsync(filePath);
-                var jsonDocument = JsonDocument.Parse(json);
-                
-                // Create a mutable dictionary from the JSON
-                var settings = new Dictionary<string, object>();
-                foreach (var property in jsonDocument.RootElement.EnumerateObject())
-                {
-                    settings[property.Name] = JsonSerializer.Deserialize<object>(property.Value.GetRawText())!;
-                }
+            company.Currency = currency;
+            await _context.SaveChangesAsync();
 
-                // Update the currency value
-                if (settings.ContainsKey("AppSettings"))
-                {
-                    var appSettings = JsonSerializer.Deserialize<Dictionary<string, object>>(
-                        JsonSerializer.Serialize(settings["AppSettings"]))!;
-                    appSettings["DefaultCurrency"] = currency;
-                    settings["AppSettings"] = appSettings;
-                }
-                else
-                {
-                    settings["AppSettings"] = new Dictionary<string, object>
-                    {
-                        ["DefaultCurrency"] = currency
-                    };
-                }
-
-                // Write back to file with formatting
-                var options = new JsonSerializerOptions 
-                { 
-                    WriteIndented = true 
-                };
-                var updatedJson = JsonSerializer.Serialize(settings, options);
-                await System.IO.File.WriteAllTextAsync(filePath, updatedJson);
-
-                return Ok(new { message = $"Default currency updated to {currency}", currency });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Failed to update currency: {ex.Message}");
-            }
+            return Ok(new { message = $"Default currency updated to {currency}", currency });
         }
 
         // --- Timezone Methods ---
@@ -138,25 +112,32 @@ namespace Appointmentbookingsystem.Backend.Controllers
             var company = await _context.Companies.FindAsync(companyId.Value);
             if (company == null) return NotFound("Company not found");
 
-            return Ok(new { timezone = company.Timezone });
+            var tz = string.IsNullOrEmpty(company.Timezone) || company.Timezone == "undefined" 
+                ? "UTC" 
+                : company.Timezone;
+
+            return Ok(new { timezone = tz });
         }
 
         [HttpPut("timezone")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> UpdateTimezone([FromBody] UpdateTimezoneDto dto)
         {
-           var claimId = User.FindFirst("CompanyId")?.Value;
-           if (string.IsNullOrEmpty(claimId)) return Unauthorized();
+            var claimId = User.FindFirst("CompanyId")?.Value;
+            if (string.IsNullOrEmpty(claimId)) return Unauthorized();
 
-           var companyId = int.Parse(claimId);
-           var company = await _context.Companies.FindAsync(companyId);
+            if (string.IsNullOrWhiteSpace(dto.Timezone) || dto.Timezone == "undefined")
+                return BadRequest("Invalid timezone value.");
 
-           if (company == null) return NotFound("Company not found");
+            var companyId = int.Parse(claimId);
+            var company = await _context.Companies.FindAsync(companyId);
 
-           company.Timezone = dto.Timezone;
-           await _context.SaveChangesAsync();
+            if (company == null) return NotFound("Company not found");
 
-           return Ok(new { message = "Timezone updated", timezone = company.Timezone });
+            company.Timezone = dto.Timezone;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Timezone updated successfully.", timezone = company.Timezone });
         }
 
     // --- General Settings (Email Defaults) ---
@@ -169,11 +150,25 @@ namespace Appointmentbookingsystem.Backend.Controllers
             var company = await _context.Companies.FindAsync(companyId);
             if (company == null) return NotFound();
 
+            // Extract domain for default values
+            string frontendUrl = _configuration["AppSettings:FrontendUrl"] ?? "localhost";
+            string domain = "localhost";
+            try {
+                if (frontendUrl.Contains("://"))
+                    domain = new Uri(frontendUrl).Host;
+                else
+                    domain = frontendUrl;
+            } catch { }
+
             return Ok(new GeneralSettingsDto
             {
-                DefaultSenderName = company.DefaultSenderName,
-                DefaultSenderEmail = company.DefaultSenderEmail,
-                DefaultReplyToEmail = company.DefaultReplyToEmail,
+                CompanyName = company.CompanyName,
+                Domain = domain,
+                DefaultSenderName = string.IsNullOrWhiteSpace(company.DefaultSenderName) ? company.CompanyName : company.DefaultSenderName,
+                DefaultSenderEmail = string.IsNullOrWhiteSpace(company.DefaultSenderEmail) ? $"noreply@{domain}" : company.DefaultSenderEmail,
+                DefaultReplyToEmail = string.IsNullOrWhiteSpace(company.DefaultReplyToEmail) ? 
+                                       (string.IsNullOrWhiteSpace(company.DefaultSenderEmail) ? $"noreply@{domain}" : company.DefaultSenderEmail) : 
+                                       company.DefaultReplyToEmail,
                 IsEmailServiceEnabled = company.IsEmailServiceEnabled,
                 IsSmsServiceEnabled = company.IsSmsServiceEnabled,
                 AllowCustomerRescheduling = company.AllowCustomerRescheduling,
@@ -527,6 +522,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
     public class GeneralSettingsDto
     {
+        public string? CompanyName { get; set; }
+        public string? Domain { get; set; }
         public string? DefaultSenderName { get; set; }
         public string? DefaultSenderEmail { get; set; }
         public string? DefaultReplyToEmail { get; set; }

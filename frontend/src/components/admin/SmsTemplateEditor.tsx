@@ -80,6 +80,7 @@ export function SmsTemplateEditor({
   const [body, setBody] = useState(template.body);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [copiedVariable, setCopiedVariable] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleCopyVariable = (variable: string) => {
     navigator.clipboard.writeText(variable);
@@ -88,8 +89,12 @@ export function SmsTemplateEditor({
   };
 
   const handleSave = () => {
-    onSave({ body });
-    onClose();
+    setIsSaving(true);
+    setTimeout(() => {
+        onSave({ body });
+        setIsSaving(false);
+        onClose();
+    }, 800);
   };
 
   const getPreviewContent = () => {
@@ -293,10 +298,14 @@ export function SmsTemplateEditor({
             </button>
             <button
               onClick={handleSave}
-              disabled={!body}
+              disabled={!body || isSaving}
               className="flex items-center gap-2 px-8 py-2.5 bg-green-600 text-white text-sm font-bold rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-100 hover:shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
             >
-              <Save className="w-4 h-4" />
+              {isSaving ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
               Save SMS Template
             </button>
           </div>

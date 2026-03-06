@@ -42,6 +42,6 @@ namespace Appointmentbookingsystem.Backend.DTOs.Staff
         public string? Notes { get; set; }
 
         // Services they can provide (assigned via StaffService junction)
-        public List<int>? ServiceIds { get; set; }
+        public List<StaffServiceUpdateDto>? Services { get; set; }
     }
 }

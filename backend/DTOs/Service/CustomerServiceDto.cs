@@ -8,5 +8,7 @@ namespace Appointmentbookingsystem.Backend.DTOs.Service
         public string Currency { get; set; } = null!;
         public decimal? Price { get; set; }
         public int ServiceDuration { get; set; }
+        public int BufferTimeMinutes { get; set; }
+
     }
 }

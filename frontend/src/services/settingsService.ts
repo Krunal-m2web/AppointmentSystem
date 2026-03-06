@@ -4,15 +4,25 @@ import { getToken } from "../utils/auth";
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
-export const getDefaultCurrency = async (): Promise<string> => {
+export const getDefaultCurrency = async (companyId?: number): Promise<string> => {
   try {
-    const url = `${API_BASE_URL}/api/settings/currency`;
+    let url = `${API_BASE_URL}/api/settings/currency`;
+    if (companyId) {
+      url += `?companyId=${companyId}`;
+    }
+
+    const token = getToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
 
     const response = await fetch(url, {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -21,7 +31,7 @@ export const getDefaultCurrency = async (): Promise<string> => {
       );
     }
 
-    // Backend returns the currency code as a string
+    // Backend returns the currency code as a plain string
     const currency = await response.text();
     // Remove quotes if present (JSON string response)
     return currency.replace(/['"]+/g, "");
@@ -31,6 +41,7 @@ export const getDefaultCurrency = async (): Promise<string> => {
     return "USD";
   }
 };
+
 
 export const updateDefaultCurrency = async (
   currency: string

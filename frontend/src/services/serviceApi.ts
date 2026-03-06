@@ -7,6 +7,8 @@ const API_BASE_URL =
 export interface ServiceListItem {
   id: number;
   name: string;
+  price: number;
+  serviceDuration: number;
 }
 
 export interface PaginatedServiceResponse {
@@ -26,6 +28,7 @@ export interface ServiceQueryParams {
   sortDirection?: string;
   searchTerm?: string;
   companyId?: number;
+  currency?: string;
 }
 
 export async function fetchServices(
@@ -42,6 +45,7 @@ export async function fetchServices(
   if (params.sortDirection)
     queryParams.append("sortDirection", params.sortDirection);
   if (params.searchTerm) queryParams.append("searchTerm", params.searchTerm);
+  if (params.currency) queryParams.append("currency", params.currency);
 
   const url = `${API_BASE_URL}/api/services?${queryParams.toString()}`;
 

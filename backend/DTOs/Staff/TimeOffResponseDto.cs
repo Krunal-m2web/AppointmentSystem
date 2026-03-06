@@ -15,5 +15,6 @@ namespace Appointmentbookingsystem.Backend.DTOs.Staff
         public string? ApprovedByAdminName { get; set; }
         public DateTime CreatedAt { get; set; }
         public bool IsFullDay { get; set; } = true;
+        public bool HasConflicts { get; set; } = false;
     }
 }

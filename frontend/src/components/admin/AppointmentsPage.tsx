@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MiniCalendar } from './MiniCalendar';
 import { AppointmentFormModal, NewAppointment, StaffOption, ServiceOption, CustomerOption } from './AppointmentFormModal';
 import { AdminRescheduleFlow } from './AdminRescheduleFlow';
-import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Pencil, Edit2, Eye, Save, XCircle, ChevronDown, Phone as PhoneIcon, Mail, User, Loader2, Globe, DollarSign, CalendarDays, Briefcase, FileText, Video, Download, CalendarX, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Calendar, Clock, MapPin, X, Filter, Plus, Pencil, Edit2, Eye, Save, XCircle, ChevronDown, Phone as PhoneIcon, Mail, User, Loader2, Globe, DollarSign, CreditCard, CalendarDays, Briefcase, FileText, Video, Download, CalendarX, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -26,6 +26,8 @@ import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken }
 import { Skeleton } from '../ui/skeleton';
 import { TableSkeleton } from '../ui/TableSkeleton';
 import { DateInput } from '../ui/DateInput';
+import { getCurrencySymbol } from '../../utils/currency';
+import { getDefaultCurrency } from '../../services/settingsService';
 
 
 type SortField = 'id' | 'date' | 'staff' | 'customer';
@@ -87,6 +89,7 @@ export function AppointmentsPage() {
   const [rescheduleTarget, setRescheduleTarget] = useState<Appointment | null>(null);
   const datePickerRef = useRef<HTMLDivElement>(null);
   const repeatDatePickerRef = useRef<HTMLDivElement>(null);
+  const [defaultCurrency, setDefaultCurrency] = useState('');
   
   // Close date pickers when clicking outside
   useEffect(() => {
@@ -365,6 +368,7 @@ export function AppointmentsPage() {
         paymentStatus: apt.paymentStatus,
         createdAt: apt.createdAt,
         notes: apt.notes,
+        duration: apt.duration,
       }));
       
       setAppointments(mappedAppointments);
@@ -416,13 +420,27 @@ export function AppointmentsPage() {
     };
     fetchAuxData();
     // refreshTimezone is called in loadData
+
+    // Load default currency
+    const loadCurrency = async () => {
+      try {
+        const currency = await getDefaultCurrency();
+        setDefaultCurrency(currency);
+      } catch (err) {
+        console.error('Failed to load currency:', err);
+      }
+    };
+    loadCurrency();
   }, []);
 
   // Reload appointments when filter/sort/pagination changes
   useEffect(() => {
-    loadData();
+    // Only fetch if currency is loaded to avoid USD flicker
+    if (defaultCurrency) {
+      loadData();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, itemsPerPage, sortField, sortOrder, filterStatus, selectedStaff, dateRangeFilter, customStartDate, customEndDate]); 
+  }, [currentPage, itemsPerPage, sortField, sortOrder, filterStatus, selectedStaff, dateRangeFilter, customStartDate, customEndDate, defaultCurrency]); 
 
   // Debounced search effect
   useEffect(() => {
@@ -680,6 +698,7 @@ export function AppointmentsPage() {
             status: data.status,
             notes: data.notes,
             price: data.price ? parseFloat(data.price) : undefined,
+            currencyCode: defaultCurrency,
             duration: data.duration
         }, getToken() || '');
 
@@ -728,6 +747,8 @@ export function AppointmentsPage() {
              paymentMethod: data.paymentMethod as any,
              notes: data.notes,
              status: data.status,
+             price: data.price ? parseFloat(data.price) : undefined,
+             currencyCode: defaultCurrency,
              duration: data.duration
           });
         };
@@ -790,7 +811,7 @@ export function AppointmentsPage() {
       meetingType: appointment.meetingType,
       paymentMethod: appointment.paymentMethod,
       status: appointment.status,
-      notes: '',
+      notes: appointment.notes || '',
 
       // recurrence fields – for now, when editing we treat as single appointment
       isRecurring: false,
@@ -1390,7 +1411,7 @@ export function AppointmentsPage() {
                     <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
                       <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                         <div className="p-1.5 bg-amber-100 rounded-lg">
-                          <DollarSign className="w-4 h-4 text-amber-600" />
+                          <CreditCard className="w-4 h-4 text-amber-600" />
                         </div>
                         Schedule & Payment
                       </h3>
@@ -1406,7 +1427,7 @@ export function AppointmentsPage() {
                       <div className="flex justify-between items-center py-2 border-b border-gray-50">
                         <span className="text-gray-500">Price</span>
                         <span className="font-bold text-emerald-600 text-lg">
-                          ${selectedAppointment.price} <span className="text-xs text-gray-400 font-normal underline decoration-dotted">{selectedAppointment.currencyCode}</span>
+                          {getCurrencySymbol(selectedAppointment.currencyCode || defaultCurrency)}{selectedAppointment.price}
                         </span>
                       </div>
                       <div className="flex justify-between items-center py-2">

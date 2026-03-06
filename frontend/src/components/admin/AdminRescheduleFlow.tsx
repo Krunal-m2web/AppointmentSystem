@@ -273,6 +273,7 @@ export const AdminRescheduleFlow: React.FC<AdminRescheduleFlowProps> = ({
                 const timeOffs = await fetchStaffTimeOffs(appointment.staffId, token);
                 const disabledDates: Date[] = [];
                 timeOffs.forEach((t) => {
+                    if (t.status === 'Rejected') return;
                     const start = new Date(t.startDateTimeUtc);
                     const end = new Date(t.endDateTimeUtc);
                     let d = new Date(start);

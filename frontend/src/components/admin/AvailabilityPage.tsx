@@ -25,6 +25,22 @@ const initialAvailability: Record<string, DayAvailability> = {
 
 export function AvailabilityPage() {
   const [availability, setAvailability] = useState(initialAvailability);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  const handleSaveSchedule = () => {
+    setIsSavingSchedule(true);
+    setTimeout(() => {
+      setIsSavingSchedule(false);
+    }, 1500);
+  };
+
+  const handleSaveSettings = () => {
+    setIsSavingSettings(true);
+    setTimeout(() => {
+      setIsSavingSettings(false);
+    }, 1500);
+  };
 
   const toggleDay = (day: string) => {
     setAvailability({
@@ -151,7 +167,14 @@ export function AvailabilityPage() {
         </div>
 
         <div className="p-6 border-t border-gray-200 flex justify-end">
-          <button className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+          <button 
+            onClick={handleSaveSchedule}
+            disabled={isSavingSchedule}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          >
+            {isSavingSchedule ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : null}
             Save Availability
           </button>
         </div>
@@ -211,7 +234,14 @@ export function AvailabilityPage() {
         </div>
 
         <div className="p-6 border-t border-gray-200 flex justify-end">
-          <button className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+          <button 
+            onClick={handleSaveSettings}
+            disabled={isSavingSettings}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          >
+            {isSavingSettings ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : null}
             Save Settings
           </button>
         </div>

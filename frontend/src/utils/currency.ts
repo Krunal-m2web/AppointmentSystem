@@ -103,21 +103,99 @@ export function getCurrencySymbol(code: string): string {
 }
 
 /**
- * Format price with currency
+ * Get locale for a given currency code
  */
-export function formatPrice(amount: number, currencyCode: string): string {
-  const currency = getCurrencyByCode(currencyCode);
-  if (!currency) {
-    return `${amount.toFixed(2)} ${currencyCode}`;
-  }
-  
-  return `${currency.symbol}${amount.toFixed(2)} ${currency.code}`;
+export function getLocaleForCurrency(currencyCode: string): string {
+  const mapping: { [key: string]: string } = {
+    // Americas
+    USD: "en-US",
+    CAD: "en-CA",
+    MXN: "es-MX",
+    BRL: "pt-BR",
+    ARS: "es-AR",
+    CLP: "es-CL",
+    COP: "es-CO",
+
+    // Europe
+    EUR: "de-DE", // Using German as default for Euro
+    GBP: "en-GB",
+    CHF: "de-CH",
+    SEK: "sv-SE",
+    NOK: "nb-NO",
+    DKK: "da-DK",
+    PLN: "pl-PL",
+    CZK: "cs-CZ",
+    HUF: "hu-HU",
+    RON: "ro-RO",
+    BGN: "bg-BG",
+    RUB: "ru-RU",
+    TRY: "tr-TR",
+    UAH: "uk-UA",
+    ISK: "is-IS",
+
+    // Asia-Pacific
+    INR: "en-IN",
+    JPY: "ja-JP",
+    CNY: "zh-CN",
+    AUD: "en-AU",
+    NZD: "en-NZ",
+    SGD: "en-SG",
+    HKD: "zh-HK",
+    KRW: "ko-KR",
+    TWD: "zh-TW",
+    THB: "th-TH",
+    MYR: "ms-MY",
+    IDR: "id-ID",
+    PHP: "en-PH",
+    VND: "vi-VN",
+    PKR: "ur-PK",
+    BDT: "bn-BD",
+    LKR: "si-LK",
+    NPR: "ne-NP",
+
+    // Middle East & Africa
+    AED: "ar-AE",
+    SAR: "ar-SA",
+    QAR: "ar-QA",
+    KWD: "ar-KW",
+    BHD: "ar-BH",
+    OMR: "ar-OM",
+    ILS: "he-IL",
+    EGP: "ar-EG",
+    ZAR: "en-ZA",
+    NGN: "en-NG",
+    KES: "sw-KE",
+    GHS: "en-GH",
+  };
+
+  return mapping[currencyCode.toUpperCase()] || "en-US";
 }
 
 /**
- * Format price with currency (symbol only)
+ * Format price with currency
+ */
+export function formatPrice(amount: number, currencyCode: string): string {
+  try {
+    const locale = getLocaleForCurrency(currencyCode);
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: currencyCode.toUpperCase(),
+      currencyDisplay: "symbol",
+    }).format(amount);
+  } catch (error) {
+    console.error("Error formatting price:", error);
+    const currency = getCurrencyByCode(currencyCode);
+    if (!currency) {
+      return `${amount.toFixed(2)} ${currencyCode}`;
+    }
+    return `${currency.symbol}${amount.toFixed(2)} ${currency.code}`;
+  }
+}
+
+/**
+ * Format price with currency (symbol only, though Intl usually includes it)
  */
 export function formatPriceShort(amount: number, currencyCode: string): string {
-  const symbol = getCurrencySymbol(currencyCode);
-  return `${symbol}${amount.toFixed(2)}`;
+  // Intl.NumberFormat with style: 'currency' is generally the best way for both
+  return formatPrice(amount, currencyCode);
 }

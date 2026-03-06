@@ -13,6 +13,7 @@ export interface TimeOff {
   approvedByAdminId?: number;
   approvedByAdminName?: string;
   createdAt: string;
+  hasConflicts?: boolean;
 }
 
 const API_BASE_URL =
@@ -82,7 +83,7 @@ export async function createStaff(data: {
   phone?: string;
   address?: string;
   notes?: string;
-  serviceIds?: number[];
+  services?: { serviceId: number; customPrice?: number }[];
 }): Promise<Staff> {
   const payload = {
     ...data,
@@ -117,10 +118,11 @@ export async function updateStaff(staff: Staff): Promise<Staff> {
     address: staff.address || "",
     notes: staff.notes || "",
     isActive: staff.isActive,
-    serviceIds: staff.services
-      ? staff.services.map((s: any) =>
-          typeof s === "object" ? s.serviceId : s
-        )
+    services: staff.services
+      ? staff.services.map((s: any) => ({
+          serviceId: typeof s === "object" ? s.serviceId : s,
+          customPrice: typeof s === "object" ? s.customPrice : undefined,
+        }))
       : [],
     ...(password ? { password } : {}), // ✅ only send when valid
   };
@@ -215,6 +217,26 @@ export async function deleteAllAvailabilityForStaff(
   }
 }
 
+export async function updateStaffAvailabilityBulk(data: {
+  staffId: number;
+  slots: Array<{
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    isAvailable: boolean;
+  }>;
+}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/availability/bulk`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    await parseApiError(response, "Failed to update bulk availability");
+  }
+}
+
 export async function deleteAvailability(
   availabilityId: number
 ): Promise<void> {
@@ -260,28 +282,7 @@ export async function createTimeOff(data: {
   return response.json();
 }
 
-export async function updateTimeOff(
-  id: number,
-  data: {
-    staffId: number;
-    startDateTimeUtc: string;
-    endDateTimeUtc: string;
-    reason?: string;
-    isFullDay?: boolean;
-  }
-): Promise<TimeOff> {
-  const response = await fetch(`${API_BASE_URL}/api/timeoff/${id}`, {
-    method: "PUT",
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ ...data, isFullDay: data.isFullDay ?? true }),
-  });
 
-  if (!response.ok) {
-    await parseApiError(response, "Failed to update time off");
-  }
-
-  return response.json();
-}
 
 export interface ConflictInfo {
   hasConflicts: boolean;

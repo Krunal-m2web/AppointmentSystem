@@ -17,10 +17,15 @@ const API_BASE_URL =
  * - Admin panel → token
  * - Public booking → companyId param
  */
+// Default to UTC
+function getDefaultTimezone(): string {
+  return "UTC";
+}
+
 export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [timezone, setTimezone] = useState<string>("UTC");
+  const [timezone, setTimezone] = useState<string>(getDefaultTimezone());
 
   const refreshTimezone = async (explicitCompanyId?: number) => {
     try {
@@ -52,11 +57,12 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
 
-      // ❌ No company → stay UTC
+      // ❌ No company → use default timezone
       if (!companyId || isNaN(companyId)) {
-        console.warn("TimezoneContext: No valid companyId found, defaulting to UTC");
-        setTimezone("UTC");
-        return "UTC";
+        const defaultTz = getDefaultTimezone();
+        console.warn(`TimezoneContext: No valid companyId found, defaulting to: ${defaultTz}`);
+        setTimezone(defaultTz);
+        return defaultTz;
       }
 
       console.log(`TimezoneContext: Fetching timezone for company ${companyId}...`);
@@ -76,7 +82,7 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({
       const data = await res.json();
       console.log("TimezoneContext: Fetched data:", data);
 
-      if (data?.timezone) {
+      if (data?.timezone && data.timezone !== "undefined") {
         setTimezone(data.timezone);
         console.log(`TimezoneContext: Updated to ${data.timezone}`);
         return data.timezone; // Return the new timezone value
@@ -84,8 +90,9 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({
       return timezone; // Return current value
     } catch (err) {
       console.error("TimezoneContext: Error during refresh:", err);
-      setTimezone("UTC");
-      return "UTC";
+      const defaultTz = getDefaultTimezone();
+      setTimezone(defaultTz);
+      return defaultTz;
     }
   };
 

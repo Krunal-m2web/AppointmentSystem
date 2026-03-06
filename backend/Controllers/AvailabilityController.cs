@@ -207,6 +207,62 @@ namespace Appointmentbookingsystem.Backend.Controllers
             return NoContent();
         }
 
+        /// <summary>
+        /// POST /api/availability/bulk - Clear and set all availability for a staff member in one go
+        /// </summary>
+        [HttpPost("bulk")]
+        public async Task<IActionResult> BulkSetAvailability([FromBody] BulkAvailabilityDto dto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var staff = await _context.Staff.FindAsync(dto.StaffId);
+            if (staff == null)
+                return NotFound("Staff member not found.");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // 1. Clear existing
+                var existing = await _context.Availabilities
+                    .Where(a => a.StaffId == dto.StaffId)
+                    .ToListAsync();
+                
+                if (existing.Any())
+                {
+                    _context.Availabilities.RemoveRange(existing);
+                    await _context.SaveChangesAsync();
+                }
+
+                // 2. Add new
+                if (dto.Slots != null && dto.Slots.Any())
+                {
+                    var newAvailabilities = dto.Slots.Select(slot => new Availability
+                    {
+                        StaffId = dto.StaffId,
+                        DayOfWeek = slot.DayOfWeek,
+                        StartTime = slot.StartTime,
+                        EndTime = slot.EndTime,
+                        IsAvailable = slot.IsAvailable,
+                        CreatedAt = DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    }).ToList();
+
+                    _context.Availabilities.AddRange(newAvailabilities);
+                    await _context.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+                return Ok(new { message = "Availability updated successfully." });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
+
         // ===== SLOT AVAILABILITY ENDPOINTS =====
 
         /// <summary>
@@ -268,6 +324,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
             DateTime startOfDayUtc = DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
             DateTime endOfDayUtc = startOfDayUtc.AddDays(1);
 
+            // STEP 1.5: HOLIDAY BLOCK (highest priority)
+            var appointmentDate = DateOnly.FromDateTime(date);
+            if (await IsHolidayAsync(staff.CompanyId, appointmentDate))
+            {
+                Console.WriteLine($"[GetAvailableSlots] Holiday detected: {appointmentDate}");
+                return Ok(new List<TimeSlotDto>());
+            }
+
             
             // STEP 2: GET STAFF AVAILABILITY FOR THIS DAY
             
@@ -321,15 +385,19 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     t.EndDateTimeUtc >= startOfDayUtc)
                 .ToListAsync();
 
-            // 4b. Get existing confirmed appointments
+            // 4b. Get existing confirmed appointments (with buffer time)
             var existingAppointments = await _context.Appointments
-                .Where(a => 
+                .Where(a =>
                     a.StaffId == staffId &&
                     a.StartDateTimeUtc >= startOfDayUtc &&
                     a.StartDateTimeUtc < endOfDayUtc &&
                     a.Status != AppointmentStatus.Cancelled)
-                .Select(a => new BookedSlot(a.StartDateTimeUtc, a.EndDateTimeUtc))
+                .Join(_context.Services,
+                    a => a.ServiceId,
+                    s => s.Id,
+                    (a, s) => new BookedSlot(a.StartDateTimeUtc, a.EndDateTimeUtc.AddMinutes(s.BufferTimeMinutes)))
                 .ToListAsync();
+
 
             // 4c. Get active reservations (not expired)
             var now = DateTime.UtcNow;
@@ -429,6 +497,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
                 int cid = companyId ?? service.CompanyId;
 
+                // STEP 1.5: HOLIDAY BLOCK (highest priority)
+                var appointmentDate = DateOnly.FromDateTime(date);
+                if (await IsHolidayAsync(cid, appointmentDate))
+                {
+                    Console.WriteLine($"[GetAnyStaffSlots] Holiday detected for company {cid}: {appointmentDate}");
+                    return Ok(new List<TimeSlotDto>());
+                }
+
                 // 1. Find all active staff who provide this service in one batch
                 var eligibleStaff = await _context.StaffServices
                     .Include(ss => ss.Staff)
@@ -459,7 +535,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                         t.EndDateTimeUtc >= startOfDayUtc)
                     .ToListAsync();
 
-                // 2b. Appointments (Starting today)
+                // 2b. Appointments (Starting today, with buffer time)
                 var allAppointments = await _context.Appointments
                     .Where(a => 
                         a.StaffId.HasValue && 
@@ -467,7 +543,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
                         a.StartDateTimeUtc >= startOfDayUtc && 
                         a.StartDateTimeUtc < endOfDayUtc && 
                         a.Status != AppointmentStatus.Cancelled)
-                    .Select(a => new { a.StaffId, a.StartDateTimeUtc, a.EndDateTimeUtc })
+                    .Join(_context.Services,
+                        a => a.ServiceId,
+                        s => s.Id,
+                        (a, s) => new { a.StaffId, a.StartDateTimeUtc, EndWithBuffer = a.EndDateTimeUtc.AddMinutes(s.BufferTimeMinutes) })
                     .ToListAsync();
 
                 // 2c. Reservations (Starting today and not expired)
@@ -515,8 +594,9 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     var staffTimeOffs = allTimeOffs.Where(t => t.StaffId == staff.Id).ToList();
                     var staffBooked = allAppointments
                         .Where(a => a.StaffId == staff.Id)
-                        .Select(a => new BookedSlot(a.StartDateTimeUtc, a.EndDateTimeUtc))
+                        .Select(a => new BookedSlot(a.StartDateTimeUtc, a.EndWithBuffer))
                         .ToList();
+
                     
                     var staffReservations = allReservations
                         .Where(r => r.StaffId == staff.Id)
@@ -615,6 +695,16 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             // No conflicts found - slot is available
             return true;
+        }
+
+        private async Task<bool> IsHolidayAsync(int companyId, DateOnly date)
+        {
+            return await _context.Holidays.AnyAsync(h =>
+                h.CompanyId == companyId &&
+                (
+                    (!h.RepeatYearly && h.Date == date) ||
+                    (h.RepeatYearly && h.Date.Month == date.Month && h.Date.Day == date.Day)
+                ));
         }
     }
 }

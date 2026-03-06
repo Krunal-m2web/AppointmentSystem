@@ -15,7 +15,7 @@ import { ConfirmationModal } from '../../components/ConfirmationModal';
 export function ServicePricing() {
   // State
   const [services, setServices] = useState<ServicePricingDto[]>([]);
-  const [displayCurrency, setDisplayCurrency] = useState('USD');
+  const [displayCurrency, setDisplayCurrency] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

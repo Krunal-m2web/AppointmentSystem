@@ -7,6 +7,8 @@ import { fetchAvailableSlots, fetchStaffSchedule } from '../../services/availabi
 import { getToken } from '../../services/authService';
 import { useTimezone } from '../../context/TimezoneContext';
 import { formatTime } from '../../utils/datetime';
+import { getCurrencySymbol } from '../../utils/currency';
+import { getDefaultCurrency } from '../../services/settingsService';
 
 // ==================== Types ====================
 
@@ -220,6 +222,8 @@ export function AppointmentFormModal({
     repeatEndDate: '',
   });
 
+  const [defaultCurrency, setDefaultCurrency] = useState('');
+
   // UI State
   const [searchClient, setSearchClient] = useState('');
   const [showClientDropdown, setShowClientDropdown] = useState(false);
@@ -251,6 +255,19 @@ export function AppointmentFormModal({
     };
     loadStaffSchedule();
   }, [formData.staffId]);
+
+  // Load default currency
+  useEffect(() => {
+    const loadCurrency = async () => {
+      try {
+        const currency = await getDefaultCurrency();
+        setDefaultCurrency(currency);
+      } catch (err) {
+        console.error('Failed to load currency:', err);
+      }
+    };
+    loadCurrency();
+  }, []);
 
   // Fetch slots when staff, service, date, or duration changes
   useEffect(() => {
@@ -682,6 +699,7 @@ export function AppointmentFormModal({
                         </label>
                         <PhoneInput
                           value={formData.customerPhone}
+                          timezone={timezone}
                           onChange={(val) => {
                             setFormData({ ...formData, customerPhone: val });
                             if (formErrors.customerPhone)
@@ -743,7 +761,7 @@ export function AppointmentFormModal({
                           })
                           .map((service) => (
                           <option key={service.id} value={service.id}>
-                            {service.name} (${service.price} - {service.duration} min)
+                            {service.name} ({getCurrencySymbol(defaultCurrency)}{service.price} - {service.duration} min)
                           </option>
                         ))}
                       </select>
@@ -932,14 +950,8 @@ export function AppointmentFormModal({
                           type="number"
                           min="1"
                           value={formData.duration}
-                          onChange={(e) => {
-                            const val = Math.max(1, Number(e.target.value));
-                            setFormData({ ...formData, duration: val });
-                            if (val >= 1 && formErrors.duration) {
-                              setFormErrors({ ...formErrors, duration: '' });
-                            }
-                          }}
-                          className={`w-full pl-10 pr-16 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white transition-all ${
+                          readOnly
+                          className={`w-full pl-10 pr-16 py-2.5 border rounded-lg focus:outline-none bg-gray-50 cursor-not-allowed select-none transition-all ${
                             formErrors.duration ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
                           }`}
                         />
@@ -956,7 +968,9 @@ export function AppointmentFormModal({
                         Price <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
-                        <DollarSign className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none" />
+                        <span className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-gray-400 font-medium">
+                          {getCurrencySymbol(defaultCurrency)}
+                        </span>
                         <input
                           type="text"
                           value={formData.price}
@@ -1004,7 +1018,6 @@ export function AppointmentFormModal({
                 <div className="p-5">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {[
-                      { value: 'Zoom', label: 'Zoom', icon: <Video className="w-5 h-5" />, color: 'indigo' },
                       { value: 'InPerson', label: 'In Person', icon: <MapPin className="w-5 h-5" />, color: 'blue' },
                       { value: 'Phone', label: 'Phone Call', icon: <PhoneIcon className="w-5 h-5" />, color: 'green' },
                     ].map((type) => (
@@ -1075,10 +1088,9 @@ export function AppointmentFormModal({
                         }
                         className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white transition-all"
                       >
-                        <option value="credit-card">Credit Card</option>
-                        <option value="debit-card">Debit Card</option>
-                        <option value="paypal">PayPal</option>
-                        <option value="pay-later">Pay Later</option>
+                        <option value="Card">Credit / Debit Card</option>
+                        <option value="Cash">Cash (Pay Later)</option>
+                        <option value="PayPal">PayPal</option>
                       </select>
                     </div>
                     <div>

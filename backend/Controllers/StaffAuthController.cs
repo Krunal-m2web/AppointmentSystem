@@ -2,6 +2,7 @@ using Appointmentbookingsystem.Backend.Data;
 using Appointmentbookingsystem.Backend.DTOs.Auth;
 using Appointmentbookingsystem.Backend.Models.Entities;
 using Appointmentbookingsystem.Backend.Services;
+using Appointmentbookingsystem.Backend.Helpers;
 using Appointmentbookingsystem.Backend.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
@@ -38,11 +39,9 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (string.IsNullOrWhiteSpace(dto.Email))
                 throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Email is required.", "email");
             
-            if (string.IsNullOrWhiteSpace(dto.Password))
-                throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Password is required.", "password");
-            
-            if (dto.Password.Length < 6)
-                throw new ValidationException(ValidationErrors.PASSWORD_TOO_SHORT, "Password must be at least 6 characters.", "password");
+            var passwordValidation = PasswordValidator.Validate(dto.Password, dto.Email);
+            if (!passwordValidation.IsValid)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, passwordValidation.ErrorMessage!, "password");
             
             if (string.IsNullOrWhiteSpace(dto.FirstName))
                 throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "First name is required.", "firstName");
@@ -223,14 +222,15 @@ namespace Appointmentbookingsystem.Backend.Controllers
         {
             if (string.IsNullOrWhiteSpace(dto.Token))
                 throw new ValidationException(ValidationErrors.REQUIRED_FIELD, "Token is required.", "token");
-            if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
-                throw new ValidationException(ValidationErrors.PASSWORD_TOO_SHORT, "Password must be at least 6 characters.", "newPassword");
-
             var tokenRecord = await _context.PasswordResetTokens
                 .FirstOrDefaultAsync(t => t.Token == dto.Token && !t.IsUsed && t.ExpiresAt > DateTime.UtcNow);
 
             if (tokenRecord == null)
                 throw new BusinessRuleException(BusinessErrors.INVALID_INVITE, "Invalid or expired reset token.");
+
+            var passwordValidation = PasswordValidator.Validate(dto.NewPassword, tokenRecord.Email);
+            if (!passwordValidation.IsValid)
+                throw new ValidationException(ValidationErrors.INVALID_FORMAT, passwordValidation.ErrorMessage!, "newPassword");
 
             var staff = await _context.Staff.FirstOrDefaultAsync(s => s.Email == tokenRecord.Email);
             if (staff == null)

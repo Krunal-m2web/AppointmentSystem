@@ -4,6 +4,8 @@ import { toast } from 'sonner';
 import { CURRENCIES, searchCurrencies, getCurrencyByCode } from '../../utils/currency';
 import { getDefaultCurrency, updateDefaultCurrency, getPaymentSettings, updatePaymentSettings } from '../../services/settingsService';
 
+import { PaymentSettingsSkeleton } from './settings/SettingsSkeletons';
+
 export function PaymentSettings() {
   const [selectedCurrency, setSelectedCurrency] = useState('USD');
   const [currencySearch, setCurrencySearch] = useState('');
@@ -102,6 +104,10 @@ export function PaymentSettings() {
     setCurrencySearch('');
   };
 
+  if (currencyLoading) {
+    return <PaymentSettingsSkeleton />;
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -194,14 +200,26 @@ export function PaymentSettings() {
                   title: 'Pay Now', 
                   desc: 'Allow immediate online payment', 
                   checked: paymentOptions.showPayNow, 
-                  onChange: (v: boolean) => setPaymentOptions({ ...paymentOptions, showPayNow: v }),
+                  onChange: (v: boolean) => {
+                    if (!v && !paymentOptions.showPayLater) {
+                      toast.error('At least one payment option must be enabled');
+                      return;
+                    }
+                    setPaymentOptions({ ...paymentOptions, showPayNow: v });
+                  },
                 },
                 { 
                   id: 'showPayLater', 
                   title: 'Pay Later', 
                   desc: 'In-person payment at arrival', 
                   checked: paymentOptions.showPayLater, 
-                  onChange: (v: boolean) => setPaymentOptions({ ...paymentOptions, showPayLater: v }),
+                  onChange: (v: boolean) => {
+                    if (!v && !paymentOptions.showPayNow) {
+                      toast.error('At least one payment option must be enabled');
+                      return;
+                    }
+                    setPaymentOptions({ ...paymentOptions, showPayLater: v });
+                  },
                 }
               ].map((opt) => (
                 <div key={opt.id} className={`flex flex-col justify-between p-5 rounded-2xl border-2 transition-all duration-300 ${opt.checked ? 'border-indigo-100 bg-indigo-50/20' : 'border-gray-50 bg-gray-50/30'}`}>
@@ -257,11 +275,11 @@ export function PaymentSettings() {
             className="flex items-center gap-3 px-10 py-3.5 bg-indigo-600 text-white font-semibold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 hover:shadow-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] uppercase tracking-wider"
           >
             {loading ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
               <Save className="w-5 h-5" />
             )}
-            {loading ? 'Processing...' : 'Sync Settings'}
+            Save Changes
           </button>
         </div>
       </div>

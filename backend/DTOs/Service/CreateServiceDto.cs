@@ -21,6 +21,13 @@ namespace Appointmentbookingsystem.Backend.DTOs.Service
         [Range(1, 480)]
         public int ServiceDuration { get; set; } = 60;
 
+        [Range(0, 120)]
+        public int BufferTimeMinutes { get; set; } = 0;
+
+
+        [MaxLength(3)]
+        public string? Currency { get; set; }
+
         // Optional: Multi-currency prices
         public List<ServicePriceDto>? Prices { get; set; }
     }

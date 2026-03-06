@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { MapPin, Save, Video, Phone as PhoneIcon, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { getMeetingLocationSettings, updateMeetingLocationSettings } from '../../services/settingsService';
+import { MeetingLocationsSkeleton } from './settings/SettingsSkeletons';
 
 interface Location {
   label: string;
@@ -79,6 +80,10 @@ export default function MeetingLocationSettings() {
     },
   ];
 
+  if (settingsLoading) {
+    return <MeetingLocationsSkeleton />;
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -91,93 +96,86 @@ export default function MeetingLocationSettings() {
         </div>
 
         <div className="p-8">
-          {settingsLoading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-4">
-               <div className="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin" />
-               <p className="text-sm font-semibold text-gray-400 uppercase tracking-widest">Optimizing Channels...</p>
-            </div>
-          ) : (
-            <div className="space-y-10">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {locations.map((location) => {
-                  const isChecked = enabledLocations.includes(location.value);
-                  return (
-                    <div
-                      key={location.value}
-                      className={`group relative flex flex-col p-6 rounded-2xl border-2 transition-all duration-300 ${
+          <div className="space-y-10">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {locations.map((location) => {
+                const isChecked = enabledLocations.includes(location.value);
+                return (
+                  <div
+                    key={location.value}
+                    className={`group relative flex flex-col p-6 rounded-2xl border-2 transition-all duration-300 ${
+                      location.isComingSoon
+                        ? 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-75'
+                        : isChecked
+                        ? 'border-indigo-600 bg-indigo-50/30 cursor-pointer'
+                        : 'border-gray-50 bg-gray-50/30 hover:border-gray-200 cursor-pointer'
+                    }`}
+                    onClick={() => !location.isComingSoon && toggleLocation(location.value)}
+                  >
+                    {location.isComingSoon && (
+                      <div className="absolute top-4 right-4 bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wider animate-pulse">
+                        Coming Soon
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between mb-6">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                        isChecked 
+                          ? `bg-white text-indigo-600 shadow-sm border border-indigo-100` 
+                          : `bg-white text-gray-400 border border-gray-100`
+                      }`}>
+                        {location.icon}
+                      </div>
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
                         location.isComingSoon
-                          ? 'border-gray-100 bg-gray-50/50 cursor-not-allowed opacity-75'
-                          : isChecked
-                          ? 'border-indigo-600 bg-indigo-50/30 cursor-pointer'
-                          : 'border-gray-50 bg-gray-50/30 hover:border-gray-200 cursor-pointer'
-                      }`}
-                      onClick={() => !location.isComingSoon && toggleLocation(location.value)}
-                    >
-                      {location.isComingSoon && (
-                        <div className="absolute top-4 right-4 bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wider animate-pulse">
-                          Coming Soon
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between mb-6">
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-                          isChecked 
-                            ? `bg-white text-indigo-600 shadow-sm border border-indigo-100` 
-                            : `bg-white text-gray-400 border border-gray-100`
-                        }`}>
-                          {location.icon}
-                        </div>
-                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                          location.isComingSoon
-                            ? 'bg-gray-100 border-gray-200'
-                            : isChecked 
-                            ? 'bg-indigo-600 border-indigo-600 shadow-sm shadow-indigo-100' 
-                            : 'bg-white border-gray-200'
-                        }`}>
-                          {isChecked && !location.isComingSoon && <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />}
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <p className={`text-lg font-semibold tracking-tight ${isChecked ? 'text-gray-900' : 'text-gray-500'}`}>
-                          {location.label}
-                        </p>
-                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                          {location.value === 'InPerson' ? 'Physical Visit' : 
-                          location.value === 'Phone' ? 'Voice Call' : 
-                          'Virtual Meeting'}
-                        </p>
-                      </div>
-
-                      <div className="mt-8 flex items-center justify-between">
-                         <span className={`text-[10px] font-bold uppercase tracking-widest ${
-                           location.isComingSoon ? 'text-amber-600' :
-                           isChecked ? 'text-indigo-600' : 'text-gray-400'
-                         }`}>
-                           {location.isComingSoon ? 'Development in Progress' :
-                            isChecked ? 'Active' : 'Currently Disabled'}
-                         </span>
+                          ? 'bg-gray-100 border-gray-200'
+                          : isChecked 
+                          ? 'bg-indigo-600 border-indigo-600 shadow-sm shadow-indigo-100' 
+                          : 'bg-white border-gray-200'
+                      }`}>
+                        {isChecked && !location.isComingSoon && <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
 
-              <div className="flex justify-end pt-8 border-t border-gray-100">
-                <button
-                  onClick={handleSave}
-                  disabled={loading}
-                  className="flex items-center gap-3 px-10 py-3.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 hover:shadow-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
-                >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <Save className="w-5 h-5" />
-                  )}
-                  {loading ? 'Propagating...' : 'Save Locations'}
-                </button>
-              </div>
+                    <div className="space-y-1">
+                      <p className={`text-lg font-semibold tracking-tight ${isChecked ? 'text-gray-900' : 'text-gray-500'}`}>
+                        {location.label}
+                      </p>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                        {location.value === 'InPerson' ? 'Physical Visit' : 
+                        location.value === 'Phone' ? 'Voice Call' : 
+                        'Virtual Meeting'}
+                      </p>
+                    </div>
+
+                    <div className="mt-8 flex items-center justify-between">
+                       <span className={`text-[10px] font-bold uppercase tracking-widest ${
+                         location.isComingSoon ? 'text-amber-600' :
+                         isChecked ? 'text-indigo-600' : 'text-gray-400'
+                       }`}>
+                         {location.isComingSoon ? 'Development in Progress' :
+                          isChecked ? 'Active' : 'Currently Disabled'}
+                       </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
+
+            <div className="flex justify-end pt-8 border-t border-gray-100">
+              <button
+                onClick={handleSave}
+                disabled={loading}
+                className="flex items-center gap-3 px-10 py-3.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 hover:shadow-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+              >
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Save className="w-5 h-5" />
+                )}
+                Save Locations
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

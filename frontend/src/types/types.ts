@@ -46,6 +46,7 @@ export interface Service {
   description?: string;
   price: number;
   serviceDuration: number; // in minutes
+  bufferTimeMinutes?: number; // in minutes, default 0
   currency?: string;
   isActive?: boolean;
   prices?: ServicePrice[];

@@ -110,7 +110,7 @@ const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
             <div className="flex items-center justify-center gap-3 mb-1">
               <button
                 onClick={() => changeMonth(-1)}
-                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors"
+                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -132,7 +132,7 @@ const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
               </AnimatePresence>
               <button
                 onClick={() => changeMonth(1)}
-                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors"
+                className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-full transition-colors cursor-pointer"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -247,7 +247,7 @@ const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
                         transition={{ delay: index * 0.03 }}
                         onClick={() => onSelectTime(time)}
                         className={`
-                          w-full py-2 px-3 rounded-md border text-sm font-bold transition-all
+                          w-full py-2 px-3 rounded-md border text-sm font-bold transition-all cursor-pointer
                           ${
                             isSelected
                               ? "bg-gray-600 text-white border-gray-600"

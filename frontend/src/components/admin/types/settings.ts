@@ -5,7 +5,6 @@ export type SettingsTab =
   | "payment"
   | "locations"
   | "bookingForm"
-  | "global"
   | "google-calendar";
 
 export interface EmailTemplate {

@@ -13,6 +13,14 @@ import { SmsNotificationSettings } from './settings/SmsNotificationSettings';
 import { BookingFormSettings } from './settings/BookingFormSettings';
 import { PaymentSettings } from './PaymentSettings';
 import MeetingLocationSettings from './MeetingLocationSettings';
+import { 
+  GeneralSettingsSkeleton, 
+  CompanyProfileSkeleton, 
+  NotificationsSkeleton, 
+  PaymentSettingsSkeleton, 
+  MeetingLocationsSkeleton, 
+  BookingFormSettingsSkeleton 
+} from './settings/SettingsSkeletons';
 import { TIMEZONES } from '../../utils/datetime';
 import { TimezoneSelect } from '../TimezoneSelect';
 import { getGeneralSettings, updateGeneralSettings, getNotificationSettings, updateNotificationSettings, GeneralSettingsData, sendTestEmail } from '../../services/settingsApi';
@@ -45,7 +53,8 @@ export function Settings() {
   const [companyName, setCompanyName] = useState('My Business');
   const [companyLogo, setCompanyLogo] = useState('');
   const [businessEmail, setBusinessEmail] = useState('info@mybusiness.com');
-  const [businessPhone, setBusinessPhone] = useState('+1 (555) 123-4567');
+  const [businessPhone, setBusinessPhone] = useState('');
+  const [companyAddress, setCompanyAddress] = useState('');
 
   // Template Editor State
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
@@ -56,6 +65,16 @@ export function Settings() {
   const { timezone, refreshTimezone } = useTimezone();
   const [globalLoading, setGlobalLoading] = useState(false);
   const [selectedTimezone, setSelectedTimezone] = useState(timezone);
+
+  // Individual Loading States
+  const [loadingGeneral, setLoadingGeneral] = useState(false);
+  const [isSavingGeneral, setIsSavingGeneral] = useState(false);
+  const [loadingCompany, setLoadingCompany] = useState(false);
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [loadingPayment, setLoadingPayment] = useState(false);
+  const [loadingLocations, setLoadingLocations] = useState(false);
+  const [loadingBookingForm, setLoadingBookingForm] = useState(false);
 
   const [notificationSettings, setNotificationSettings] = useState<{
     [key: string]: NotificationConfig; 
@@ -209,55 +228,67 @@ export function Settings() {
   }, []);
 
   useEffect(() => {
-      const loadGeneral = async () => {
-          const token = getToken();
-          if (!token) return;
-          try {
-              const data = await getGeneralSettings(token);
-              setDefaultSenderName(data.defaultSenderName || '');
-              setDefaultSenderEmail(data.defaultSenderEmail || '');
-              setDefaultReplyEmail(data.defaultReplyToEmail || '');
-              setEmailNotificationsEnabled(data.isEmailServiceEnabled);
-              setSmsNotificationsEnabled(data.isSmsServiceEnabled);
-              setAllowCustomerRescheduling(data.allowCustomerRescheduling ?? true);
-              setReschedulingMinLeadTime(data.reschedulingMinLeadTime ?? 24);
-              setAllowCustomerCanceling(data.allowCustomerCanceling ?? true);
-              setCancelingMinLeadTime(data.cancelingMinLeadTime ?? 24);
+    const loadGeneral = async () => {
+      const token = getToken();
+      if (!token) return;
+      setLoadingGeneral(true);
+      try {
+        // Parallelize fetching general settings and time-off settings
+        const [data, timeOffData] = await Promise.all([
+          getGeneralSettings(token),
+          getTimeOffSettings()
+        ]);
+        
+        const cName = data.companyName || 'My Business';
+        const bDomain = data.domain || window.location.host;
+        
+        setCompanyName(cName);
+        setDefaultSenderName(data.defaultSenderName || cName);
+        setDefaultSenderEmail(data.defaultSenderEmail || `noreply@${bDomain}`);
+        setDefaultReplyEmail(data.defaultReplyToEmail || data.defaultSenderEmail || `noreply@${bDomain}`);
+        
+        setEmailNotificationsEnabled(data.isEmailServiceEnabled);
+        setSmsNotificationsEnabled(data.isSmsServiceEnabled);
+        setAllowCustomerRescheduling(data.allowCustomerRescheduling ?? true);
+        setReschedulingMinLeadTime(data.reschedulingMinLeadTime ?? 24);
+        setAllowCustomerCanceling(data.allowCustomerCanceling ?? true);
+        setCancelingMinLeadTime(data.cancelingMinLeadTime ?? 24);
 
-              // Load Time Off Settings
-              const timeOffData = await getTimeOffSettings();
-              setRequireTimeOffApproval(timeOffData.requireTimeOffApproval);
-          } catch (e) {
-              console.error("Failed to load settings", e);
-          }
-      };
-      if (activeTab === 'general') loadGeneral();
+        setRequireTimeOffApproval(timeOffData.requireTimeOffApproval);
+      } catch (e) {
+        console.error("Failed to load settings", e);
+      } finally {
+        setLoadingGeneral(false);
+      }
+    };
+    if (activeTab === 'general') loadGeneral();
   }, [activeTab]);
 
   // Load Notification Settings
   useEffect(() => {
     const loadNotifications = async () => {
-      // Only load if not already loaded to prevent overwriting local changes (e.g. from master toggles)
       if (hasLoadedNotifications) return;
 
       const token = getToken();
       if (!token) return;
+
+      // Only show skeleton/blocking loading if we are actually ON the notifications tab
+      // Otherwise load in background to speed up subsequent tab switches
+      const isNotificationsTab = activeTab === 'notifications';
+      if (isNotificationsTab) {
+        setLoadingNotifications(true);
+      }
+      
       try {
         const serverSettings = await getNotificationSettings(token);
         
-        // Merge server settings with local defaults
-        // Merge server settings with local defaults
         setNotificationSettings(prev => {
           const newSettings = { ...prev };
           Object.keys(serverSettings).forEach(key => {
-            // Only process email/appointment settings here
             if (!key.startsWith('appointment')) return;
-
-            // Merge into existing or create new entry
             newSettings[key] = {
-               ...(newSettings[key] || {}), // Keep local props if they exist
+               ...(newSettings[key] || {}),
                ...serverSettings[key],
-               // Ensure description/trigger are set even if server sends empty
                description: serverSettings[key].description || newSettings[key]?.description || '', 
                trigger: serverSettings[key].trigger || newSettings[key]?.trigger || '',
                pushEnabled: serverSettings[key].pushEnabled || newSettings[key]?.pushEnabled || false
@@ -266,16 +297,12 @@ export function Settings() {
           return newSettings;
         });
 
-        // Also update SMS settings if they come from the same endpoint
         setSmsSettings(prev => {
           const newSmsSettings = { ...prev };
           Object.keys(serverSettings).forEach(key => {
-            // Only process SMS settings here
             if (!key.startsWith('sms')) return;
-
-            // Merge into existing or create new entry
             newSmsSettings[key] = {
-              ...(newSmsSettings[key] || {}), // Keep local props
+              ...(newSmsSettings[key] || {}),
               ...serverSettings[key],
               description: serverSettings[key].description || newSmsSettings[key]?.description || '', 
               trigger: serverSettings[key].trigger || newSmsSettings[key]?.trigger || ''
@@ -287,19 +314,27 @@ export function Settings() {
         setHasLoadedNotifications(true);
       } catch (e) {
         console.error("Failed to load notification settings", e);
+      } finally {
+        if (isNotificationsTab) {
+          setLoadingNotifications(false);
+        }
       }
     };
+    // Always trigger load when on General or Notifications tab, 
+    // but only "Notifications" tab will show the heavy loader UI.
     if (activeTab === 'notifications' || activeTab === 'general') loadNotifications();
   }, [activeTab, hasLoadedNotifications]);
 
   // Load Company Profile
   useEffect(() => {
     const loadCompany = async () => {
+      setLoadingCompany(true);
       try {
         const data = await getMyCompany();
         setCompanyName(data.companyName || '');
         setBusinessEmail(data.email || '');
         setBusinessPhone(data.phone || '');
+        setCompanyAddress(data.address || '');
         if (data.logoUrl) {
           setCompanyLogo(`${API_BASE_URL}${data.logoUrl}`);
         } else {
@@ -307,6 +342,8 @@ export function Settings() {
         }
       } catch (err) {
         console.error("Failed to load company profile", err);
+      } finally {
+        setLoadingCompany(false);
       }
     };
 
@@ -315,11 +352,19 @@ export function Settings() {
     }
   }, [activeTab]);
 
-  // ... (Timezone sync effect stays same)
+  // Sync selectedTimezone with context when it loads
+  useEffect(() => {
+    if (timezone && timezone !== "undefined") {
+      setSelectedTimezone(timezone);
+    } else {
+      setSelectedTimezone("UTC");
+    }
+  }, [timezone]);
 
   const handleSaveGeneral = async () => {
     const token = getToken();
     if (!token) return;
+    setIsSavingGeneral(true);
     try {
         await updateGeneralSettings({
             defaultSenderName,
@@ -342,6 +387,8 @@ export function Settings() {
     } catch (e) {
         console.error(e);
         toast.error('Failed to save general settings');
+    } finally {
+        setIsSavingGeneral(false);
     }
   };
 
@@ -382,13 +429,27 @@ export function Settings() {
   };
 
   const handleSaveCompany = async () => {
+    setIsSavingCompany(true);
     try {
       await updateMyCompany({
         companyName,
         email: businessEmail,
         phone: businessPhone,
+        address: companyAddress,
         logoUrl: companyLogo.replace(API_BASE_URL, ''),
       });
+
+      // Also save timezone
+      if (selectedTimezone && selectedTimezone !== 'undefined') {
+        const res = await fetch(`${API_BASE_URL}/api/settings/timezone`, {
+          method: "PUT",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ timezone: selectedTimezone })
+        });
+        if (res.ok) {
+          await refreshTimezone();
+        }
+      }
 
       // Update state with prefixed URL to ensure consistency
       if (companyLogo && !companyLogo.startsWith('http')) {
@@ -400,6 +461,8 @@ export function Settings() {
     } catch (err) {
       console.error(err);
       toast.error("Failed to save company profile");
+    } finally {
+      setIsSavingCompany(false);
     }
   };
 
@@ -789,7 +852,6 @@ export function Settings() {
     { id: 'payment' as SettingsTab, label: 'Payment Settings', icon: DollarSign },
     { id: 'locations' as SettingsTab, label: 'Meeting Locations', icon: MapPin },
     { id: 'bookingForm' as SettingsTab, label: 'Booking Form', icon: Palette },
-    { id: 'global' as SettingsTab, label: 'Timezone', icon: Globe },
   ];
 
   return (
@@ -822,6 +884,7 @@ export function Settings() {
 
       {/* General Settings */}
       {activeTab === 'general' && (
+        loadingGeneral ? <GeneralSettingsSkeleton /> :
         <GeneralSettings
           defaultSenderName={defaultSenderName}
           setDefaultSenderName={setDefaultSenderName}
@@ -844,18 +907,29 @@ export function Settings() {
           cancelingMinLeadTime={cancelingMinLeadTime}
           setCancelingMinLeadTime={setCancelingMinLeadTime}
           onSave={handleSaveGeneral}
+          loading={isSavingGeneral}
+          companyNameProp={companyName}
+          domainProp={(() => {
+              try {
+                  const host = window.location.hostname;
+                  return host === 'localhost' ? 'apptsystem.smartreminder.in' : host;
+              } catch {
+                  return 'smartreminder.in';
+              }
+          })()}
         />
       )}
 
       {/* Company Profile */}
       {activeTab === 'company' && (
+        loadingCompany ? <CompanyProfileSkeleton /> :
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="p-6 border-b border-gray-100 bg-gray-50/50">
             <h2 className="text-xl font-semibold text-gray-900 tracking-tight flex items-center gap-2">
               <Building className="w-5 h-5 text-indigo-600" />
               Company Profile
             </h2>
-            <p className="text-sm text-gray-500 mt-1 font-normal">Manage your public business information</p>
+            <p className="text-sm text-gray-500 mt-1 font-normal">Manage your public business information and regional settings</p>
           </div>
 
           <div className="p-8">
@@ -923,19 +997,57 @@ export function Settings() {
                       <PhoneInput
                         value={businessPhone}
                         onChange={setBusinessPhone}
+                        timezone={selectedTimezone}
                         className="w-full bg-white border border-gray-200 rounded-xl focus-within:ring-4 focus-within:ring-indigo-600/10 focus-within:border-indigo-600 transition-all"
                       />
                     </div>
                   </div>
                 </div>
 
+                {/* Company Address */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Company Address</label>
+                  <div className="relative group">
+                    <MapPin className="absolute left-3.5 top-3.5 w-4.5 h-4.5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                    <textarea
+                      value={companyAddress}
+                      onChange={(e) => setCompanyAddress(e.target.value)}
+                      placeholder="123 Main Street, City, State, Country"
+                      rows={2}
+                      className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900 resize-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Timezone */}
+                <div className="pt-4 border-t border-gray-100">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-indigo-500" />
+                    Business Timezone
+                  </label>
+                  <TimezoneSelect
+                    value={selectedTimezone}
+                    onChange={setSelectedTimezone}
+                    className="w-full pl-4 py-6 bg-gray-50 border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-medium text-gray-900"
+                  />
+                  <p className="text-xs text-gray-500 mt-2 flex items-center gap-1.5">
+                    <Bell className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                    All appointments are calculated based on this timezone. Ensure it matches your physical business location.
+                  </p>
+                </div>
+
                 {/* Save Button */}
                 <div className="flex items-center justify-end pt-8 border-t border-gray-100 mt-6">
                   <button
                     onClick={handleSaveCompany}
-                    className="flex items-center gap-2.5 px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 hover:shadow-indigo-200 active:scale-[0.98]"
+                    disabled={isSavingCompany}
+                    className="flex items-center gap-2.5 px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 hover:shadow-indigo-200 active:scale-[0.98] disabled:opacity-50"
                   >
-                    <Save className="w-4.5 h-4.5" />
+                    {isSavingCompany ? (
+                      <div className="w-4.5 h-4.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Save className="w-4.5 h-4.5" />
+                    )}
                     Save Profile
                   </button>
                 </div>
@@ -947,6 +1059,7 @@ export function Settings() {
 
       {/* Notifications */}
       {activeTab === 'notifications' && (
+        loadingNotifications ? <NotificationsSkeleton /> :
         <div className="space-y-6">
           {/* Sub-tabs for Notifications */}
           <div className="flex border-b border-gray-200 mb-6">
@@ -998,8 +1111,8 @@ export function Settings() {
               onEditTemplate={handleEditSmsTemplate}
               onUpdateTimingConfig={updateSmsTimingConfig}
               onSendTestSms={handleSendTestSms}
-              onAddSequence={handleAddSmsSequence}
-              onRemoveSequence={handleRemoveSmsSequence}
+              onAddSequence={handleAddSequence}
+              onRemoveSequence={handleRemoveSequence}
             />
           )}
         </div>
@@ -1020,61 +1133,6 @@ export function Settings() {
           <BookingFormSettings />
       )}
 
-      {/* Global Settings (Timezone) */}
-      {activeTab === 'global' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
-          <div className="p-6 border-b border-gray-100 bg-gray-50/50">
-            <h2 className="text-xl font-semibold text-gray-900 tracking-tight flex items-center gap-2">
-              <Globe className="w-5 h-5 text-indigo-600" />
-              Regional & Timezone Settings
-            </h2>
-            <p className="text-sm text-gray-500 mt-1 font-normal">Standardize how time is calculated across your business</p>
-          </div>
-
-          <div className="p-8">
-            <div className="max-w-2xl space-y-8">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-indigo-500" />
-                  Business Timezone
-                </label>
-                
-                <div className="relative group">
-                  <TimezoneSelect 
-                    value={selectedTimezone}
-                    onChange={setSelectedTimezone}
-                    className="w-full pl-4 py-6 bg-gray-50 border-gray-200 rounded-2xl focus:ring-4 focus:ring-indigo-600/10 focus:border-indigo-600 transition-all outline-none font-semibold text-gray-900 shadow-sm hover:bg-white"
-                  />
-                </div>
-                
-                <div className="mt-6 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 flex gap-4">
-                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shrink-0 shadow-sm border border-indigo-50">
-                    <Bell className="w-5 h-5 text-indigo-600" />
-                  </div>
-                  <p className="text-xs text-indigo-900/70 font-medium leading-relaxed">
-                    <strong>Critical Note:</strong> All appointments and durations are calculated based on this setting. Ensure this matches your physical business location to prevent scheduling conflicts.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end pt-8 border-t border-gray-100">
-                <button
-                  onClick={handleSaveGlobal}
-                  disabled={globalLoading}
-                  className="flex items-center gap-2.5 px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 hover:shadow-indigo-200 active:scale-[0.98] disabled:opacity-50"
-                >
-                  {globalLoading ? (
-                    <div className="w-4.5 h-4.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <Save className="w-4.5 h-4.5" />
-                  )}
-                  Update Regional Settings
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Google Calendar Settings */}
       {activeTab === 'google-calendar' && (

@@ -45,7 +45,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     c.FirstName.ToLower().Contains(searchLower) ||
                     c.LastName.ToLower().Contains(searchLower) ||
                     (c.FirstName + " " + c.LastName).ToLower().Contains(searchLower) ||
-                    c.Email.ToLower().Contains(searchLower) ||
+                    (c.Email != null && c.Email.ToLower().Contains(searchLower)) ||
                     (c.Phone != null && c.Phone.Contains(query.SearchTerm)) ||
                     (c.Notes != null && c.Notes.ToLower().Contains(searchLower))
                 );
@@ -98,7 +98,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Name = $"{c.FirstName} {c.LastName}".Trim(),
                 FirstName = c.FirstName,
                 LastName = c.LastName,
-                Email = c.Email,
+                Email = c.Email ?? "",
                 Phone = c.Phone,
                 Notes = c.Notes,
                 IsActive = c.IsActive,
@@ -148,7 +148,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Name = $"{customer.FirstName} {customer.LastName}".Trim(),
                 FirstName = customer.FirstName,
                 LastName = customer.LastName,
-                Email = customer.Email,
+                Email = customer.Email ?? "",
                 Phone = customer.Phone,
                 Notes = customer.Notes,
                 IsActive = customer.IsActive,
@@ -221,7 +221,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Name = $"{customer.FirstName} {customer.LastName}".Trim(),
                 FirstName = customer.FirstName,
                 LastName = customer.LastName,
-                Email = customer.Email,
+                Email = customer.Email ?? "",
                 Phone = customer.Phone,
                 Notes = customer.Notes,
                 IsActive = customer.IsActive,
@@ -295,7 +295,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Name = $"{customer.FirstName} {customer.LastName}".Trim(),
                 FirstName = customer.FirstName,
                 LastName = customer.LastName,
-                Email = customer.Email,
+                Email = customer.Email ?? "",
                 Phone = customer.Phone,
                 Notes = customer.Notes,
                 IsActive = customer.IsActive,

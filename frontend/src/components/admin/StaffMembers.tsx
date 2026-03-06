@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
-import { fetchStaff, updateStaff, fetchStaffAvailability, createAvailability, deleteAllAvailabilityForStaff, deleteStaff, createStaff, fetchTimeOff, createTimeOff, deleteTimeOff, TimeOff } from '../../services/staffApi';
+import { fetchStaff, updateStaff, fetchStaffAvailability, updateStaffAvailabilityBulk, deleteStaff, createStaff, fetchTimeOff, createTimeOff, deleteTimeOff, TimeOff } from '../../services/staffApi';
 import { Search, Plus, X, User, Mail, Briefcase, Clock, Save, Calendar, Trash2 } from 'lucide-react';
 import PhoneInput, { isValidPhoneNumber } from '../ui/PhoneInput';
 import { Phone as PhoneIcon } from 'lucide-react';
 import type { Staff, TimeSlot, StaffServiceInfo } from '../../types/types';
 import { fetchServices, ServiceListItem } from "../../services/serviceApi";
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
+import { getDefaultCurrency } from '../../services/settingsService';
+import { getCurrencySymbol } from '../../utils/currency';
 import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { InviteStaffModal } from './InviteStaffModal';
 import { forgotPassword } from '../../services/authService';
+import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
+import { EyeOff, Eye } from 'lucide-react';
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -17,23 +21,38 @@ type TabType = 'details' | 'services' | 'schedules' | 'timeoff';
 
 // Custom type for editing state where services are IDs and schedule is guaranteed array
 interface EditableStaff extends Omit<Staff, 'services' | 'schedule'> {
-    services: number[];
+    services: { serviceId: number; customPrice?: number }[];
     schedule: TimeSlot[];
     role?: string; 
     password?: string; // Optional, only for creation
+    currency?: string;
 }
 
 export function StaffMembers() {
     const [showPassword, setShowPassword] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+    const [defaultCurrency, setDefaultCurrency] = useState('');
+    const [isSavingTimeOff, setIsSavingTimeOff] = useState(false);
     const [staff, setStaff] = useState<Staff[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [serviceSearchTerm, setServiceSearchTerm] = useState('');
     const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>('details');
+    const [isEditing, setIsEditing] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
     // Use EditableStaff for the form state
     const [editedStaff, setEditedStaff] = useState<EditableStaff | null>(null);
     const [bulkDays, setBulkDays] = useState<number[]>([]);
+    
+    useEffect(() => {
+        const loadCurrency = async () => {
+            const currency = await getDefaultCurrency();
+            setDefaultCurrency(currency);
+        };
+        loadCurrency();
+        // fetchStaff(); // This call is already handled by another useEffect
+    }, []);
     const [bulkStartTime, setBulkStartTime] = useState('09:00');
     const [bulkEndTime, setBulkEndTime] = useState('17:00');
     const [services, setServices] = useState<ServiceListItem[]>([]);
@@ -41,6 +60,8 @@ export function StaffMembers() {
     const [newTimeOff, setNewTimeOff] = useState({ start: '', end: '', reason: '' });
     const [deleteStaffId, setDeleteStaffId] = useState<number | null>(null);
     const [deleteTimeOffId, setDeleteTimeOffId] = useState<number | null>(null);
+    // Track initial state to detect changes
+    const [initialStaffState, setInitialStaffState] = useState<EditableStaff | null>(null);
 
 
     // Validation State
@@ -64,8 +85,21 @@ export function StaffMembers() {
         }
         
         // Password validation for new staff
-        if (editedStaff.id <= 0 && !editedStaff.password) {
-             errors.password = "Password is required";
+        if (editedStaff.id <= 0) {
+            if (!editedStaff.password) {
+                errors.password = "Password is required";
+            } else {
+                const passValid = validatePassword(editedStaff.password, editedStaff.email);
+                if (!passValid.isValid) {
+                    errors.password = "Does not meet requirements";
+                }
+            }
+        } else if (editedStaff.password) {
+            // Validate if trying to update password
+            const passValid = validatePassword(editedStaff.password, editedStaff.email);
+            if (!passValid.isValid) {
+                errors.password = "Does not meet requirements";
+            }
         }
 
         setFormErrors(errors);
@@ -111,11 +145,11 @@ export function StaffMembers() {
         endTime: a.endTime.substring(0, 5),
       }));
 
-      setEditedStaff(prev =>
-        prev
-          ? { ...prev, schedule: scheduleData }
-          : null
-      );
+      setEditedStaff(prev => {
+        const newState = prev ? { ...prev, schedule: scheduleData } : null;
+        if (newState) setInitialStaffState(newState); // Set baseline after schedule is loaded
+        return newState;
+      });
     } catch (e) {
       console.error("Failed to load availability", e);
     }
@@ -148,6 +182,7 @@ export function StaffMembers() {
             }
         })
         .catch(err => console.error(err))
+        .finally(() => setIsInitialLoading(false));
     }, [])
 
     useEffect(() => {
@@ -168,24 +203,67 @@ export function StaffMembers() {
   );
 };
 
+const timeToMinutes = (time: string) => {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+};
+
+const isValidSlot = (startTime: string, endTime: string) => {
+  return timeToMinutes(startTime) < timeToMinutes(endTime);
+};
+
+const isOverlapping = (s1: {startTime: string, endTime: string}, s2: {startTime: string, endTime: string}) => {
+  const start1 = timeToMinutes(s1.startTime);
+  const end1 = timeToMinutes(s1.endTime);
+  const start2 = timeToMinutes(s2.startTime);
+  const end2 = timeToMinutes(s2.endTime);
+  return start1 < end2 && end1 > start2;
+};
+
 const applyBulkSchedule = () => {
   if (!editedStaff) return;
   if (bulkDays.length === 0) return;
 
-  const updatedSchedule = editedStaff.schedule.filter(
-    slot => !bulkDays.includes(slot.dayOfWeek)
-  );
+  if (!isValidSlot(bulkStartTime, bulkEndTime)) {
+    toast.error("Start time must be before end time.");
+    return;
+  }
 
-  const newSlots: TimeSlot[] = bulkDays.map(day => ({
-    id: `${day}-${Date.now()}`,
-    dayOfWeek: day,
-    startTime: bulkStartTime,
-    endTime: bulkEndTime,
-  }));
+  const newSlots: TimeSlot[] = [];
+  let overlapFound = false;
+  
+  bulkDays.forEach(day => {
+    const bulkSlot = { startTime: bulkStartTime, endTime: bulkEndTime };
+    
+    // Check if THIS slot overlaps with ANY existing slot for THIS day
+    const overlap = editedStaff.schedule.some(s => 
+      s.dayOfWeek === day && isOverlapping(s, bulkSlot)
+    );
+    
+    if (!overlap) {
+      newSlots.push({
+        id: `${day}-${Date.now()}-${Math.random()}`,
+        dayOfWeek: day,
+        startTime: bulkStartTime,
+        endTime: bulkEndTime,
+      });
+    } else {
+        overlapFound = true;
+    }
+  });
+
+  if (newSlots.length === 0) {
+    toast.error("Selected slots overlap with existing ones for these days.");
+    return;
+  }
+  
+  if (overlapFound) {
+      toast.warning("Some slots were skipped due to overlaps.");
+  }
 
   setEditedStaff({
     ...editedStaff,
-    schedule: [...updatedSchedule, ...newSlots],
+    schedule: [...editedStaff.schedule, ...newSlots],
   });
 };
 
@@ -202,21 +280,23 @@ const applyBulkSchedule = () => {
     );
 
 const handleSelectStaff = (staffMember: Staff) => {
-  const serviceIds =
-    staffMember.services?.map((s: any) =>
-      typeof s === "object" ? s.serviceId : s
-    ) ?? [];
+  const serviceAssignments =
+    staffMember.services?.map((s: any) => ({
+      serviceId: typeof s === "object" ? s.serviceId : s,
+      customPrice: typeof s === "object" ? s.customPrice : undefined,
+    })) ?? [];
 
-  setSelectedStaff(staffMember);
-
-  setEditedStaff({
+  const editable: EditableStaff = {
     ...staffMember,
-    services: serviceIds,
+    services: serviceAssignments,
     schedule: [], // will be filled by useEffect
     role: "",
-  });
-  setFormErrors({}); // Clear errors when selecting new staff
+  };
 
+  setSelectedStaff(staffMember);
+  setEditedStaff(editable);
+  setInitialStaffState(editable); // Temporary baseline
+  setFormErrors({}); // Clear errors when selecting new staff
   setActiveTab("details");
 };
 
@@ -246,6 +326,7 @@ const handleSelectStaff = (staffMember: Staff) => {
         };
         setSelectedStaff(newStaff);
         setEditedStaff(editableNewStaff);
+        setInitialStaffState(editableNewStaff); // Absolute baseline for new staff
         setFormErrors({}); // Clear errors for new staff
         setActiveTab("details");
     };
@@ -253,28 +334,27 @@ const handleSelectStaff = (staffMember: Staff) => {
 
     const checkOverlap = (schedule: TimeSlot[]) => {
         for (let i = 0; i < schedule.length; i++) {
+            const s1 = schedule[i];
+            
+            // Check for reverse/invalid slots
+            if (!isValidSlot(s1.startTime, s1.endTime)) {
+                return { error: `Invalid time slot found: ${s1.startTime} - ${s1.endTime}. Start time must be before end time.` };
+            }
+
             for (let j = i + 1; j < schedule.length; j++) {
-                const s1 = schedule[i];
                 const s2 = schedule[j];
                 
                 if (s1.dayOfWeek === s2.dayOfWeek) {
-                    const start1 = parseInt(s1.startTime.replace(':', ''));
-                    const end1 = parseInt(s1.endTime.replace(':', ''));
-                    const start2 = parseInt(s2.startTime.replace(':', ''));
-                    const end2 = parseInt(s2.endTime.replace(':', ''));
-                    
-                    // Simple overlap check logic
-                    // (Start1 < End2) and (End1 > Start2)
-                    if (start1 < end2 && end1 > start2) {
-                        return true;
+                    if (isOverlapping(s1, s2)) {
+                        return { error: `Overlapping slots found on ${DAYS_OF_WEEK[s1.dayOfWeek]}: ${s1.startTime}-${s1.endTime} and ${s2.startTime}-${s2.endTime}` };
                     }
                 }
             }
         }
-        return false;
+        return null; // No errors
     };
 
-// Replace the handleSave function with this version:
+// Optimized handleSave function:
 const handleSave = async () => {
     if (!editedStaff || isSaving) return;
     
@@ -285,13 +365,14 @@ const handleSave = async () => {
         return;
     }
     
-    // validate overlaps locally
-    if (checkOverlap(editedStaff.schedule)) {
-        toast.error("Error: The schedule contains overlapping time slots. Please correct them before saving.");
+    // validate overlaps and reverse slots locally
+    const validationError = checkOverlap(editedStaff.schedule);
+    if (validationError) {
+        toast.error(validationError.error);
         return;
     }
 
-    setIsSaving(true); // Prevent multiple saves and show loading state
+    setIsSaving(true);
 
     try {
         const companyId = getCompanyIdFromToken(getToken() || "");
@@ -303,7 +384,7 @@ const handleSave = async () => {
 
         let staffId = editedStaff.id;
 
-        // CREATE or UPDATE Staff
+        // 1. CREATE or UPDATE Staff details and services
         if (editedStaff.id <= 0) {
             const newStaff = await createStaff({
                 companyId,
@@ -311,7 +392,7 @@ const handleSave = async () => {
                 lastName: editedStaff.lastName || "",
                 email: editedStaff.email || "",
                 phone: editedStaff.phone,
-                serviceIds: editedStaff.services,
+                services: editedStaff.services,
                 password: editedStaff.password   
             });
             staffId = newStaff.id;
@@ -319,87 +400,78 @@ const handleSave = async () => {
             await updateStaff(editedStaff as any);
         }
         
-        // Availability Handling - Clear existing before creating new
-        if (staffId > 0 && editedStaff.schedule.length > 0) {
-            await deleteAllAvailabilityForStaff(staffId);
-            await new Promise(resolve => setTimeout(resolve, 200));
+        // 2. BULK Availability Update
+        if (staffId > 0) {
+            const slots = editedStaff.schedule.map(slot => ({
+                dayOfWeek: slot.dayOfWeek,
+                startTime: slot.startTime.length === 5 ? slot.startTime + ":00" : slot.startTime,
+                endTime: slot.endTime.length === 5 ? slot.endTime + ":00" : slot.endTime,
+                isAvailable: true
+            }));
 
-            // Save new schedule
-            for (const slot of editedStaff.schedule) {
-                await createAvailability({
-                    staffId: staffId,
-                    dayOfWeek: slot.dayOfWeek,
-                    startTime: slot.startTime + ":00",
-                    endTime: slot.endTime + ":00",
-                    isAvailable: true,
-                });
-            }
-        } else if (staffId > 0 && editedStaff.schedule.length === 0) {
-            await deleteAllAvailabilityForStaff(staffId);
-        }
-
-        const debugAvailability = await fetchStaffAvailability(staffId);
-console.log("DEBUG after save:", debugAvailability);
-
-        // Wait for data to settle
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Refresh staff list
-        const refreshed = await fetchStaff();
-        setStaff(refreshed);
-
-        // Reload the current staff member with fresh data
-        const updated = refreshed.find(s => s.id === staffId);
-        if (updated) {
-            const currentTab = activeTab;
-            
-            const availability = await fetchStaffAvailability(staffId);
-            const timeOffList = await fetchTimeOff(staffId);
-            
-            console.log("Reloaded availability:", availability);
-            
-            setTimeOffs(timeOffList);
-            setSelectedStaff(updated);
-            
-            const currentServices = updated.services as any[];
-            const serviceIds = Array.isArray(currentServices)
-                ? currentServices.map((s: any) => (typeof s === 'object' ? s.serviceId : s))
-                : [];
-
-            const dayMap: Record<string, number> = {
-  Sunday: 0,
-  Monday: 1,
-  Tuesday: 2,
-  Wednesday: 3,
-  Thursday: 4,
-  Friday: 5,
-  Saturday: 6,
-};
-
-const scheduleData = availability.map((a: any) => ({
-  id: a.id.toString(),
-  dayOfWeek: typeof a.dayOfWeek === "string"
-    ? dayMap[a.dayOfWeek]
-    : a.dayOfWeek,
-  startTime: a.startTime.substring(0, 5),
-  endTime: a.endTime.substring(0, 5),
-}));
-
-
-            setEditedStaff({
-                ...updated,
-                services: serviceIds,
-                schedule: scheduleData,
-                role: ''
+            await updateStaffAvailabilityBulk({
+                staffId: staffId,
+                slots: slots
             });
-            
-            setActiveTab(currentTab);
         }
 
+        // 3. Refresh staff list and current selection in parallel
+        const [refreshedStaffList, availability, timeOffList] = await Promise.all([
+            fetchStaff(),
+            fetchStaffAvailability(staffId),
+            fetchTimeOff(staffId)
+        ]);
+
+        setStaff(refreshedStaffList);
+
+        // Post-save selection/reset logic
         if (editedStaff.id <= 0) {
+            // If it was a new staff, reset to "Add Manually" form
+            handleAddNewStaff();
             toast.success("Staff and schedule saved successfully!");
         } else {
-             toast.success("Staff and schedule updated successfully!");
+            // Reload the current staff member with fresh data
+            const updated = refreshedStaffList.find(s => s.id === staffId);
+            if (updated) {
+                const currentTab = activeTab;
+                setTimeOffs(timeOffList);
+                setSelectedStaff(updated);
+                
+                const currentServices = updated.services as any[];
+                const serviceIds = Array.isArray(currentServices)
+                    ? currentServices.map((s: any) => (typeof s === 'object' ? s.serviceId : s))
+                    : [];
+
+                const dayMap: Record<string, number> = {
+                    Sunday: 0,
+                    Monday: 1,
+                    Tuesday: 2,
+                    Wednesday: 3,
+                    Thursday: 4,
+                    Friday: 5,
+                    Saturday: 6,
+                };
+
+                const scheduleData = availability.map((a: any) => ({
+                    id: a.id.toString(),
+                    dayOfWeek: typeof a.dayOfWeek === "string"
+                        ? dayMap[a.dayOfWeek]
+                        : a.dayOfWeek,
+                    startTime: a.startTime.substring(0, 5),
+                    endTime: a.endTime.substring(0, 5),
+                }));
+
+                const finalState: EditableStaff = {
+                    ...updated,
+                    services: serviceIds,
+                    schedule: scheduleData,
+                    role: ''
+                };
+                setEditedStaff(finalState);
+                setInitialStaffState(finalState);
+                setActiveTab(currentTab);
+            }
+            toast.success("Staff and schedule updated successfully!");
         }
 
     } catch (err: any) {
@@ -408,6 +480,50 @@ const scheduleData = availability.map((a: any) => ({
     } finally {
         setIsSaving(false);
     }
+};
+
+const handleReset = () => {
+    if (initialStaffState) {
+        setEditedStaff(initialStaffState);
+        setFormErrors({});
+        toast.info("Changes discarded");
+    }
+};
+
+const hasUnsavedChanges = () => {
+    if (!editedStaff || !initialStaffState) return false;
+    
+    // Check if it's a new staff member
+    if (initialStaffState.id === 0) {
+        // For new staff, count as changed if any basic field is non-empty
+        return (
+            (editedStaff.firstName?.trim() ?? '') !== '' ||
+            (editedStaff.lastName?.trim() ?? '') !== '' ||
+            (editedStaff.email?.trim() ?? '') !== '' ||
+            (editedStaff.phone?.trim() ?? '') !== '' ||
+            editedStaff.services.length > 0 ||
+            editedStaff.schedule.length > 0 ||
+            (editedStaff.password?.length ?? 0) > 0
+        );
+    }
+
+    // Comparison logic for existing staff
+    const basicChanged = 
+        editedStaff.firstName !== initialStaffState.firstName ||
+        editedStaff.lastName !== initialStaffState.lastName ||
+        editedStaff.email !== initialStaffState.email ||
+        editedStaff.phone !== initialStaffState.phone ||
+        (editedStaff.password !== undefined && editedStaff.password !== '');
+
+    const servicesChanged = 
+        editedStaff.services.length !== initialStaffState.services.length ||
+        !editedStaff.services.every(id => initialStaffState.services.includes(id));
+
+    const scheduleChanged = 
+        editedStaff.schedule.length !== initialStaffState.schedule.length ||
+        JSON.stringify(editedStaff.schedule) !== JSON.stringify(initialStaffState.schedule);
+
+    return basicChanged || servicesChanged || scheduleChanged;
 };
 
 // Update the Save button to show loading state:
@@ -452,9 +568,19 @@ const scheduleData = availability.map((a: any) => ({
 
     const toggleService = (serviceId: number) => {
         if (!editedStaff) return;
-        const services = editedStaff.services.includes(serviceId)
-            ? editedStaff.services.filter((id) => id !== serviceId)
-            : [...editedStaff.services, serviceId];
+        const exists = editedStaff.services.find(s => s.serviceId === serviceId);
+        const services = exists
+            ? editedStaff.services.filter(s => s.serviceId !== serviceId)
+            : [...editedStaff.services, { serviceId }];
+        setEditedStaff({ ...editedStaff, services });
+    };
+
+    const updateServicePrice = (serviceId: number, price: string) => {
+        if (!editedStaff) return;
+        const numPrice = price.trim() === '' ? undefined : parseFloat(price);
+        const services = editedStaff.services.map(s => 
+            s.serviceId === serviceId ? { ...s, customPrice: numPrice } : s
+        );
         setEditedStaff({ ...editedStaff, services });
     };
 
@@ -463,7 +589,7 @@ const scheduleData = availability.map((a: any) => ({
     );
 
     const isAllFilteredSelected = filteredServices.length > 0 && 
-        filteredServices.every(s => editedStaff?.services.includes(s.id));
+        filteredServices.every(s => editedStaff?.services.some(as => as.serviceId === s.id));
 
     const handleToggleAllServices = () => {
         if (!editedStaff) return;
@@ -472,12 +598,12 @@ const scheduleData = availability.map((a: any) => ({
         if (isAllFilteredSelected) {
             // Unselect all in current filter
             const filteredIds = filteredServices.map(s => s.id);
-            newServices = editedStaff.services.filter(id => !filteredIds.includes(id));
+            newServices = editedStaff.services.filter(s => !filteredIds.includes(s.serviceId));
         } else {
             // Select all in current filter
-            const currentSelected = new Set(editedStaff.services);
-            filteredServices.forEach(s => currentSelected.add(s.id));
-            newServices = Array.from(currentSelected);
+            const currentSelectedIds = new Set(editedStaff.services.map(s => s.serviceId));
+            const toAdd = filteredServices.filter(s => !currentSelectedIds.has(s.id)).map(s => ({ serviceId: s.id }));
+            newServices = [...editedStaff.services, ...toAdd];
         }
         
         setEditedStaff({ ...editedStaff, services: newServices });
@@ -485,12 +611,32 @@ const scheduleData = availability.map((a: any) => ({
 
     const addTimeSlot = (dayOfWeek: number) => {
         if (!editedStaff) return;
+        
+        const daySlots = editedStaff.schedule.filter(s => s.dayOfWeek === dayOfWeek);
+        
+        let startTime = '09:00';
+        let endTime = '17:00';
+        
+        if (daySlots.length > 0) {
+            // Find the latest end time
+            const lastSlot = [...daySlots].sort((a, b) => b.endTime.localeCompare(a.endTime))[0];
+            
+            // Default to 1 hour after the last slot
+            const [hours, minutes] = lastSlot.endTime.split(':').map(Number);
+            const startHour = Math.min(hours + 1, 23);
+            const endHour = Math.min(startHour + 1, 23);
+            
+            startTime = `${String(startHour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            endTime = `${String(endHour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        }
+        
         const newSlot: TimeSlot = {
             id: Date.now().toString(),
             dayOfWeek,
-            startTime: '09:00',
-            endTime: '17:00',
+            startTime,
+            endTime,
         };
+        
         setEditedStaff({
             ...editedStaff,
             schedule: [...editedStaff.schedule, newSlot],
@@ -521,6 +667,7 @@ const scheduleData = availability.map((a: any) => ({
             return;
         }
         
+        setIsSavingTimeOff(true);
         try {
             await createTimeOff({
                 staffId: editedStaff.id,
@@ -536,6 +683,8 @@ const scheduleData = availability.map((a: any) => ({
             toast.success("Time Off added successfully");
         } catch (e: any) {
              toast.error(e.message);
+        } finally {
+            setIsSavingTimeOff(false);
         }
     };
 
@@ -573,6 +722,57 @@ const scheduleData = availability.map((a: any) => ({
             </div> */}
 
             <div className={`grid grid-cols-1 ${getRoleFromToken(getToken() || '') === 'Staff' ? '' : 'lg:grid-cols-3'} gap-6`}>
+                {isInitialLoading ? (
+                    <div className="col-span-full bg-white rounded-lg shadow p-8 animate-pulse">
+                        <div className="flex gap-6">
+                            {/* Fake Sidebar for admins */}
+                            {getRoleFromToken(getToken() || '') !== 'Staff' && (
+                                <div className="w-1/3 space-y-4 border-r pr-6 border-gray-100 h-96">
+                                    <div className="h-10 bg-gray-100 rounded-lg w-full mb-6"></div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-gray-100 rounded-full"></div>
+                                        <div className="flex-1 space-y-2">
+                                            <div className="h-4 bg-gray-100 rounded w-3/4"></div>
+                                            <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-gray-100 rounded-full"></div>
+                                        <div className="flex-1 space-y-2">
+                                            <div className="h-4 bg-gray-100 rounded w-3/4"></div>
+                                            <div className="h-3 bg-gray-100 rounded w-1/2"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Fake Forms Area */}
+                            <div className="flex-1 space-y-6">
+                                <div className="h-8 bg-gray-100 rounded w-1/4 mb-8"></div>
+                                <div className="flex gap-4 border-b border-gray-100 pb-4">
+                                    <div className="h-6 bg-gray-100 rounded w-20"></div>
+                                    <div className="h-6 bg-gray-100 rounded w-20"></div>
+                                    <div className="h-6 bg-gray-100 rounded w-20"></div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6 mt-6">
+                                    <div className="space-y-2">
+                                        <div className="h-4 bg-gray-100 rounded w-16"></div>
+                                        <div className="h-10 bg-gray-100 rounded w-full"></div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="h-4 bg-gray-100 rounded w-16"></div>
+                                        <div className="h-10 bg-gray-100 rounded w-full"></div>
+                                    </div>
+                                    <div className="space-y-2 col-span-2">
+                                        <div className="h-4 bg-gray-100 rounded w-16"></div>
+                                        <div className="h-10 bg-gray-100 rounded w-full"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                <>
                 {/* Staff List */}
                 {getRoleFromToken(getToken() || '') !== 'Staff' && (
                 <div className="lg:col-span-1">
@@ -618,14 +818,14 @@ const scheduleData = availability.map((a: any) => ({
                             <>
                             <button 
                                 onClick={() => setShowInviteModal(true)}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer"
                             >
                                 <Mail className="w-5 h-5" />
                                 Invite Staff
                             </button>
                             <button 
                                 onClick={handleAddNewStaff}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm cursor-pointer"
                             >
                                 <Plus className="w-4 h-4" />
                                 Add Manually
@@ -661,7 +861,7 @@ const scheduleData = availability.map((a: any) => ({
                                 <div className="flex overflow-x-auto">
                                     <button
                                         onClick={() => setActiveTab('details')}
-                                        className={`px-6 py-3 font-medium whitespace-nowrap flex items-center gap-2 ${activeTab === 'details'
+                                        className={`px-6 py-3 font-medium whitespace-nowrap flex items-center gap-2 cursor-pointer ${activeTab === 'details'
                                                 ? 'border-b-2 border-indigo-600 text-indigo-600'
                                                 : 'text-gray-600 hover:text-gray-800'
                                             }`}
@@ -673,7 +873,7 @@ const scheduleData = availability.map((a: any) => ({
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('services')}
-                                        className={`px-6 py-3 font-medium whitespace-nowrap ${activeTab === 'services'
+                                        className={`px-6 py-3 font-medium whitespace-nowrap cursor-pointer ${activeTab === 'services'
                                                 ? 'border-b-2 border-indigo-600 text-indigo-600'
                                                 : 'text-gray-600 hover:text-gray-800'
                                             }`}
@@ -682,7 +882,7 @@ const scheduleData = availability.map((a: any) => ({
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('schedules')}
-                                        className={`px-6 py-3 font-medium whitespace-nowrap ${activeTab === 'schedules'
+                                        className={`px-6 py-3 font-medium whitespace-nowrap cursor-pointer ${activeTab === 'schedules'
                                                 ? 'border-b-2 border-indigo-600 text-indigo-600'
                                                 : 'text-gray-600 hover:text-gray-800'
                                             }`}
@@ -801,89 +1001,106 @@ const scheduleData = availability.map((a: any) => ({
                                         </div>
 
                                         <div>
-  <label className="block text-sm font-medium text-gray-700 mb-2">
-    <Briefcase className="w-4 h-4 inline mr-2" />
-    Password
-  </label>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                <Briefcase className="w-4 h-4 inline mr-2" />
+                                                Password
+                                            </label>
 
-  <div className="relative">
-    <input
-      type={showPassword ? "text" : "password"}
-      value={editedStaff.password ?? ""}
-      onChange={(e) => {
-          setEditedStaff({ ...editedStaff, password: e.target.value });
-          if (formErrors.password) setFormErrors({ ...formErrors, password: '' });
-      }}
-      placeholder={
-        editedStaff.id <= 0
-          ? "Enter password for new staff"
-          : "New password (leave blank to keep current)"
-      }
-      autoComplete="new-password"
-      name="staff-password"
-      className={`w-full px-4 py-2 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white ${formErrors.password ? 'border-red-500' : 'border-gray-300'}`}
-    />
+                                            <div className="relative">
+                                                <input
+                                                    type={showPassword ? "text" : "password"}
+                                                    value={editedStaff.password ?? ""}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        setEditedStaff({ ...editedStaff, password: val });
+                                                        
+                                                        // Real-time validation
+                                                        const passValid = validatePassword(val, editedStaff.email);
+                                                        if (val.length > 0 && !passValid.isValid) {
+                                                            setFormErrors(prev => ({ ...prev, password: 'Does not meet requirements' }));
+                                                        } else {
+                                                            if (formErrors.password) setFormErrors(prev => ({ ...prev, password: '' }));
+                                                        }
+                                                    }}
+                                                    placeholder={
+                                                        editedStaff.id <= 0
+                                                            ? "Enter password for new staff"
+                                                            : "New password (leave blank to keep current)"
+                                                    }
+                                                    autoComplete="new-password"
+                                                    name="staff-password"
+                                                    className={`w-full px-4 py-2 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white ${formErrors.password ? 'border-red-500' : 'border-gray-300'}`}
+                                                />
 
-    {/* Eye icon — for both new and existing staff */}
-    <button
-      type="button"
-      onClick={() => setShowPassword((prev) => !prev)}
-      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
-    >
-      {showPassword ? (
-        // eye-off
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M3 3l18 18M10.73 5.08A9.97 9.97 0 0112 5
-               c4.478 0 8.268 2.943 9.542 7
-               a9.98 9.98 0 01-4.132 5.411M6.18 6.18
-               A9.98 9.98 0 002.458 12
-               c1.274 4.057 5.064 7 9.542 7
-               a9.97 9.97 0 003.27-.53" />
-        </svg>
-      ) : (
-        // eye
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M2.458 12C3.732 7.943 7.523 5 12 5
-               c4.478 0 8.268 2.943 9.542 7
-               -1.274 4.057-5.064 7-9.542 7
-               -4.477 0-8.268-2.943-9.542-7z" />
-        </svg>
-      )}
-    </button>
-  </div>
+                                                {/* Eye icon */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPassword((prev) => !prev)}
+                                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 cursor-pointer"
+                                                >
+                                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                                </button>
+                                            </div>
 
-  {/* Helper text / reset link */}
-  {editedStaff.id <= 0 ? (
-    <p className={`text-xs mt-1 ${formErrors.password ? 'text-red-500' : 'text-gray-500'}`}>
-      Required: Set a password for the new staff member
-    </p>
-  ) : (
-    <div className="mt-2">
-      {!(getRoleFromToken(getToken() || '') === 'Staff') && (
-        <button
-          type="button"
-          onClick={async () => {
-            if (editedStaff?.email) {
-              try {
-                await forgotPassword(editedStaff.email);
-                toast.success(`Password reset link sent to ${editedStaff.email}`);
-              } catch (err: any) {
-                toast.error(err.message || "Failed to send reset link");
-              }
-            }
-          }}
-          className="text-sm text-indigo-600 hover:text-indigo-700 underline"
-        >
-          Send a Reset Password Link to staff
-        </button>
-      )}
-    </div>
-  )}
-</div>
+                                            {/* Password Requirements Checklist */}
+                                            <div className="mt-3 bg-gray-50 rounded-lg p-3 border border-gray-100">
+                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Password Requirements</p>
+                                                <div className="grid grid-cols-1 gap-1.5">
+                                                    {PASSWORD_REQUIREMENTS.map((req) => {
+                                                        const isMet = req.test(editedStaff.password || '');
+                                                        return (
+                                                            <div key={req.id} className="flex items-center gap-2">
+                                                                <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${isMet ? 'bg-emerald-500' : 'bg-gray-200'}`}>
+                                                                    {isMet && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                                                </div>
+                                                                <span className={`text-[11px] ${isMet ? 'text-emerald-600 font-medium' : 'text-gray-500'}`}>
+                                                                    {req.label}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {/* Email match check */}
+                                                    <div className="flex items-center gap-2">
+                                                        <div className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${editedStaff.password && editedStaff.email && editedStaff.password.toLowerCase() !== editedStaff.email.toLowerCase() ? 'bg-emerald-500' : 'bg-gray-200'}`}>
+                                                            {editedStaff.password && editedStaff.email && editedStaff.password.toLowerCase() !== editedStaff.email.toLowerCase() && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                                        </div>
+                                                        <span className={`text-[11px] ${editedStaff.password && editedStaff.email && editedStaff.password.toLowerCase() !== editedStaff.email.toLowerCase() ? 'text-emerald-600 font-medium' : 'text-gray-500'}`}>
+                                                            Must not match email
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {formErrors.password && <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>}
+
+                                            {/* Helper text / reset link */}
+                                            {editedStaff.id <= 0 ? (
+                                                <p className="text-[10px] text-gray-400 mt-2 italic">
+                                                    Staff members can change their password after their first login.
+                                                </p>
+                                            ) : (
+                                                <div className="mt-2">
+                                                    {!(getRoleFromToken(getToken() || '') === 'Staff') && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                if (editedStaff?.email) {
+                                                                    try {
+                                                                        await forgotPassword(editedStaff.email);
+                                                                        toast.success(`Password reset link sent to ${editedStaff.email}`);
+                                                                    } catch (err: any) {
+                                                                        toast.error(err.message || "Failed to send reset link");
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className="text-sm text-indigo-600 hover:text-indigo-700 underline cursor-pointer"
+                                                        >
+                                                            Send a Reset Password Link to staff
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
 
                                         {/* <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -902,19 +1119,21 @@ const scheduleData = availability.map((a: any) => ({
 
                                 {activeTab === 'services' && (
   <div className="space-y-4">
-
     <p className="text-sm text-gray-600">
-      Select which services this staff member can provide
+      Select which services this staff member can provide and set custom prices if needed
     </p>
 
     {/* Search input */}
-    <input
-      type="text"
-      placeholder="Search services..."
-      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 mb-2"
-      onChange={(e) => setServiceSearchTerm(e.target.value)}
-      value={serviceSearchTerm}
-    />
+    <div className="relative">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          placeholder="Search services..."
+          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 mb-2"
+          onChange={(e) => setServiceSearchTerm(e.target.value)}
+          value={serviceSearchTerm}
+        />
+    </div>
 
     <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
       {/* Select All Header */}
@@ -935,24 +1154,50 @@ const scheduleData = availability.map((a: any) => ({
       )}
 
       {/* Scrollable service list */}
-      <div className="max-h-[300px] overflow-y-auto divide-y bg-white custom-scrollbar">
+      <div className="max-h-[400px] overflow-y-auto divide-y bg-white custom-scrollbar">
         {filteredServices.length > 0 ? (
-          filteredServices.map(service => (
-            <label
-              key={service.id}
-              className="flex items-center gap-3 px-4 py-3 hover:bg-indigo-50/30 cursor-pointer transition-colors group"
-            >
-              <input
-                type="checkbox"
-                checked={editedStaff.services.includes(service.id)}
-                onChange={() => toggleService(service.id)}
-                className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 transition-all cursor-pointer"
-              />
-              <span className="text-sm text-gray-800 select-none group-hover:text-gray-900">
-                {service.name}
-              </span>
-            </label>
-          ))
+          filteredServices.map(service => {
+            const assignment = editedStaff.services.find(as => as.serviceId === service.id);
+            const isSelected = !!assignment;
+            
+            return (
+              <div
+                key={service.id}
+                className={`flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 hover:bg-indigo-50/30 transition-colors group ${isSelected ? 'bg-indigo-50/10' : ''}`}
+              >
+                <label className="flex items-center gap-3 flex-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleService(service.id)}
+                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 transition-all cursor-pointer"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-800 select-none group-hover:text-gray-900">
+                      {service.name}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      Default: {getCurrencySymbol(defaultCurrency)}{service.price} • {service.serviceDuration} min
+                    </span>
+                  </div>
+                </label>
+
+                {isSelected && (
+                  <div className="flex items-center gap-2 sm:ml-auto">
+                    <span className="text-xs text-gray-400">Custom Price ({getCurrencySymbol(editedStaff?.currency || defaultCurrency)}):</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={assignment.customPrice ?? service.price}
+                      onChange={(e) => updateServicePrice(service.id, e.target.value)}
+                      className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 outline-none font-medium text-gray-900"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })
         ) : (
           <div className="p-8 text-center text-gray-500">
             No services found matching "{serviceSearchTerm}"
@@ -962,9 +1207,19 @@ const scheduleData = availability.map((a: any) => ({
     </div>
 
     {/* Selected count */}
-    <p className="text-xs text-gray-500">
-      {editedStaff.services.length} service(s) selected
-    </p>
+    <div className="flex justify-between items-center">
+        <p className="text-xs text-gray-500">
+          {editedStaff.services.length} service(s) selected
+        </p>
+        {editedStaff.services.length > 0 && (
+            <button 
+                onClick={() => setEditedStaff({...editedStaff, services: []})}
+                className="text-xs text-red-500 hover:text-red-700"
+            >
+                Clear all
+            </button>
+        )}
+    </div>
   </div>
 )}
 
@@ -1000,7 +1255,7 @@ const scheduleData = availability.map((a: any) => ({
                                                         <button
                                                             key={day}
                                                             onClick={() => toggleBulkDay(index)}
-                                                            className={`px-3 py-1 rounded-full text-sm border transition
+                                                            className={`px-3 py-1 rounded-full text-sm border transition cursor-pointer
                                                             ${bulkDays.includes(index)
                                                                 ? 'bg-indigo-600 text-white border-indigo-600'
                                                                 : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}
@@ -1035,7 +1290,7 @@ const scheduleData = availability.map((a: any) => ({
 
                                                     <button
                                                         onClick={applyBulkSchedule}
-                                                        className="mt-5 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                                                        className="mt-5 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 cursor-pointer"
                                                     >
                                                         Apply
                                                     </button>
@@ -1052,7 +1307,7 @@ const scheduleData = availability.map((a: any) => ({
                                                                 <h4 className="font-medium">{day}</h4>
                                                                 <button
                                                                     onClick={() => addTimeSlot(index)}
-                                                                    className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                                                                    className="text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1 cursor-pointer"
                                                                 >
                                                                     <Plus className="w-4 h-4" />
                                                                     Add Time
@@ -1077,7 +1332,7 @@ const scheduleData = availability.map((a: any) => ({
                                                                             />
                                                                             <button
                                                                                 onClick={() => deleteTimeSlot(slot.id)}
-                                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                                                                             >
                                                                                 <X className="w-4 h-4" />
                                                                             </button>
@@ -1132,8 +1387,14 @@ const scheduleData = availability.map((a: any) => ({
                                             </div>
                                             <button 
                                                 onClick={handleSaveTimeOff}
-                                                className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700"
+                                                disabled={isSavingTimeOff}
+                                                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                                             >
+                                                {isSavingTimeOff ? (
+                                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                ) : (
+                                                    <Plus className="w-4 h-4" />
+                                                )}
                                                 Add Time Off
                                             </button>
                                         </div>
@@ -1167,20 +1428,11 @@ const scheduleData = availability.map((a: any) => ({
             {editedStaff.id > 0 && !(getRoleFromToken(getToken() || '') === 'Staff') && (
   <button
     onClick={handleDeleteStaff}
-    className="px-6 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200"
+    className="px-6 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200 cursor-pointer"
   >
     Remove Staff
   </button>
 )}
-
-
-                                <button
-                                    onClick={handleSave}
-                                    className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                                >
-                                    <Save className="w-5 h-5" />
-                                    Save Changes
-                                </button>
                             </div>
                         </div>
                     ) : (
@@ -1210,7 +1462,40 @@ const scheduleData = availability.map((a: any) => ({
                     confirmText="Remove"
                     variant="destructive"
                 />
+                </>
+                )}
             </div>
+
+            {/* Global Sticky Save Bar */}
+            {hasUnsavedChanges() && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-2xl bg-gray-900 text-white p-4 rounded-2xl shadow-2xl z-[100] flex items-center justify-between border border-gray-700 animate-in slide-in-from-bottom-8 duration-300">
+                    <div className="flex items-center gap-3 ml-2">
+                        <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
+                        <span className="font-semibold tracking-tight text-gray-100">You have unsaved changes</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={handleReset}
+                            disabled={isSaving}
+                            className="px-4 py-2 text-gray-400 hover:text-white font-bold text-sm transition-colors disabled:opacity-50 cursor-pointer"
+                        >
+                            Reset
+                        </button>
+                        <button
+                            onClick={handleSave}
+                            disabled={isSaving}
+                            className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                            {isSaving ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                <Save className="w-4 h-4" />
+                            )}
+                            <span className="font-bold text-sm">Save Changes</span>
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

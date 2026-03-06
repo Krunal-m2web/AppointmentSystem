@@ -91,13 +91,13 @@ export function AdminDashboard({
     },
     {
       id: "staff" as Tab,
-      label: role === 'Staff' ? "My Profile" : "Staff Members",
+      label: "Staff Members",
       icon: UserCheck,
-      roles: ['Admin', 'Staff'],
+      roles: ['Admin'],
     },
     {
       id: "timeoff" as Tab,
-      label: "Time Off",
+      label: "Availability",
       icon: Clock,
       roles: ['Admin', 'Staff']
     },
@@ -112,6 +112,12 @@ export function AdminDashboard({
       label: "Calendar Settings",
       icon: CalendarCog,
       roles: ['Staff']  // Only Staff sees this tab - Admin connects via Settings
+    },
+    {
+      id: "staff" as Tab,
+      label: "My Profile",
+      icon: User,
+      roles: ['Staff'],
     },
     { id: "customers" as Tab, label: "Customers", icon: Users, roles: ['Admin'] },
     // {
@@ -136,8 +142,6 @@ export function AdminDashboard({
 
   const visibleTabs = allTabs.filter(t => {
     if (!role || !t.roles.includes(role)) return false;
-    // Hide 'staff' tab from sidebar for Staff role (accessible via profile menu)
-    if (role === 'Staff' && t.id === 'staff') return false;
     return true;
   });
   const tabs = visibleTabs;
@@ -181,8 +185,8 @@ export function AdminDashboard({
 
   // Ensure active tab is valid for current role
   useEffect(() => {
-    const currentTab = allTabs.find(t => t.id === activeTab);
-    if (currentTab && role && !currentTab.roles.includes(role)) {
+    const matchingTabs = allTabs.filter(t => t.id === activeTab);
+    if (matchingTabs.length > 0 && role && !matchingTabs.some(t => t.roles.includes(role))) {
       setActiveTab("dashboard");
     }
   }, [role, activeTab]);
@@ -260,7 +264,7 @@ export function AdminDashboard({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all relative group ${
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all relative group cursor-pointer ${
                   isActive
                     ? "bg-indigo-600 text-white shadow-md"
                     : "text-gray-700 hover:bg-gray-100"
@@ -324,7 +328,7 @@ export function AdminDashboard({
             <div className="relative">
               <button 
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
-                className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
               >
                 <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold">
                   {userInitials}
@@ -353,7 +357,7 @@ export function AdminDashboard({
                         }
                         setShowProfileMenu(false);
                       }}
-                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
                     >
                       <User className="w-4 h-4" />
                       My Profile
@@ -364,7 +368,7 @@ export function AdminDashboard({
                           setActiveTab('settings');
                           setShowProfileMenu(false);
                         }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
                       >
                         <SettingsIcon className="w-4 h-4" />
                         Settings
@@ -375,7 +379,7 @@ export function AdminDashboard({
                         setShowProfileMenu(false);
                         onLogout();
                       }}
-                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
                     >
                       <LogOut className="w-4 h-4" />
                       Logout

@@ -41,6 +41,9 @@ namespace Appointmentbookingsystem.Backend.Data
         // Password Reset Tokens
         public DbSet<PasswordResetToken> PasswordResetTokens { get; set; } = null!;
 
+        // Company Holidays
+        public DbSet<Holiday> Holidays { get; set; } = null!;
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -395,6 +398,26 @@ namespace Appointmentbookingsystem.Backend.Data
                 entity.HasKey(e => e.Id);
                 entity.HasIndex(e => e.Token).IsUnique();
                 entity.HasIndex(e => e.Email);
+            });
+
+            // ==================== HOLIDAY ====================
+            modelBuilder.Entity<Holiday>(entity =>
+            {
+                entity.ToTable("holidays");
+                entity.HasKey(h => h.Id);
+
+                // Fast lookup by company + date
+                entity.HasIndex(h => new { h.CompanyId, h.Date })
+                      .HasDatabaseName("IX_Holidays_CompanyId_Date");
+
+                entity.Property(h => h.Name).HasMaxLength(200).IsRequired();
+                entity.Property(h => h.Source).HasMaxLength(10).HasDefaultValue("custom");
+                entity.Property(h => h.CountryName).HasMaxLength(100);
+
+                entity.HasOne(h => h.Company)
+                      .WithMany(c => c.Holidays)
+                      .HasForeignKey(h => h.CompanyId)
+                      .OnDelete(DeleteBehavior.Cascade);
             });
         }
 

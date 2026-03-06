@@ -2,6 +2,7 @@ using Appointmentbookingsystem.Backend.Data;
 using Appointmentbookingsystem.Backend.DTOs.Staff;
 using Appointmentbookingsystem.Backend.Models.Entities;
 using Appointmentbookingsystem.Backend.Services;
+using Appointmentbookingsystem.Backend.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (emailExists)
                 return BadRequest("Email already exists in the system.");
 
+            var passwordValidation = PasswordValidator.Validate(dto.Password, dto.Email);
+            if (!passwordValidation.IsValid)
+                return BadRequest(passwordValidation.ErrorMessage);
+
             // Hash Password
             string hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.Password);
 
@@ -62,21 +67,27 @@ namespace Appointmentbookingsystem.Backend.Controllers
             await _context.SaveChangesAsync();
 
             // Assign services if provided
-            if (dto.ServiceIds != null && dto.ServiceIds.Any())
+            if (dto.Services != null && dto.Services.Any())
             {
+                var serviceIds = dto.Services.Select(s => s.ServiceId).ToList();
                 var services = await _context.Services
-                    .Where(s => s.CompanyId == dto.CompanyId && dto.ServiceIds.Contains(s.Id) && s.IsActive)
+                    .Where(s => s.CompanyId == dto.CompanyId && serviceIds.Contains(s.Id) && s.IsActive)
                     .ToListAsync();
 
-                foreach (var service in services)
+                foreach (var serviceUpdate in dto.Services)
                 {
-                    var staffService = new StaffService
+                    var service = services.FirstOrDefault(s => s.Id == serviceUpdate.ServiceId);
+                    if (service != null)
                     {
-                        StaffId = staff.Id,
-                        ServiceId = service.Id,
-                        IsActive = true
-                    };
-                    _context.StaffServices.Add(staffService);
+                        var staffService = new StaffService
+                        {
+                            StaffId = staff.Id,
+                            ServiceId = service.Id,
+                            CustomPrice = serviceUpdate.CustomPrice,
+                            IsActive = true
+                        };
+                        _context.StaffServices.Add(staffService);
+                    }
                 }
                 await _context.SaveChangesAsync();
             }
@@ -191,8 +202,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                     .SelectMany(v => v.Errors)
                     .Select(e => e.ErrorMessage)
                     .ToList();
-               return BadRequest(ModelState);
-
+                return BadRequest(ModelState);
             }
 
             var staff = await _context.Staff
@@ -222,6 +232,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
             // Update Password if provided
             if (!string.IsNullOrEmpty(dto.Password))
             {
+                var passwordValidation = PasswordValidator.Validate(dto.Password, dto.Email ?? staff.Email);
+                if (!passwordValidation.IsValid)
+                    return BadRequest(passwordValidation.ErrorMessage);
+
                 staff.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
             }
 
@@ -240,27 +254,33 @@ namespace Appointmentbookingsystem.Backend.Controllers
             }
 
             // Update Services if provided
-            if (dto.ServiceIds != null)
+            if (dto.Services != null)
             {
                 // Remove existing staff services
                 _context.StaffServices.RemoveRange(staff.StaffServices);
 
                 // Add new staff services
-                if (dto.ServiceIds.Any())
+                if (dto.Services.Any())
                 {
+                    var serviceIds = dto.Services.Select(s => s.ServiceId).ToList();
                     var services = await _context.Services
-                        .Where(s => s.CompanyId == staff.CompanyId && dto.ServiceIds.Contains(s.Id) && s.IsActive)
+                        .Where(s => s.CompanyId == staff.CompanyId && serviceIds.Contains(s.Id) && s.IsActive)
                         .ToListAsync();
 
-                    foreach (var service in services)
+                    foreach (var serviceUpdate in dto.Services)
                     {
-                        var staffService = new StaffService
+                        var service = services.FirstOrDefault(s => s.Id == serviceUpdate.ServiceId);
+                        if (service != null)
                         {
-                            StaffId = staff.Id,
-                            ServiceId = service.Id,
-                            IsActive = true
-                        };
-                        _context.StaffServices.Add(staffService);
+                            var staffService = new StaffService
+                            {
+                                StaffId = staff.Id,
+                                ServiceId = service.Id,
+                                CustomPrice = serviceUpdate.CustomPrice,
+                                IsActive = true
+                            };
+                            _context.StaffServices.Add(staffService);
+                        }
                     }
                 }
             }

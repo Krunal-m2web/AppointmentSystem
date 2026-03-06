@@ -377,7 +377,7 @@ export function CustomersPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleExportCSV}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm text-gray-700"
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm text-gray-700 cursor-pointer"
             >
               <Download className="w-4 h-4" />
               Export to CSV...
@@ -385,7 +385,7 @@ export function CustomersPage() {
             
             <button
               onClick={handleNewCustomer}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm shadow-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm shadow-sm cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               New customer...
@@ -510,7 +510,7 @@ export function CustomersPage() {
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleViewHistory(customer)}
-                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200 cursor-pointer"
                           title="Communication Logs"
                         >
                           <History className="w-4 h-4" />
@@ -518,7 +518,7 @@ export function CustomersPage() {
 
                         <button
                           onClick={() => handleEditCustomer(customer)}
-                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200 cursor-pointer"
                           title="Edit Customer"
                         >
                           <Pencil className="w-4 h-4" />
@@ -526,7 +526,7 @@ export function CustomersPage() {
 
                         <button
                           onClick={() => handleDeleteCustomer(customer.id)}
-                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                          className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200 cursor-pointer"
                           title="Delete Customer"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -585,7 +585,7 @@ export function CustomersPage() {
             <button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1 || isLoading}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 cursor-pointer"
             >
              <ChevronLeft className="w-4 h-4" />
             </button>
@@ -595,7 +595,7 @@ export function CustomersPage() {
             <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages || totalPages === 0 || isLoading}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -620,7 +620,7 @@ export function CustomersPage() {
                 </div>
                 <button
                   onClick={handleCloseForm}
-                  className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-white hover:rotate-90"
+                  className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-white hover:rotate-90 cursor-pointer"
                   type="button"
                 >
                   <X className="w-5 h-5" />

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Palette, Type, Save, RotateCcw, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { getMyCompany, updateMyCompany } from '../../../services/CompanyService';
+import { BookingFormSettingsSkeleton } from './SettingsSkeletons';
 
 // Default booking form labels - just the key terms
 const DEFAULT_LABELS = {
@@ -93,11 +94,7 @@ export function BookingFormSettings({}: BookingFormSettingsProps) {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <BookingFormSettingsSkeleton />;
   }
 
   return (
