@@ -99,7 +99,6 @@ export interface PaginatedAppointmentsResponse {
 export async function createAppointment(
   data: CreateAppointmentRequest
 ): Promise<AppointmentResponse> {
-  console.log("Creating appointment with data:", JSON.stringify(data, null, 2));
 
   const response = await fetch(`${API_BASE_URL}/api/appointments`, {
     method: "POST",

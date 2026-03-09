@@ -33,7 +33,6 @@ namespace Appointmentbookingsystem.Backend.Services
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Notification Error] {ex.Message}");
                 }
 
                 await Task.Delay(_checkInterval, stoppingToken);
@@ -94,7 +93,6 @@ namespace Appointmentbookingsystem.Backend.Services
                 {
                     effectiveContext = "after_appointment";
                     effectiveValue = 0;
-                    Console.WriteLine($"[Notification Service] Converting follow-up 'immediately' to 'after_appointment' with 0 offset");
                 }
                 
                 // Skip "immediately" for confirmation/cancellation (handled by Controller)
@@ -103,7 +101,6 @@ namespace Appointmentbookingsystem.Backend.Services
                 // Skip "immediately" for reminders (doesn't make sense)
                 if (isReminder && config.TimingContext == "immediately") continue;
                 
-                Console.WriteLine($"[Notification Service] Processing {config.Type} with context '{effectiveContext}' (Value: {effectiveValue} {config.TimingUnit})");
 
                 // Convert timing value to hours
                 double hoursOffset;
@@ -116,7 +113,6 @@ namespace Appointmentbookingsystem.Backend.Services
 
                 if (hoursOffset < 0) hoursOffset = 0;
                 
-                Console.WriteLine($"[Notification Service] Calculated offset: {hoursOffset} hours");
 
                 IQueryable<Appointment> query;
 
@@ -132,7 +128,6 @@ namespace Appointmentbookingsystem.Backend.Services
                                  && a.StartDateTimeUtc > now 
                                  && a.StartDateTimeUtc <= threshold);
                     
-                    Console.WriteLine($"[Notification Service] Reminder threshold: {threshold:yyyy-MM-dd HH:mm:ss} UTC");
                 }
                 else if (isConfirmation && effectiveContext == "after_booking")
                 {
@@ -145,7 +140,6 @@ namespace Appointmentbookingsystem.Backend.Services
                                && a.Status == AppointmentStatus.Confirmed
                                && a.CreatedAt <= threshold);
                     
-                    Console.WriteLine($"[Notification Service] Delayed confirmation threshold (CreatedAt): {threshold:yyyy-MM-dd HH:mm:ss} UTC");
                 }
                 else if (isFollowup && effectiveContext == "after_appointment")
                 {
@@ -158,7 +152,6 @@ namespace Appointmentbookingsystem.Backend.Services
                                && a.EndDateTimeUtc <= threshold
                                && (a.Status == AppointmentStatus.Confirmed || a.Status == AppointmentStatus.Completed));
                     
-                    Console.WriteLine($"[Notification Service] Follow-up threshold (EndTime): {threshold:yyyy-MM-dd HH:mm:ss} UTC");
                 }
                 else if (isCancellation && effectiveContext == "after_booking")
                 {
@@ -172,7 +165,6 @@ namespace Appointmentbookingsystem.Backend.Services
                                && a.CancelledAt.HasValue
                                && a.CancelledAt.Value <= threshold);
                     
-                    Console.WriteLine($"[Notification Service] Delayed cancellation threshold (CancelledAt): {threshold:yyyy-MM-dd HH:mm:ss} UTC");
                 }
                 else 
                 {
@@ -181,9 +173,6 @@ namespace Appointmentbookingsystem.Backend.Services
 
                 var eligibleAppointments = await query.ToListAsync();
                 if (eligibleAppointments.Count > 0)
-                {
-                    Console.WriteLine($"[Notification Service] Found {eligibleAppointments.Count} eligible appointments for {config.Type} (Company {company.Id})");
-                }
 
                 foreach (var appt in eligibleAppointments)
                 {
@@ -209,7 +198,6 @@ namespace Appointmentbookingsystem.Backend.Services
                     {
                         try 
                         {
-                            Console.WriteLine($"[Notification Service] Sending Email {config.Type} for Appt {appt.Id} to {appt.Customer.Email}");
                             await emailService.SendEmailAsync(
                                 appt.Customer.Email, 
                                 subject, 
@@ -223,12 +211,10 @@ namespace Appointmentbookingsystem.Backend.Services
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[Notification Error] Failed to send Email {config.Type} for Appt {appt.Id}: {ex.Message}");
                         }
                     }
                     else
                     {
-                         Console.WriteLine($"[Notification Service] Email skipped for Appt {appt.Id} (Email Service Disabled)");
                     }
                 }
             }

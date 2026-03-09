@@ -118,9 +118,10 @@ interface MiniMonthProps {
   bulkMode: boolean;
   onDateClick: (d: string) => void;
   onBulkToggle: (d: string) => void;
+  isAdmin?: boolean;
 }
 
-function MiniMonth({ year, month, holidays, selectedDates, bulkMode, onDateClick, onBulkToggle }: MiniMonthProps) {
+function MiniMonth({ year, month, holidays, selectedDates, bulkMode, onDateClick, onBulkToggle, isAdmin }: MiniMonthProps) {
   const total = daysInMonth(year, month);
   const offset = startDow(year, month);
 
@@ -173,11 +174,15 @@ function MiniMonth({ year, month, holidays, selectedDates, bulkMode, onDateClick
           return (
             <div key={ds} className="flex items-center justify-center" style={{ height: 26 }}>
               <div
-                onClick={() => bulkMode ? onBulkToggle(ds) : onDateClick(ds)}
+                onClick={() => {
+                  if (!isAdmin) return;
+                  bulkMode ? onBulkToggle(ds) : onDateClick(ds);
+                }}
                 title={holiday?.name}
-                className="flex items-center justify-center rounded-full cursor-pointer transition-all"
+                className={`flex items-center justify-center rounded-full transition-all ${isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
                 style={{ width: 22, height: 22, fontSize: '0.68rem', background: bg, color: fg, border, boxShadow: shadow }}
                 onMouseEnter={(e) => {
+                  if (!isAdmin) return;
                   if (!holiday && !isBulkSel && !isToday)
                     (e.currentTarget as HTMLDivElement).style.background = '#f3f4f6';
                 }}
@@ -831,7 +836,8 @@ function CountryPickerModal({ year, existingDates, isSaving, onClose, onImported
 /* ─────────────────────────────────────────────
    MAIN HOLIDAYS PAGE
 ───────────────────────────────────────────── */
-export function HolidaysPage() {
+export function HolidaysPage({ role = 'Admin' }: { role?: string }) {
+  const isAdmin = role === 'Admin';
   const [year, setYear] = useState(CURRENT_YEAR);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1046,26 +1052,30 @@ export function HolidaysPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowImport(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
-                style={{ fontSize: '0.82rem' }}
-              >
-                <Globe className="w-4 h-4" />
-                Import Public Holidays
-              </button>
-              <button
-                onClick={() => bulkMode ? exitBulk() : setBulkMode(true)}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border transition-colors cursor-pointer ${
-                  bulkMode
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
-                }`}
-                style={{ fontSize: '0.82rem' }}
-              >
-                <CheckSquare className="w-4 h-4" />
-                {bulkMode ? 'Exit Bulk' : 'Bulk Select'}
-              </button>
+              {isAdmin && (
+                <>
+                  <button
+                    onClick={() => setShowImport(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
+                    style={{ fontSize: '0.82rem' }}
+                  >
+                    <Globe className="w-4 h-4" />
+                    Import Public Holidays
+                  </button>
+                  <button
+                    onClick={() => bulkMode ? exitBulk() : setBulkMode(true)}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border transition-colors cursor-pointer ${
+                      bulkMode
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                    }`}
+                    style={{ fontSize: '0.82rem' }}
+                  >
+                    <CheckSquare className="w-4 h-4" />
+                    {bulkMode ? 'Exit Bulk' : 'Bulk Select'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -1122,6 +1132,7 @@ export function HolidaysPage() {
                   bulkMode={bulkMode}
                   onDateClick={handleDateClick}
                   onBulkToggle={handleBulkToggle}
+                  isAdmin={isAdmin}
                 />
               ))
             )}
@@ -1163,11 +1174,13 @@ export function HolidaysPage() {
             </div>
             <button
               onClick={() => {
+                if (!isAdmin) return;
                 setSidebarSelectionMode(!sidebarSelectionMode);
                 setSidebarSelectedIds(new Set());
               }}
-              className={`text-xs font-medium px-2 py-1 rounded transition-colors cursor-pointer ${
-                sidebarSelectionMode ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-gray-400 hover:text-gray-600'
+              className={`text-xs font-medium px-2 py-1 rounded transition-colors ${
+                !isAdmin ? 'text-gray-300 cursor-default' :
+                sidebarSelectionMode ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100 cursor-pointer' : 'text-gray-400 hover:text-gray-600 cursor-pointer'
               }`}
             >
               {sidebarSelectionMode ? 'Cancel' : 'Select'}
@@ -1247,10 +1260,14 @@ export function HolidaysPage() {
                 return (
                   <div
                     key={h.id}
-                    className={`px-4 py-3 transition-colors group cursor-pointer ${
+                    className={`px-4 py-3 transition-colors group ${
                       sidebarSelectedIds.has(h.id) ? 'bg-indigo-50/50' : 'hover:bg-gray-50'
-                    }`}
-                    onClick={() => sidebarSelectionMode && toggleSidebarSelection(h.id)}
+                    } ${isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+                    onClick={() => {
+                      if (!isAdmin) return;
+                      sidebarSelectionMode && toggleSidebarSelection(h.id);
+                      if (!sidebarSelectionMode) handleDateClick(effectiveDate(h, year));
+                    }}
                   >
                     <div className="flex items-start gap-2.5">
                       {sidebarSelectionMode ? (
@@ -1279,7 +1296,7 @@ export function HolidaysPage() {
                           )}
                         </div>
                       </div>
-                      {!sidebarSelectionMode && (
+                      {isAdmin && !sidebarSelectionMode && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setConfirmDeletion({ type: 'single', id: h.id }); }}
                           className="p-1.5 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200 opacity-0 group-hover:opacity-100 flex-shrink-0"

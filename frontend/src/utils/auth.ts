@@ -49,8 +49,6 @@ export function getCompanyIdFromToken(token: string): number | undefined {
       decodedToken["CompanyId"] ||
       (decodedToken as any).CompanyId;
 
-    console.log("getCompanyIdFromToken: Raw token payload:", decodedToken);
-    console.log("getCompanyIdFromToken: Extracted companyId:", companyId);
 
     return companyId ? parseInt(companyId, 10) : undefined;
   } catch (error) {

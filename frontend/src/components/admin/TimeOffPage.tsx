@@ -311,7 +311,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
       {/* Holidays tab content */}
       {mainTab === 'holidays' && (
         <div className="-mx-4 md:-mx-8 -mb-4 md:-mb-8">
-          <HolidaysPage />
+          <HolidaysPage role={role || 'Staff'} />
         </div>
       )}
 

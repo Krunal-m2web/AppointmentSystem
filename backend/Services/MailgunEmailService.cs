@@ -39,7 +39,6 @@ namespace Appointmentbookingsystem.Backend.Services
             {
                 // Fallback to database logging only if configuration is missing, or throw? 
                 // For now, let's just log sending failure to console and proceed to DB log
-                Console.WriteLine("[Mailgun] Configuration missing. Email not sent via API.");
             }
             else
             {
@@ -70,16 +69,13 @@ namespace Appointmentbookingsystem.Backend.Services
                     if (!response.IsSuccessStatusCode)
                     {
                         var errorContent = await response.Content.ReadAsStringAsync();
-                        Console.WriteLine($"[Mailgun] Error sending email: {response.StatusCode} - {errorContent}");
                     }
                     else 
                     {
-                        Console.WriteLine($"[Mailgun] Email sent successfully to {to}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Mailgun] Exception sending email: {ex.Message}");
                 }
             }
 

@@ -61,7 +61,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
           <Bell className="w-5 h-5 text-indigo-600" />
           General Settings
         </h2>
-        <p className="text-sm text-gray-500 mt-1 font-normal">Configure default email behavior for your entire system</p>
+        <p className="text-sm text-gray-500 mt-1 font-normal">Configure default General settings for your entire system</p>
       </div>
 
       <div className="p-8">

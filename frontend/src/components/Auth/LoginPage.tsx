@@ -70,16 +70,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       // save jwt for future api calls
       localStorage.setItem('auth_token', data.token);
 
-      console.log('Login successful! Data from API:', data);
       const role = mapApiRoleToUserRole(data.role);
-      console.log('Mapped role:', data.role, '->', role);
 
       const userData = {
         name: data.username || data.email.split('@')[0],
         email: data.email,
       };
 
-      console.log('Calling onLogin with role:', role, 'userData:', userData);
       onLogin(role, userData);
     } catch (err: any) {
       console.error('Login error caught:', err);

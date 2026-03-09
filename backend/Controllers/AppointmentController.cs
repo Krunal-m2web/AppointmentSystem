@@ -555,7 +555,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             {
                 // Only process notifications if company exists and status is Confirmed
                 if (company != null && appointment.Status == AppointmentStatus.Confirmed) {
-                     Console.WriteLine($"[Notification Debug] Processing confirmation for {customer.Email} (Status: {appointment.Status})");
                      // Fetch configuration
                      var confirmationConfig = await _context.NotificationConfigs
                          .FirstOrDefaultAsync(c => c.CompanyId == companyId && c.Type == "appointmentConfirmation");
@@ -599,32 +598,26 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                                      appointment.Id,
                                      confirmationConfig?.Id 
                                  );
-                                 Console.WriteLine($"[Email Debug] Confirmation email sent to {customer.Email}");
                               }
                               catch (Exception ex)
                               {
-                                  Console.WriteLine($"[Email Error] Failed to send email: {ex.Message}");
                               }
                           }
                           else
                           {
-                              Console.WriteLine($"[Email Debug] Confirmation email SKIPPED (ServiceEnabled: {company.IsEmailServiceEnabled}, ConfigEnabled: {confirmationConfig?.IsEnabled ?? true}, HasEmail: {!string.IsNullOrWhiteSpace(customer.Email)})");
                           }
                      }
                      else
                      {
-                         Console.WriteLine($"[Notification Debug] Confirmation deferred. Context: {confirmationConfig?.TimingContext}");
                      }
                 }
                 else
                 {
-                    Console.WriteLine($"[Notification Debug] Skipped processing. CompanyFound: {company != null}, Status: {appointment.Status}");
                 }
             }
             catch (Exception ex)
             {
                 // Log error but don't fail the request
-                Console.WriteLine($"Failed to send email: {ex.Message}");
             }
 
             // STEP 10: SYNC TO GOOGLE CALENDAR
@@ -719,7 +712,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                              if (config.TimingContext == "immediately" || string.IsNullOrEmpty(config.TimingContext))
                              {
                                  var company = await _context.Companies.FindAsync(companyId);
-                                 Console.WriteLine($"[Cancellation Debug] Config found (Id: {config.Id}). Processing for {appointment.Customer.Email}");
 
                                  string subject = config.Subject ?? "Appointment Cancelled";
                                  string body = config.Body ?? "Your appointment has been cancelled.";
@@ -744,26 +736,21 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                                              appointment.Id,
                                              config.Id
                                          );
-                                         Console.WriteLine($"[Cancellation Debug] Email sent.");
                                      }
                                      catch(Exception ex)
                                      {
-                                         Console.WriteLine($"[Cancellation Error] Failed to send email: {ex.Message}");
                                      }
                                  }
                                  else
                                  {
-                                     Console.WriteLine($"[Cancellation Debug] Email SKIPPED (ServiceEnabled: {company!.IsEmailServiceEnabled}, ConfigEnabled: {config.IsEnabled}, HasEmail: {!string.IsNullOrWhiteSpace(appointment.Customer.Email)})");
                                  }
                              }
                              else
                              {
-                                 Console.WriteLine($"[Cancellation Debug] Deferred (Context: {config.TimingContext}).");
                              }
                         }
                         else
                         {
-                            Console.WriteLine($"[Cancellation Debug] No configuration found for 'appointmentCancellation'");
                         }
                       }
                       // Detect Confirmation (typically moving from Pending -> Confirmed)
@@ -778,7 +765,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                                if (config.TimingContext == "immediately" || string.IsNullOrEmpty(config.TimingContext))
                                {
                                     var company = await _context.Companies.FindAsync(companyId);
-                                    Console.WriteLine($"[Confirmation Debug] Status changed to Confirmed. Config found (Id: {config.Id}). Processing for {appointment.Customer.Email}");
 
                                     string subject = config.Subject ?? $"Appointment Confirmation - {appointment.Service.Name}";
                                     string body = config.Body ?? $@"
@@ -813,26 +799,21 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                                                 appointment.Id,
                                                 config.Id
                                             );
-                                            Console.WriteLine($"[Confirmation Debug] Email sent.");
                                         }
                                         catch (Exception ex)
                                         {
-                                            Console.WriteLine($"[Confirmation Error] Failed to send email: {ex.Message}");
                                         }
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"[Confirmation Debug] Email SKIPPED (ServiceEnabled: {company!.IsEmailServiceEnabled}, ConfigEnabled: {config.IsEnabled}, HasEmail: {!string.IsNullOrWhiteSpace(appointment.Customer.Email)})");
                                     }
                                }
                                else
                                {
-                                   Console.WriteLine($"[Confirmation Debug] Email deferred (Context: {config.TimingContext}). Will be picked up by background service.");
                                }
                            }
                            else
                            {
-                               Console.WriteLine($"[Confirmation Debug] No configuration found for 'appointmentConfirmation'");
                            }
                       }
                       appointment.Status = status;
@@ -1275,7 +1256,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             }
             catch(Exception ex)
             {
-                Console.WriteLine($"[Cancellation Token] Error sending email: {ex.Message}");
             }
 
             await _context.SaveChangesAsync();
@@ -1289,7 +1269,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 }
                 catch (Exception ex)
                 {
-                     Console.WriteLine($"[Cancellation Token] Error syncing Google Calendar: {ex.Message}");
                 }
             }
 
@@ -1300,7 +1279,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
         [AllowAnonymous]
         public async Task<IActionResult> RescheduleAppointmentByToken([FromBody] RescheduleAppointmentByTokenDto dto)
         {
-            Console.WriteLine($"[RescheduleByToken] Token: {dto.Token}, NewStartTime: {dto.NewStartTime}, UtcNow: {DateTime.UtcNow}");
             
             var appointment = await _context.Appointments
                 .Include(a => a.Customer)
@@ -1402,7 +1380,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             }
             catch(Exception ex)
             {
-                Console.WriteLine($"[Reschedule Token] Error sending email: {ex.Message}");
             }
 
             await _context.SaveChangesAsync();
@@ -1416,7 +1393,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 }
                 catch (Exception ex)
                 {
-                     Console.WriteLine($"[Reschedule Token] Error syncing Google Calendar: {ex.Message}");
                 }
             }
 

@@ -110,7 +110,6 @@ const AdminRegister = () => {
     const mappedCurrency = getCurrencyForCountry(code);
     setCurrency(mappedCurrency);
     
-    console.log(`Country changed to: ${countryName} (${code}), mapping currency to: ${mappedCurrency}`);
     clearFieldError('companyCountry');
   };
 

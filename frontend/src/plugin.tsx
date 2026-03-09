@@ -122,7 +122,6 @@ function init(config: WidgetConfig): void {
     config
   };
 
-  console.log('[BookingWidget] Initialized for company:', config.companySlug);
 }
 
 /**
@@ -131,7 +130,6 @@ function init(config: WidgetConfig): void {
 function destroy(): void {
   if (widgetInstance.root) {
     widgetInstance.root.unmount();
-    console.log('[BookingWidget] Destroyed');
   }
 
   // Reset instance

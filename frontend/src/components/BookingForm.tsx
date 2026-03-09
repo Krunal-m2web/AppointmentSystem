@@ -17,7 +17,10 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
-  ChevronDown
+  ChevronDown,
+  Building2,
+  Landmark,
+  Wallet
 } from 'lucide-react';
 import { EnhancedCalendar } from './EnhancedCalendar';
 import { fetchServices, CustomerServiceDto } from '../services/servicesService';
@@ -82,10 +85,10 @@ const LOCATIONS = [
 ];
 
 const PAYMENT_METHODS = [
-  { name: 'Credit Card', icon: '💳', description: 'Visa, Mastercard' },
-  { name: 'Debit Card', icon: '💳', description: 'Bank debit' },
-  { name: 'PayPal', icon: '🔵', description: 'PayPal account' },
-  { name: 'Bank Transfer', icon: '🏦', description: 'Direct transfer' },
+  { name: 'Credit Card', icon: CreditCard, description: 'Visa, Mastercard', gradient: 'from-blue-500 to-indigo-600' },
+  { name: 'Debit Card', icon: Landmark, description: 'Bank debit', gradient: 'from-emerald-500 to-teal-600' },
+  { name: 'PayPal', icon: Wallet, description: 'PayPal account', gradient: 'from-sky-500 to-blue-600' },
+  { name: 'Bank Transfer', icon: Building2, description: 'Direct transfer', gradient: 'from-slate-600 to-slate-800' },
 ];
 
 const STEPS = [
@@ -403,9 +406,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
         
         const hasPhone = phone.trim().length > 0;
         
-        if (meetingType === 'Phone' && !hasPhone) {
-          errors.phone = 'Phone number is required for phone call meetings';
-        }
+        // Phone is now always optional
         
         if (!email.trim()) {
           errors.email = 'Email address is required';
@@ -486,65 +487,40 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
   const params = useParams<{ slug: string }>();
   const slug = companySlug || params.slug;
 
+  // Single consolidated init: resolves company, then fans out all secondary
+  // requests in parallel so nothing waits in sequence.
   useEffect(() => {
-    const loadServices = async () => {
+    const init = async () => {
       try {
         setServicesLoading(true);
         setServicesError(null);
-        
+
         let cid: number | null = null;
 
         if (slug) {
           const company = await getPublicCompanyProfileBySlug(slug);
-          setCompanyId(company.id);        
           cid = company.id;
+          setCompanyId(cid);
 
-          if (company.logoUrl) {
-            setCompanyLogo(`${API_BASE_URL}${company.logoUrl}`);
-          }
-          
-          // Load custom labels
+          if (company.logoUrl) setCompanyLogo(`${API_BASE_URL}${company.logoUrl}`);
           if (company.bookingFormLabels) {
-            try {
-              const parsedLabels = JSON.parse(company.bookingFormLabels);
-              setCustomLabels(prev => ({ ...prev, ...parsedLabels }));
-            } catch { /* Keep defaults */ }
+            try { setCustomLabels(prev => ({ ...prev, ...JSON.parse(company.bookingFormLabels) })); } catch { /* keep defaults */ }
           }
-          
-          // Load custom colors
-          if (company.bookingFormPrimaryColor) {
-            setCustomColors(prev => ({ ...prev, primaryColor: company.bookingFormPrimaryColor }));
-          }
-          if (company.bookingFormSecondaryColor) {
-            setCustomColors(prev => ({ ...prev, secondaryColor: company.bookingFormSecondaryColor }));
-          }
+          if (company.bookingFormPrimaryColor) setCustomColors(prev => ({ ...prev, primaryColor: company.bookingFormPrimaryColor }));
+          if (company.bookingFormSecondaryColor) setCustomColors(prev => ({ ...prev, secondaryColor: company.bookingFormSecondaryColor }));
         } else {
           const queryParams = new URLSearchParams(window.location.search);
           const companyIdParam = queryParams.get('companyId');
           if (companyIdParam) {
             cid = parseInt(companyIdParam, 10);
-            setCompanyId(cid); 
-            
+            setCompanyId(cid);
             const profile = await getPublicCompanyProfile(cid);
-            if (profile.logoUrl) {
-              setCompanyLogo(`${API_BASE_URL}${profile.logoUrl}`);
-            }
-            
-            // Load custom labels
+            if (profile.logoUrl) setCompanyLogo(`${API_BASE_URL}${profile.logoUrl}`);
             if (profile.bookingFormLabels) {
-              try {
-                const parsedLabels = JSON.parse(profile.bookingFormLabels);
-                setCustomLabels(prev => ({ ...prev, ...parsedLabels }));
-              } catch { /* Keep defaults */ }
+              try { setCustomLabels(prev => ({ ...prev, ...JSON.parse(profile.bookingFormLabels) })); } catch { /* keep defaults */ }
             }
-            
-            // Load custom colors
-            if (profile.bookingFormPrimaryColor) {
-              setCustomColors(prev => ({ ...prev, primaryColor: profile.bookingFormPrimaryColor }));
-            }
-            if (profile.bookingFormSecondaryColor) {
-              setCustomColors(prev => ({ ...prev, secondaryColor: profile.bookingFormSecondaryColor }));
-            }
+            if (profile.bookingFormPrimaryColor) setCustomColors(prev => ({ ...prev, primaryColor: profile.bookingFormPrimaryColor }));
+            if (profile.bookingFormSecondaryColor) setCustomColors(prev => ({ ...prev, secondaryColor: profile.bookingFormSecondaryColor }));
           }
         }
 
@@ -553,85 +529,60 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
           return;
         }
 
-        // Fetch services (limit to 100 to show "all" for now, or implement infinite scroll later)
-        const data = await fetchServices(cid, undefined, 1, 100);
-        setServices(data.items);
+        // Fire all secondary requests in parallel
+        const year = new Date().getFullYear();
+        const [
+          servicesData,
+          paymentSettings,
+          locationSettings,
+          currency,
+          currHolidays,
+          nextHolidays,
+        ] = await Promise.all([
+          fetchServices(cid, undefined, 1, 100).catch(() => ({ items: [] })),
+          getPaymentSettings(cid).catch(() => null),
+          getMeetingLocationSettings(cid).catch(() => null),
+          getDefaultCurrency(cid).catch(() => 'USD'),
+          fetchPublicHolidays(cid, year).catch(() => []),
+          fetchPublicHolidays(cid, year + 1).catch(() => []),
+        ]);
+
+        // Services
+        setServices((servicesData as any).items || []);
+
+        // Payment settings
+        if (paymentSettings) {
+          const filteredMethods = PAYMENT_METHODS.filter(m => paymentSettings.enabledPaymentMethods.includes(m.name));
+          setAvailablePaymentMethods(filteredMethods);
+          setShowPayNow(paymentSettings.showPayNow);
+          setShowPayLater(paymentSettings.showPayLater);
+          setPaymentTiming(!paymentSettings.showPayNow && paymentSettings.showPayLater ? 'later' : 'now');
+        }
+
+        // Location settings
+        if (locationSettings) {
+          setAvailableLocations(LOCATIONS.filter(loc => locationSettings.enabledMeetingLocations.includes(loc.value)));
+        }
+
+        // Currency
+        setCompanyCurrency(currency);
+
+        // Holidays
+        const holidayDates = [...currHolidays, ...nextHolidays].map((h: any) => new Date(h.date));
+        setHolidays(holidayDates);
 
       } catch (err) {
-        console.error('Error loading services:', err);
+        console.error('Error loading booking form:', err);
         setServicesError('Failed to load services. Please refresh the page.');
       } finally {
         setServicesLoading(false);
       }
     };
 
-    loadServices();
+    init();
   }, [slug]);
 
-  // Fetch settings
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        if (companyId) {
-          try {
-            const paymentSettings = await getPaymentSettings(companyId);
-            const filteredMethods = PAYMENT_METHODS.filter(method => 
-              paymentSettings.enabledPaymentMethods.includes(method.name)
-            );
-            setAvailablePaymentMethods(filteredMethods);
-            setShowPayNow(paymentSettings.showPayNow);
-            setShowPayLater(paymentSettings.showPayLater);
 
-            // Initialize paymentTiming based on available options
-            if (!paymentSettings.showPayNow && paymentSettings.showPayLater) {
-              setPaymentTiming('later');
-            } else {
-              setPaymentTiming('now');
-            }
-          } catch (err) {
-            console.log('Using default payment settings');
-          }
-
-          const locationSettings = await getMeetingLocationSettings(companyId);
-          const filteredLocations = LOCATIONS.filter(loc => 
-            locationSettings.enabledMeetingLocations.includes(loc.value)
-          );
-          setAvailableLocations(filteredLocations);
-        }
-      } catch (err) {
-        console.error('Error loading settings:', err);
-      }
-    };
-
-    loadSettings();
-  }, [companyId]);
-
-  // Load company default currency when companyId resolves
-  useEffect(() => {
-    if (!companyId) return;
-    getDefaultCurrency(companyId).then(setCompanyCurrency).catch(() => {/* keep USD fallback */});
-  }, [companyId]);
-
-  // Fetch company holidays
-  useEffect(() => {
-    const loadHolidays = async () => {
-      if (!companyId) return;
-      try {
-        const year = new Date().getFullYear();
-        // Fetch current and next year to handle future bookings
-        const [currHolidays, nextHolidays] = await Promise.all([
-          fetchPublicHolidays(companyId, year),
-          fetchPublicHolidays(companyId, year + 1)
-        ]);
-        
-        const holidayDates = [...currHolidays, ...nextHolidays].map(h => new Date(h.date));
-        setHolidays(holidayDates);
-      } catch (err) {
-        console.error("Error loading company holidays:", err);
-      }
-    };
-    loadHolidays();
-  }, [companyId]);
 
   // Fetch staff
   useEffect(() => {
@@ -788,8 +739,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
       case 3:
         return selectedDate && selectedTime;
       case 4:
-        // Require first name, last name, and email
-        if (meetingType === 'Phone' && (!phone || phone.trim() === '')) return false;
+        // Require first name, last name, and email (phone is optional)
         return firstName && lastName && email;
       case 5:
         return paymentTiming === 'later' || paymentMethod;
@@ -929,10 +879,62 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
       style={{
         '--brand-primary': customColors.primaryColor,
         '--brand-secondary': customColors.secondaryColor,
-        '--brand-primary-ring': `${customColors.primaryColor}1a`, // 10% opacity
+        '--brand-primary-ring': `${customColors.primaryColor}1a`,
       } as React.CSSProperties}
     >
       <div className="max-w-4xl mx-auto">
+
+        {/* ── Skeleton shown while everything loads ── */}
+        {servicesLoading && (
+          <div className="animate-pulse space-y-4">
+            {/* Header skeleton */}
+            <div className="bg-white rounded-xl shadow-md border border-slate-200 p-6 flex justify-center">
+              <div className="w-16 h-16 rounded-xl bg-slate-200" />
+            </div>
+            <div className="flex flex-col lg:flex-row gap-4 sm:gap-6">
+              {/* Sidebar skeleton */}
+              <div className="lg:w-56 flex-shrink-0">
+                <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4 space-y-2">
+                  {STEPS.map((s) => (
+                    <div key={s.number} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-100">
+                      <div className="w-7 h-7 rounded-full bg-slate-200" />
+                      <div className="h-3 w-20 rounded bg-slate-200" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Main content skeleton */}
+              <div className="flex-1 bg-white rounded-2xl shadow-md border border-slate-200 p-6 sm:p-8 space-y-6">
+                <div className="h-6 w-48 rounded bg-slate-200" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="border-2 border-slate-100 rounded-xl p-5 space-y-3">
+                      <div className="flex justify-between">
+                        <div className="h-10 w-10 rounded-lg bg-slate-200" />
+                        <div className="h-5 w-14 rounded-full bg-slate-100" />
+                      </div>
+                      <div className="h-4 w-32 rounded bg-slate-200" />
+                      <div className="h-3 w-24 rounded bg-slate-100" />
+                    </div>
+                  ))}
+                </div>
+                {/* Staff section */}
+                <div className="space-y-2 pt-2">
+                  <div className="h-4 w-24 rounded bg-slate-200" />
+                  <div className="h-12 w-full rounded-xl bg-slate-100" />
+                </div>
+                {/* Next button */}
+                <div className="flex justify-end pt-2">
+                  <div className="h-11 w-32 rounded-xl bg-slate-200" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Actual form (hidden while loading) ── */}
+        {!servicesLoading && (
+          <>
         {/* Header - Centered Logo */}
         <div className="bg-white rounded-xl shadow-md border border-slate-200  mb-4 sm:mb-6 transition-all duration-300 hover:shadow-lg">
           <div className="flex flex-col items-center text-center gap-3">
@@ -1081,7 +1083,7 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
               <div>
                 <label className="flex items-center gap-2 mb-5 text-slate-900 font-semibold text-lg">
                   <MapPin className="w-5 h-5" style={{ color: customColors.primaryColor }} aria-hidden="true" />
-                  Meeting Location
+                  Meeting Type
                 </label>
                 <div 
                   className="grid grid-cols-1 sm:grid-cols-2 gap-4"
@@ -1343,28 +1345,6 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                   
                   <div className="space-y-4">
                     <div>
-                      <label htmlFor="phone" className="block mb-2 text-slate-700 text-sm font-medium">
-                        Phone Number {meetingType === 'Phone' && <span className="text-rose-600">*</span>}
-                      </label>
-                        <PhoneInput
-                          id="phone"
-                          value={phone}
-                          timezone={customerTimezone}
-                          onCountryChange={(c) => setSelectedPhoneCountry(c)}
-                          onChange={(val) => {
-                            setPhone(val);
-                            if (formErrors.phone) {
-                              const newErrors = { ...formErrors };
-                              delete newErrors.phone;
-                              setFormErrors(newErrors);
-                            }
-                          }}
-                          placeholder="Enter phone number"
-                          error={formErrors.phone}
-                        />
-                    </div>
-
-                    <div>
                       <label htmlFor="email" className="block mb-2 text-slate-700 text-sm font-medium">
                         Email Address <span className="text-rose-600">*</span>
                       </label>
@@ -1394,6 +1374,28 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                           {formErrors.email}
                         </p>
                       )}
+                    </div>
+
+                    <div>
+                      <label htmlFor="phone" className="block mb-2 text-slate-700 text-sm font-medium">
+                        Phone Number
+                      </label>
+                        <PhoneInput
+                          id="phone"
+                          value={phone}
+                          timezone={customerTimezone}
+                          onCountryChange={(c) => setSelectedPhoneCountry(c)}
+                          onChange={(val) => {
+                            setPhone(val);
+                            if (formErrors.phone) {
+                              const newErrors = { ...formErrors };
+                              delete newErrors.phone;
+                              setFormErrors(newErrors);
+                            }
+                          }}
+                          placeholder="Enter phone number"
+                          error={formErrors.phone}
+                        />
                     </div>
                   </div>
                 </div>
@@ -1460,28 +1462,30 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                   <CreditCard className="w-5 h-5" style={{ color: customColors.primaryColor }} aria-hidden="true" />
                   When would you like to pay?
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   {showPayNow && (
                     <button
                       type="button"
-                      onClick={() => {
-                        setPaymentTiming('now');
-                        setPaymentMethod('');
-                      }}
+                      onClick={() => setPaymentTiming('now')}
                       className={`
-                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer
+                        py-5 px-6 rounded-2xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer group relative overflow-hidden
                         ${paymentTiming === 'now'
-                          ? 'shadow-md'
-                          : 'border-slate-300 hover:shadow-sm'
+                          ? 'shadow-lg border-transparent text-white'
+                          : 'border-slate-200 bg-white hover:border-slate-300 text-slate-600 hover:shadow-md'
                         }
                       `}
                       style={paymentTiming === 'now' ? {
-                        borderColor: customColors.primaryColor,
-                        backgroundColor: `${customColors.primaryColor}0d` // 5% opacity
+                        backgroundColor: customColors.primaryColor,
                       } : undefined}
                     >
-                      <CreditCard className={`w-6 h-6 mx-auto mb-2 ${paymentTiming !== 'now' ? 'text-slate-600' : ''}`} style={paymentTiming === 'now' ? { color: customColors.primaryColor } : undefined} aria-hidden="true" />
-                      <span className={`font-semibold ${paymentTiming !== 'now' ? 'text-slate-900' : ''}`} style={paymentTiming === 'now' ? { color: customColors.primaryColor } : undefined}>Pay Now</span>
+                      {paymentTiming === 'now' && (
+                        <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-50" />
+                      )}
+                      <div className="relative z-10">
+                        <CreditCard className={`w-7 h-7 mx-auto mb-2.5 transition-transform duration-300 group-hover:scale-110 ${paymentTiming === 'now' ? 'text-white' : 'text-slate-400'}`} aria-hidden="true" />
+                        <span className="font-bold text-base block tracking-tight">Pay Now</span>
+                        <span className={`text-[11px] block mt-0.5 opacity-80 ${paymentTiming === 'now' ? 'text-white/90' : 'text-slate-500'}`}>Pay securely online</span>
+                      </div>
                     </button>
                   )}
                   {canShowPayLater && (
@@ -1492,19 +1496,24 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                         setPaymentMethod('');
                       }}
                       className={`
-                        py-4 px-6 rounded-xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer
+                        py-5 px-6 rounded-2xl border-2 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer group relative overflow-hidden
                         ${paymentTiming === 'later'
-                          ? 'shadow-md'
-                          : 'border-slate-300 hover:shadow-sm'
+                          ? 'shadow-lg border-transparent text-white'
+                          : 'border-slate-200 bg-white hover:border-slate-300 text-slate-600 hover:shadow-md'
                         }
                       `}
                       style={paymentTiming === 'later' ? {
-                        borderColor: customColors.primaryColor,
-                        backgroundColor: `${customColors.primaryColor}0d`
+                        backgroundColor: customColors.primaryColor,
                       } : undefined}
                     >
-                      <DollarSign className={`w-6 h-6 mx-auto mb-2 ${paymentTiming !== 'later' ? 'text-slate-600' : ''}`} style={paymentTiming === 'later' ? { color: customColors.primaryColor } : undefined} aria-hidden="true" />
-                      <span className={`font-semibold ${paymentTiming !== 'later' ? 'text-slate-900' : ''}`} style={paymentTiming === 'later' ? { color: customColors.primaryColor } : undefined}>Pay Later</span>
+                      {paymentTiming === 'later' && (
+                        <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-50" />
+                      )}
+                      <div className="relative z-10">
+                        <DollarSign className={`w-7 h-7 mx-auto mb-2.5 transition-transform duration-300 group-hover:scale-110 ${paymentTiming === 'later' ? 'text-white' : 'text-slate-400'}`} aria-hidden="true" />
+                        <span className="font-bold text-base block tracking-tight">Pay Later</span>
+                        <span className={`text-[11px] block mt-0.5 opacity-80 ${paymentTiming === 'later' ? 'text-white/90' : 'text-slate-500'}`}>Pay at the office</span>
+                      </div>
                     </button>
                   )}
                 </div>
@@ -1516,34 +1525,59 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
               </div>
 
               {paymentTiming === 'now' && (
-                <div>
-                  <label className="flex items-center gap-2 mb-4 text-slate-900 font-semibold text-lg">
-                    <CreditCard className="w-5 h-5 text-indigo-600" aria-hidden="true" />
+                <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                  <label className="flex items-center gap-2 mb-4 text-slate-900 font-bold text-lg">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                      <CreditCard className="w-4 h-4 text-indigo-600" aria-hidden="true" />
+                    </div>
                     Select Payment Method
                   </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    {availablePaymentMethods.map((method) => (
-                      <button
-                        key={method.name}
-                        type="button"
-                        onClick={() => setPaymentMethod(method.name)}
-                        className={`
-                          py-4 px-3 rounded-xl border-2 transition-all duration-300 text-center focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer
-                          ${paymentMethod === method.name
-                            ? 'shadow-md scale-[1.02]'
-                            : 'border-slate-300 bg-white hover:shadow-sm'
-                          }
-                        `}
-                        style={paymentMethod === method.name ? {
-                          borderColor: customColors.primaryColor,
-                          backgroundColor: `${customColors.primaryColor}0d`
-                        } : undefined}
-                      >
-                        <div className="text-2xl mb-2">{method.icon}</div>
-                        <div className={`font-semibold text-sm ${paymentMethod !== method.name ? 'text-slate-900' : ''}`} style={paymentMethod === method.name ? { color: customColors.primaryColor } : undefined}>{method.name}</div>
-                        <p className="text-xs text-slate-600">{method.description}</p>
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {availablePaymentMethods.map((method) => {
+                      const Icon = method.icon;
+                      const isSelected = paymentMethod === method.name;
+                      return (
+                        <button
+                          key={method.name}
+                          type="button"
+                          onClick={() => setPaymentMethod(method.name)}
+                          className={`
+                            relative p-5 rounded-2xl border-2 transition-all duration-300 text-left focus:outline-none focus:ring-4 focus:ring-[var(--brand-primary-ring)] cursor-pointer overflow-hidden group
+                            ${isSelected
+                              ? 'shadow-lg'
+                              : 'border-slate-100 bg-white hover:border-slate-200 hover:shadow-md'
+                            }
+                          `}
+                          style={isSelected ? {
+                            borderColor: customColors.primaryColor,
+                          } : undefined}
+                        >
+                          {isSelected && (
+                            <div className="absolute top-0 right-0 p-3">
+                              <div className="w-5 h-5 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: customColors.primaryColor }}>
+                                <Check className="w-3 h-3" strokeWidth={4} />
+                              </div>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-4 relative z-10">
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-sm bg-gradient-to-br transition-transform duration-300 group-hover:scale-110 ${method.gradient}`}>
+                              <Icon className="w-6 h-6 text-white" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className={`font-bold text-[15px] leading-tight mb-0.5 ${!isSelected ? 'text-slate-900' : ''}`} style={isSelected ? { color: customColors.primaryColor } : undefined}>
+                                {method.name}
+                              </div>
+                              <p className={`text-xs truncate ${isSelected ? 'text-slate-600' : 'text-slate-500'}`}>
+                                {method.description}
+                              </p>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundColor: customColors.primaryColor }} />
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1659,10 +1693,13 @@ export function BookingForm({ onComplete, companySlug }: BookingFormProps) {
                     </button>
                   </div>
                 )}
-              </div>
-            </div>
           </div>
         </div>
+      </div>
+    </div>
+  </>
+)}
+
       </div>
     </div>
   );

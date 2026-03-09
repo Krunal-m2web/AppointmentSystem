@@ -385,20 +385,20 @@ export function AppointmentsPage() {
   // Initial load for aux data (staff, services, customers)
   useEffect(() => {
     const fetchAuxData = async () => {
-         try {
-          const staffData = await fetchStaff();
+        try {
+          const [staffData, servicesRaw, customersData] = await Promise.all([
+            fetchStaff().catch(() => []),
+            fetchServices().catch(() => []),
+            fetchCustomers({ pageSize: 1000 }).catch(() => ({ customers: [] })),
+          ]);
+
           const activeStaff = staffData.filter((s: any) => s.isActive !== false);
           setStaffList(activeStaff.map((s: any) => ({ 
             id: s.id, 
             name: `${s.firstName} ${s.lastName}`,
             serviceIds: s.services?.map((svc: any) => svc.serviceId) || []
           })));
-        } catch (e) {
-             console.error('Failed to load staff:', e);
-        }
-        
-        try {
-          const servicesRaw = await fetchServices();
+
           const servicesData = Array.isArray(servicesRaw) ? servicesRaw : (servicesRaw.items || []);
           setServicesList(servicesData.map((s: any) => ({
             id: s.id,
@@ -406,41 +406,32 @@ export function AppointmentsPage() {
             price: s.price,
             duration: s.serviceDuration || 60
           })));
-        } catch (e) {
-          console.error('Failed to load services:', e);
-        }
 
-        try {
-          // Fetch customers for dropdown (fetching a larger page to ensure we get most for now, ideally would be searchable)
-          const customersData = await fetchCustomers({ pageSize: 1000 });
-          setCustomersList(customersData.customers);
+          setCustomersList(customersData.customers || []);
         } catch (e) {
-          console.error('Failed to load customers:', e);
+          console.error('Failed to load aux data:', e);
         }
     };
-    fetchAuxData();
-    // refreshTimezone is called in loadData
 
-    // Load default currency
+    // Load default currency in parallel with aux data
     const loadCurrency = async () => {
       try {
         const currency = await getDefaultCurrency();
         setDefaultCurrency(currency);
       } catch (err) {
         console.error('Failed to load currency:', err);
+        setDefaultCurrency('USD');
       }
     };
     loadCurrency();
+    fetchAuxData();
   }, []);
 
   // Reload appointments when filter/sort/pagination changes
   useEffect(() => {
-    // Only fetch if currency is loaded to avoid USD flicker
-    if (defaultCurrency) {
-      loadData();
-    }
+    loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, itemsPerPage, sortField, sortOrder, filterStatus, selectedStaff, dateRangeFilter, customStartDate, customEndDate, defaultCurrency]); 
+  }, [currentPage, itemsPerPage, sortField, sortOrder, filterStatus, selectedStaff, dateRangeFilter, customStartDate, customEndDate]);
 
   // Debounced search effect
   useEffect(() => {

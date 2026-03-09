@@ -21,6 +21,7 @@ import {
     SelectTrigger,
     SelectValue,
   } from "../ui/select";
+import { CalendarSkeleton } from '../ui/CalendarSkeleton';
 
 const TIME_SLOTS = [
   '8:00 AM', '9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
@@ -73,7 +74,7 @@ export function CalendarPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [timezoneReady, setTimezoneReady] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -147,7 +148,6 @@ export function CalendarPage() {
     const initTimezone = async () => {
       try {
         await refreshTimezone();
-        console.log('CalendarPage: Timezone initialized:', timezone);
       } catch (err) {
         console.error('CalendarPage: Failed to fetch timezone:', err);
       }
@@ -273,8 +273,7 @@ export function CalendarPage() {
 
   useEffect(() => {
     if (!timezoneReady) return;
-    loadAppointments();
-    loadHolidays();
+    Promise.all([loadAppointments(), loadHolidays()]);
   }, [currentDate, selectedStaff, selectedService, timezone, timezoneReady]);
 
   const getFilteredAppointments = () => {
@@ -546,9 +545,6 @@ export function CalendarPage() {
     if (role !== 'Staff' && role !== 'Admin') return;
 
     try {
-      // console.log('[CalendarPage] Starting background sync...');
-      await googleCalendarApi.sync();
-      // console.log('[CalendarPage] Background sync complete, refreshing appointments...');
       // Refresh appointments to show new external events
       await loadAppointments();
     } catch (error) {
@@ -629,14 +625,6 @@ export function CalendarPage() {
       setShowDetailModal(false);
   };
 
-  if (!timezoneReady) {
-    return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4"></div>
-        <p className="text-gray-600">Loading timezone settings...</p>
-      </div>
-    );
-  }
 
   return (
     <div className="p-6 calendar-container relative">
@@ -793,80 +781,86 @@ export function CalendarPage() {
         </div>
       )}
 
-      {viewMode === 'month' && (
-        <MonthView
-          currentDate={currentDate}
-          selectedDate={selectedDate}
-          onSelectDate={setSelectedDate}
-          getAppointmentsForDate={getAppointmentsForDate}
-          onCreateAppointment={(date) => {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            setNewAppointment(prev => ({ ...prev, date: `${year}-${month}-${day}` }));
-            setSelectedDate(date);
-            setShowBookingForm(true);
-          }}
-          staff={staffList}
-          onAppointmentClick={handleAppointmentClick}
-          holidays={holidays}
-        />
-      )}
+      {loading || !timezoneReady ? (
+        <CalendarSkeleton viewMode={viewMode} />
+      ) : (
+        <>
+          {viewMode === 'month' && (
+            <MonthView
+              currentDate={currentDate}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+              getAppointmentsForDate={getAppointmentsForDate}
+              onCreateAppointment={(date) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                setNewAppointment(prev => ({ ...prev, date: `${year}-${month}-${day}` }));
+                setSelectedDate(date);
+                setShowBookingForm(true);
+              }}
+              staff={staffList}
+              onAppointmentClick={handleAppointmentClick}
+              holidays={holidays}
+            />
+          )}
 
-      {viewMode === 'week' && (
-        <WeekView
-          currentDate={currentDate}
-          getAppointmentsForDate={getAppointmentsForDate}
-          onCreateAppointment={(date) => {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            setNewAppointment(prev => ({ ...prev, date: `${year}-${month}-${day}` }));
-            setSelectedDate(date);
-            setShowBookingForm(true);
-          }}
-          staff={staffList}
-          onAppointmentClick={handleAppointmentClick}
-          holidays={holidays}
-        />
-      )}
+          {viewMode === 'week' && (
+            <WeekView
+              currentDate={currentDate}
+              getAppointmentsForDate={getAppointmentsForDate}
+              onCreateAppointment={(date) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                setNewAppointment(prev => ({ ...prev, date: `${year}-${month}-${day}` }));
+                setSelectedDate(date);
+                setShowBookingForm(true);
+              }}
+              staff={staffList}
+              onAppointmentClick={handleAppointmentClick}
+              holidays={holidays}
+            />
+          )}
 
-      {viewMode === 'day' && (
-        <DayView
-          currentDate={currentDate}
-          appointments={getAppointmentsForDate(currentDate)}
-          onCreateAppointment={(time) => {
-            const year = currentDate.getFullYear();
-            const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-            const day = String(currentDate.getDate()).padStart(2, '0');
-            
-            const timeParts = time.match(/(\d+):(\d+) (AM|PM)/);
-            let time24 = "09:00";
-            if (timeParts) {
-              let h = parseInt(timeParts[1]);
-              const m = parseInt(timeParts[2]);
-              const ampm = timeParts[3];
-              if (ampm === 'PM' && h < 12) h += 12;
-              if (ampm === 'AM' && h === 12) h = 0;
-              time24 = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-            }
-            
-            setNewAppointment(prev => ({ ...prev, date: `${year}-${month}-${day}`, time: time24 }));
-            setSelectedDate(currentDate);
-            setShowBookingForm(true);
-          }}
-          staff={staffList}
-          onAppointmentClick={handleAppointmentClick}
-          holidays={holidays}
-        />
-      )}
+          {viewMode === 'day' && (
+            <DayView
+              currentDate={currentDate}
+              appointments={getAppointmentsForDate(currentDate)}
+              onCreateAppointment={(time) => {
+                const year = currentDate.getFullYear();
+                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                const day = String(currentDate.getDate()).padStart(2, '0');
+                
+                const timeParts = time.match(/(\d+):(\d+) (AM|PM)/);
+                let time24 = "09:00";
+                if (timeParts) {
+                  let h = parseInt(timeParts[1]);
+                  const m = parseInt(timeParts[2]);
+                  const ampm = timeParts[3];
+                  if (ampm === 'PM' && h < 12) h += 12;
+                  if (ampm === 'AM' && h === 12) h = 0;
+                  time24 = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+                }
+                
+                setNewAppointment(prev => ({ ...prev, date: `${year}-${month}-${day}`, time: time24 }));
+                setSelectedDate(currentDate);
+                setShowBookingForm(true);
+              }}
+              staff={staffList}
+              onAppointmentClick={handleAppointmentClick}
+              holidays={holidays}
+            />
+          )}
 
-      {viewMode === 'list' && (
-        <ListView
-          appointments={getFilteredAppointments()}
-          onAppointmentClick={handleAppointmentClick}
-          currentDate={currentDate}
-        />
+          {viewMode === 'list' && (
+            <ListView
+              appointments={getFilteredAppointments()}
+              onAppointmentClick={handleAppointmentClick}
+              currentDate={currentDate}
+            />
+          )}
+        </>
       )}
       
       {/* Appointment Detail Modal */}

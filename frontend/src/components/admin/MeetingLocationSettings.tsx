@@ -90,8 +90,7 @@ export default function MeetingLocationSettings() {
         <div className="p-6 border-b border-gray-100 bg-gray-50/50">
           <h2 className="text-xl font-semibold text-gray-900 tracking-tight flex items-center gap-2">
             <MapPin className="w-5 h-5 text-indigo-600" />
-            Meeting Channels
-          </h2>
+            How would you like to meet?          </h2>
           <p className="text-sm text-gray-500 mt-1 font-normal">Standardize how you connect with your clients</p>
         </div>
 

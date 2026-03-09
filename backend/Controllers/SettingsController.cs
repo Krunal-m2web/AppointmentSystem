@@ -247,7 +247,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
              if (companyIdClaim == null) return Unauthorized("CompanyId claim missing");
              
              var companyId = int.Parse(companyIdClaim.Value);
-             Console.WriteLine($"[Settings Debug] Syncing notifications for CompanyId: {companyId}. Payload count: {settings?.Count ?? 0}");
 
              if (settings == null) return BadRequest("Settings payload is null");
 
@@ -302,7 +301,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
              }
 
              var changes = await _context.SaveChangesAsync();
-             Console.WriteLine($"[Settings Debug] SaveChanges result: {changes} records modified.");
              
              return Ok(new { message = "Notification settings updated" });
         }

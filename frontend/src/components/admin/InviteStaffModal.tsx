@@ -20,10 +20,24 @@ export function InviteStaffModal({ isOpen, onClose }: InviteStaffModalProps) {
     const [isSending, setIsSending] = useState(false);
     const [emailSent, setEmailSent] = useState(false);
 
+    // Error states
+    const [emailError, setEmailError] = useState<string | null>(null);
+    const [sendEmailError, setSendEmailError] = useState<string | null>(null);
+
     if (!isOpen) return null;
 
     const handleGenerate = async (e: React.FormEvent) => {
         e.preventDefault();
+        setEmailError(null);
+        // Validation if email is provided
+        if (email.trim()) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email.trim())) {
+                setEmailError("Please enter a valid email address");
+                return;
+            }
+        }
+
         setIsLoading(true);
         setInviteLink(null);
         setInviteToken(null);
@@ -58,15 +72,16 @@ export function InviteStaffModal({ isOpen, onClose }: InviteStaffModalProps) {
     };
 
     const handleSendEmail = async () => {
+        setSendEmailError(null);
         if (!sendEmail.trim()) {
-            toast.error("Please enter an email address");
+            setSendEmailError("Please enter an email address");
             return;
         }
 
         // Basic email validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(sendEmail)) {
-            toast.error("Please enter a valid email address");
+        if (!emailRegex.test(sendEmail.trim())) {
+            setSendEmailError("Please enter a valid email address");
             return;
         }
 
@@ -87,6 +102,8 @@ export function InviteStaffModal({ isOpen, onClose }: InviteStaffModalProps) {
     const handleClose = () => {  
         setEmail('');
         setSendEmail('');
+        setEmailError(null);
+        setSendEmailError(null);
         setInviteLink(null);
         setInviteToken(null);
         setEmailSent(false);
@@ -98,6 +115,8 @@ export function InviteStaffModal({ isOpen, onClose }: InviteStaffModalProps) {
         setInviteToken(null);
         setEmail('');
         setSendEmail('');
+        setEmailError(null);
+        setSendEmailError(null);
         setEmailSent(false);
     };
 
@@ -126,11 +145,23 @@ export function InviteStaffModal({ isOpen, onClose }: InviteStaffModalProps) {
                                     <input
                                         type="email"
                                         value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
+                                        onChange={(e) => {
+                                            setEmail(e.target.value);
+                                            if (emailError) setEmailError(null);
+                                        }}
                                         placeholder="e.g. staff@company.com"
-                                        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                                        className={`w-full pl-10 pr-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 transition-all ${
+                                            emailError 
+                                                ? "border-red-300 focus:ring-red-500 bg-red-50/30" 
+                                                : "border-gray-200 focus:ring-indigo-500"
+                                        }`}
                                     />
                                 </div>
+                                {emailError && (
+                                    <p className="text-xs text-red-500 mt-1 flex items-center gap-1 animate-in slide-in-from-top-1 duration-200">
+                                        {emailError}
+                                    </p>
+                                )}
                                 <p className="text-xs text-gray-500 mt-1.5">If specified, the link will only work for this email and will be pre-filled for sending.</p>
                             </div>
 
@@ -190,11 +221,23 @@ export function InviteStaffModal({ isOpen, onClose }: InviteStaffModalProps) {
                                             <input
                                                 type="email"
                                                 value={sendEmail}
-                                                onChange={(e) => setSendEmail(e.target.value)}
+                                                onChange={(e) => {
+                                                    setSendEmail(e.target.value);
+                                                    if (sendEmailError) setSendEmailError(null);
+                                                }}
                                                 placeholder="Enter staff member's email"
-                                                className="w-full pl-10 pr-4 py-2.5 border border-emerald-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm transition-all"
+                                                className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 text-sm transition-all ${
+                                                    sendEmailError
+                                                        ? "border-red-300 focus:ring-red-500 bg-red-50/30"
+                                                        : "border-emerald-200 focus:ring-emerald-500"
+                                                }`}
                                             />
                                         </div>
+                                        {sendEmailError && (
+                                            <p className="text-xs text-red-500 mb-3 -mt-2 animate-in slide-in-from-top-1 duration-200">
+                                                {sendEmailError}
+                                            </p>
+                                        )}
                                         <button
                                             onClick={handleSendEmail}
                                             disabled={isSending || !sendEmail.trim()}

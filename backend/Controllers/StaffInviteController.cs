@@ -34,6 +34,16 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 return Unauthorized("Company ID not found in token.");
             }
 
+            // Validation for email if provided
+            if (!string.IsNullOrWhiteSpace(dto.Email))
+            {
+                var emailAttribute = new System.ComponentModel.DataAnnotations.EmailAddressAttribute();
+                if (!emailAttribute.IsValid(dto.Email))
+                {
+                    return BadRequest("Invalid email address format.");
+                }
+            }
+
             var token = Guid.NewGuid().ToString("N"); // 32 chars, no hyphens
             var invite = new StaffInvite
             {
@@ -61,6 +71,12 @@ namespace Appointmentbookingsystem.Backend.Controllers
         {
             if (string.IsNullOrWhiteSpace(dto.Email))
                 return BadRequest("Email is required.");
+
+            var emailAttribute = new System.ComponentModel.DataAnnotations.EmailAddressAttribute();
+            if (!emailAttribute.IsValid(dto.Email))
+            {
+                return BadRequest("Invalid email address format.");
+            }
 
             if (string.IsNullOrWhiteSpace(dto.Token))
                 return BadRequest("Token is required.");

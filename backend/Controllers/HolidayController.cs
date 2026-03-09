@@ -24,11 +24,21 @@ namespace Appointmentbookingsystem.Backend.Controllers
         // ─────────────────────────────────────────────────────
         private async Task<int?> GetCompanyIdAsync()
         {
+            // Try to get from claim first (set during login for both Admin and Staff)
+            var claim = User.FindFirst("companyId");
+            if (claim != null && int.TryParse(claim.Value, out int id))
+                return id;
+
+            // Fallback: check Users table (for older tokens or specific flows)
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (!int.TryParse(userIdStr, out int userId)) return null;
 
             var user = await _context.Users.FindAsync(userId);
-            return user?.CompanyId;
+            if (user != null) return user.CompanyId;
+
+            // Final fallback: check Staff table
+            var staff = await _context.Staff.FindAsync(userId);
+            return staff?.CompanyId;
         }
 
         // ─────────────────────────────────────────────────────

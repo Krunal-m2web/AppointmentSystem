@@ -39,7 +39,6 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({
           const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
           const payload = JSON.parse(window.atob(base64));
           
-          console.log("TimezoneContext: Token payload:", payload);
 
           // Check standard and custom claim keys
           companyId = Number(payload.companyId || payload.CompanyId || payload.cid);
@@ -53,7 +52,6 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({
         const storedCid = localStorage.getItem("company_id");
         if (storedCid) {
           companyId = Number(storedCid);
-          console.log("TimezoneContext: Found companyId in localStorage:", companyId);
         }
       }
 
@@ -65,7 +63,6 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({
         return defaultTz;
       }
 
-      console.log(`TimezoneContext: Fetching timezone for company ${companyId}...`);
 
       const res = await fetch(
         `${API_BASE_URL}/api/settings/timezone?companyId=${companyId}`,
@@ -80,11 +77,9 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       const data = await res.json();
-      console.log("TimezoneContext: Fetched data:", data);
 
       if (data?.timezone && data.timezone !== "undefined") {
         setTimezone(data.timezone);
-        console.log(`TimezoneContext: Updated to ${data.timezone}`);
         return data.timezone; // Return the new timezone value
       }
       return timezone; // Return current value

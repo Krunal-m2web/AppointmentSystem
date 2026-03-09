@@ -59,23 +59,57 @@ export function ManageServices() {
   };
 
   useEffect(() => {
-    loadDefaultCurrency();
-     // eslint-disable-next-line react-hooks/exhaustive-deps
+    const init = async () => {
+      try {
+        setLoading(true);
+        const token = getToken();
+        const companyId = token ? getCompanyIdFromToken(token) : undefined;
+        // Fetch currency and services in parallel
+        const [currency, data] = await Promise.all([
+          getDefaultCurrency(companyId),
+          fetchServices({
+            page: 1,
+            pageSize: itemsPerPage,
+            searchTerm: '',
+          }).catch(() => [])
+        ]);
+        const resolvedCurrency = currency || 'USD';
+        setDefaultCurrency(resolvedCurrency);
+
+        // Handle potential race condition or stale backend (which might return an array)
+        if (Array.isArray(data)) {
+            setServices(data);
+            setTotalItems(data.length);
+            setTotalPages(Math.ceil(data.length / itemsPerPage));
+        } else {
+            setServices(data.items || []);
+            setTotalItems(data.totalCount || 0);
+            setTotalPages(data.totalPages || 1);
+        }
+      } catch (err) {
+        console.error(err);
+        setDefaultCurrency('USD');
+        setServices([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    // Only load services if we have the default currency loaded
-    if (defaultCurrency) {
-      loadServices();
-    }
-     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, itemsPerPage, searchQuery, defaultCurrency]);
+    // Only reload services when pagination or search changes (after initial load)
+    if (!defaultCurrency) return;
+    loadServices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, itemsPerPage, defaultCurrency]);
 
   const loadDefaultCurrency = async () => {
     const token = getToken();
     const companyId = token ? getCompanyIdFromToken(token) : undefined;
     const currency = await getDefaultCurrency(companyId);
-    setDefaultCurrency(currency || 'USD'); // Fallback to USD only if API fails/returns nothing
+    setDefaultCurrency(currency || 'USD');
     return currency;
   };
 

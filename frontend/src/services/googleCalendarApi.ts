@@ -16,7 +16,6 @@ export const googleCalendarApi = {
     const url = `${API_BASE_URL}/api/google-calendar/status`;
     
     // Debug log just in case, can remove later
-    // console.log('[GoogleCalendarApi] Fetching status from:', url, 'Token available:', !!token);
 
     const response = await fetch(url, {
       headers: {

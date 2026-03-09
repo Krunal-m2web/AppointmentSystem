@@ -281,7 +281,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
             [FromQuery] int? duration = null)
         {
             // STEP 1: VALIDATE INPUTS
-            Console.WriteLine($"[GetAvailableSlots] StaffId: {staffId}, ServiceId: {serviceId}, Date: {date}");
             
             // Check if staff exists and is active, include Company for timezone
             var staff = await _context.Staff
@@ -290,7 +289,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             if (staff == null || !staff.IsActive)
             {
-                Console.WriteLine($"[GetAvailableSlots] Staff not found or inactive. StaffId: {staffId}");
                 return NotFound("Staff member not found or is inactive.");
             }
 
@@ -298,7 +296,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
             var service = await _context.Services.FindAsync(serviceId);
             if (service == null || !service.IsActive)
             {
-                Console.WriteLine($"[GetAvailableSlots] Service not found or inactive. ServiceId: {serviceId}");
                 return NotFound("Service not found or is inactive.");
             }
 
@@ -308,14 +305,12 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             if (!canProvideService)
             {
-                Console.WriteLine($"[GetAvailableSlots] Staff cannot provide service. StaffId: {staffId}, ServiceId: {serviceId}");
                 return BadRequest("This staff member cannot provide the selected service.");
             }
 
             // Don't allow booking in the past (compare against UTC date)
             if (date.Date < DateTime.UtcNow.Date)
             {
-                Console.WriteLine($"[GetAvailableSlots] Past date error. Date: {date.Date}, UtcNow: {DateTime.UtcNow.Date}");
                 return BadRequest("Cannot book appointments in the past.");
             }
 
@@ -328,7 +323,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
             var appointmentDate = DateOnly.FromDateTime(date);
             if (await IsHolidayAsync(staff.CompanyId, appointmentDate))
             {
-                Console.WriteLine($"[GetAvailableSlots] Holiday detected: {appointmentDate}");
                 return Ok(new List<TimeSlotDto>());
             }
 
@@ -481,7 +475,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 // Don't allow booking in the past
                 if (date.Date < DateTime.UtcNow.Date)
                 {
-                    Console.WriteLine($"[GetAnyStaffSlots] Past date error. Date: {date.Date}, UtcNow: {DateTime.UtcNow.Date}");
                     return BadRequest("Cannot book appointments in the past.");
                 }
 
@@ -501,7 +494,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 var appointmentDate = DateOnly.FromDateTime(date);
                 if (await IsHolidayAsync(cid, appointmentDate))
                 {
-                    Console.WriteLine($"[GetAnyStaffSlots] Holiday detected for company {cid}: {appointmentDate}");
                     return Ok(new List<TimeSlotDto>());
                 }
 
@@ -650,8 +642,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
             catch (Exception ex)
             {
                 // Log detailed error to console
-                Console.WriteLine($"[GetAnyStaffSlots] ERROR: {ex.Message}");
-                Console.WriteLine(ex.StackTrace);
                 
                 return StatusCode(500, "An error occurred while fetching availability. Please check server logs.");
             }

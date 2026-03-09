@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { WidgetIntegration } from "../components/admin/WidgetIntegration";
+import { useState, lazy, Suspense } from "react";
+import { Skeleton } from "../components/ui/skeleton";
 import {
   LogOut,
   Calendar as CalendarIcon,
@@ -18,23 +18,56 @@ import {
   ChevronRight,
   CalendarCog
 } from "lucide-react";
-import { DashboardHome } from "../components/admin/DashboardHome";
-import { CalendarPage } from "../components/admin/CalendarPage";
-import { AppointmentsPage } from "../components/admin/AppointmentsPage";
-import { StaffMembers } from "../components/admin/StaffMembers";
-import { TimeOffPage } from "../components/admin/TimeOffPage";
-import { ManageServices } from "../components/admin/ManageServices";
-import { CustomersPage } from "../components/admin/Customers";
-import { ServicePricing } from "../components/admin/ServicePricing";
-import { Settings } from "../components/admin/Settings";
-import { UserProfile } from "../components/admin/UserProfile";
-import StaffCalendarSettings from "../components/admin/StaffCalendarSettings";
+
+// Lazy-loaded admin pages — each loads only when first navigated to
+const DashboardHome = lazy(() => import("../components/admin/DashboardHome").then(m => ({ default: m.DashboardHome })));
+const CalendarPage = lazy(() => import("../components/admin/CalendarPage").then(m => ({ default: m.CalendarPage })));
+const AppointmentsPage = lazy(() => import("../components/admin/AppointmentsPage").then(m => ({ default: m.AppointmentsPage })));
+const StaffMembers = lazy(() => import("../components/admin/StaffMembers").then(m => ({ default: m.StaffMembers })));
+const TimeOffPage = lazy(() => import("../components/admin/TimeOffPage").then(m => ({ default: m.TimeOffPage })));
+const ManageServices = lazy(() => import("../components/admin/ManageServices").then(m => ({ default: m.ManageServices })));
+const CustomersPage = lazy(() => import("../components/admin/Customers").then(m => ({ default: m.CustomersPage })));
+const ServicePricing = lazy(() => import("../components/admin/ServicePricing").then(m => ({ default: m.ServicePricing })));
+const Settings = lazy(() => import("../components/admin/Settings").then(m => ({ default: m.Settings })));
+const UserProfile = lazy(() => import("../components/admin/UserProfile").then(m => ({ default: m.UserProfile })));
+const StaffCalendarSettings = lazy(() => import("../components/admin/StaffCalendarSettings"));
+const WidgetIntegration = lazy(() => import("../components/admin/WidgetIntegration").then(m => ({ default: m.WidgetIntegration })));
+
 import { useTimezone } from "../context/TimezoneContext";
 import { useEffect } from "react";
 import { getRoleFromToken, getToken, getUserNameFromToken, getEmailFromToken } from "../utils/auth";
 import { User, Bell, ChevronDown } from "lucide-react";
 import { jwtDecode } from "jwt-decode";
 import { toast } from "sonner";
+
+// Skeleton shown while a lazy page chunk is being downloaded
+function PageLoadingFallback() {
+  return (
+    <div className="p-6 space-y-4 animate-pulse">
+      <Skeleton className="h-8 w-64 bg-gray-200" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-10 w-10 rounded-lg bg-gray-200" />
+              <Skeleton className="h-4 w-16 bg-gray-200" />
+            </div>
+            <Skeleton className="h-8 w-24 bg-gray-200" />
+            <Skeleton className="h-4 w-32 bg-gray-200" />
+          </div>
+        ))}
+      </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <Skeleton className="h-6 w-40 mb-4 bg-gray-200" />
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 w-full bg-gray-100 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -391,20 +424,22 @@ export function AdminDashboard({
           </div>
         </header>
 
-        {/* Dynamic Content */}
+        {/* Dynamic Content — wrapped in Suspense for lazy-loaded pages */}
         <main className="flex-1 overflow-y-auto p-0 bg-gray-50/50">
           <div className="max-w-[1600px] mx-auto">
-            {activeTab === "dashboard" && <DashboardHome />}
-            {activeTab === "calendar" && <CalendarPage />}
-            {activeTab === "appointments" && <AppointmentsPage />}
-            {activeTab === "staff" && <StaffMembers />}
-            {activeTab === "timeoff" && <TimeOffPage onCountChange={setTimeOffBadgeCount} />}
-            {activeTab === "services" && <ManageServices />}
-            {activeTab === "customers" && <CustomersPage />}
-            {activeTab === "integration" && <WidgetIntegration />}
-            {activeTab === "settings" && <Settings />}
-            {activeTab === "profile" && <UserProfile />}
-            {activeTab === "my-calendar" && <StaffCalendarSettings />}
+            <Suspense fallback={<PageLoadingFallback />}>
+              {activeTab === "dashboard" && <DashboardHome />}
+              {activeTab === "calendar" && <CalendarPage />}
+              {activeTab === "appointments" && <AppointmentsPage />}
+              {activeTab === "staff" && <StaffMembers />}
+              {activeTab === "timeoff" && <TimeOffPage onCountChange={setTimeOffBadgeCount} />}
+              {activeTab === "services" && <ManageServices />}
+              {activeTab === "customers" && <CustomersPage />}
+              {activeTab === "integration" && <WidgetIntegration />}
+              {activeTab === "settings" && <Settings />}
+              {activeTab === "profile" && <UserProfile />}
+              {activeTab === "my-calendar" && <StaffCalendarSettings />}
+            </Suspense>
           </div>
         </main>
       </div>
