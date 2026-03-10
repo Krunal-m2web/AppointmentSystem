@@ -14,6 +14,7 @@ import { InviteStaffModal } from './InviteStaffModal';
 import { forgotPassword } from '../../services/authService';
 import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
 import { EyeOff, Eye } from 'lucide-react';
+import { useTimezone } from '../../context/TimezoneContext';
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -30,6 +31,7 @@ interface EditableStaff extends Omit<Staff, 'services' | 'schedule'> {
 
 export function StaffMembers() {
     const [showPassword, setShowPassword] = useState(false);
+    const { timezone } = useTimezone();
     const [isSaving, setIsSaving] = useState(false);
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
     const [defaultCurrency, setDefaultCurrency] = useState('');
@@ -996,6 +998,7 @@ const hasUnsavedChanges = () => {
                                                 }}
                                                 placeholder="Enter phone number"
                                                 error={formErrors.phone}
+                                                timezone={timezone}
                                                 prefixIcon={<PhoneIcon className="w-4 h-4 text-gray-400" />}
                                             />
                                         </div>

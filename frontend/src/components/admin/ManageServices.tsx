@@ -280,6 +280,19 @@ export function ManageServices() {
 
   const currencySymbol = defaultCurrency ? getCurrencySymbol(defaultCurrency) : '';
 
+  // Converts total minutes to a human-readable string
+  const formatDurationDisplay = (minutes: number) => {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h === 0) return `${m} min`;
+    if (m === 0) return `${h} hr`;
+    return `${h}h ${m}min`;
+  };
+
+  // Derived hours/minutes for the duration picker
+  const durationHours = Math.floor((editingService.serviceDuration ?? 30) / 60);
+  const durationMinutes = (editingService.serviceDuration ?? 30) % 60;
+
   return (
     <div className="p-8">
       
@@ -430,32 +443,57 @@ export function ManageServices() {
                               </p>
                             )}
                           </div>
-                          {/* Duration field */}
+                          {/* Duration field — hours + minutes picker */}
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Duration (minutes) <span className="text-red-500">*</span>
+                              Duration <span className="text-red-500">*</span>
                             </label>
-                            <div className="relative">
-                              <Clock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                              <input
-                                type="number"
-                                min="1"
-                                step="1"
-                                value={editingService.serviceDuration ?? ''}
-                                onChange={e => {
-                                  setEditingService({...editingService, serviceDuration: e.target.value === '' ? undefined : parseInt(e.target.value)});
-                                  if (formErrors.serviceDuration) {
-                                    const newErrors = { ...formErrors };
-                                    delete newErrors.serviceDuration;
-                                    setFormErrors(newErrors);
-                                  }
-                                }}
-                                placeholder="30"
-                                className={`w-full pl-10 pr-16 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
-                                  formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300 bg-white'
-                                }`}
-                              />
-                              <span className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-sm text-gray-500">min</span>
+                            <div className="flex gap-2 items-center">
+                              {/* Hours */}
+                              <div className="relative flex-1">
+                                <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                <select
+                                  value={durationHours}
+                                  onChange={e => {
+                                    const h = parseInt(e.target.value);
+                                    setEditingService({ ...editingService, serviceDuration: h * 60 + durationMinutes });
+                                    if (formErrors.serviceDuration) {
+                                      const newErrors = { ...formErrors };
+                                      delete newErrors.serviceDuration;
+                                      setFormErrors(newErrors);
+                                    }
+                                  }}
+                                  className={`w-full pl-9 pr-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all appearance-none bg-white ${
+                                    formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
+                                  }`}
+                                >
+                                  {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(h => (
+                                    <option key={h} value={h}>{h} hr</option>
+                                  ))}
+                                </select>
+                              </div>
+                              {/* Minutes */}
+                              <div className="relative flex-1">
+                                <select
+                                  value={durationMinutes}
+                                  onChange={e => {
+                                    const m = parseInt(e.target.value);
+                                    setEditingService({ ...editingService, serviceDuration: durationHours * 60 + m });
+                                    if (formErrors.serviceDuration) {
+                                      const newErrors = { ...formErrors };
+                                      delete newErrors.serviceDuration;
+                                      setFormErrors(newErrors);
+                                    }
+                                  }}
+                                  className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all appearance-none bg-white ${
+                                    formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
+                                  }`}
+                                >
+                                  {[0,5,10,15,20,25,30,35,40,45,50,55].map(m => (
+                                    <option key={m} value={m}>{m} min</option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                             {formErrors.serviceDuration && (
                               <p className="text-red-600 text-xs mt-1.5 font-medium">
@@ -613,7 +651,7 @@ export function ManageServices() {
                                 </div>
                                 <div className="col-span-2">
                                     <span className="inline-flex items-center gap-1 text-sm text-gray-600">
-                                        <Clock className="w-4 h-4 text-gray-400" /> {service.serviceDuration} min
+                                        <Clock className="w-4 h-4 text-gray-400" /> {formatDurationDisplay(service.serviceDuration)}
                                     </span>
                                 </div>
                                  <div className="col-span-1">

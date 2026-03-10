@@ -38,6 +38,7 @@ import { useEffect } from "react";
 import { getRoleFromToken, getToken, getUserNameFromToken, getEmailFromToken } from "../utils/auth";
 import { User, Bell, ChevronDown } from "lucide-react";
 import { jwtDecode } from "jwt-decode";
+import { getInitials } from "../utils/stringUtils";
 import { toast } from "sonner";
 
 // Skeleton shown while a lazy page chunk is being downloaded
@@ -250,7 +251,7 @@ export function AdminDashboard({
   }, []);
 
   const userName = token ? getUserNameFromToken(token) : 'Admin';
-  const userInitials = userName ? userName.substring(0, 2).toUpperCase() : 'AD';
+  const userInitials = userName ? getInitials(userName) : 'AD';
 
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 

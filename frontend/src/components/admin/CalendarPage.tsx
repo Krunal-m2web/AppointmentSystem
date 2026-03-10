@@ -8,6 +8,7 @@ import { fetchHolidays, Holiday } from '../../services/holidayApi';
 import { Staff, Service } from '../../types/types';
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken } from '../../utils/auth';
 import { combineDateTimeToUTC, formatTime, getDateString, formatDuration } from '../../utils/datetime';
+import { getInitials } from '../../utils/stringUtils';
 import { useTimezone } from '../../context/TimezoneContext';
 import { MiniCalendar } from './MiniCalendar';
 import { AppointmentFormModal, NewAppointment } from './AppointmentFormModal';
@@ -241,7 +242,7 @@ export function CalendarPage() {
            duration: `${diffMin} min`,
            location: apt.meetingType,
            price: `$${apt.price}`,
-           status: apt.status.toLowerCase(),
+           status: apt.status,
            startDateTime: apt.startDateTime
          };
       });
@@ -768,7 +769,7 @@ export function CalendarPage() {
                     }`}
                     style={{ backgroundColor: staff.color }}
                 >
-                    <span className="text-sm">{staff.name.substring(0, 2).toUpperCase()}</span>
+                    <span className="text-sm">{getInitials(staff.name)}</span>
                 </div>
                 <span className={`text-xs text-center max-w-[80px] truncate ${
                     selectedStaff === staff.id ? 'text-indigo-600' : 'text-gray-700'
@@ -1007,15 +1008,15 @@ export function CalendarPage() {
 
                       <div className="pt-2">
                         <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide border shadow-sm ${
-                          selectedAppointment.status === 'confirmed' ? 'bg-green-50 text-green-700 border-green-200' :
-                          selectedAppointment.status === 'completed' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                          selectedAppointment.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200' :
+                          selectedAppointment.status.toLowerCase() === 'confirmed' ? 'bg-green-50 text-green-700 border-green-200' :
+                          selectedAppointment.status.toLowerCase() === 'completed' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                          selectedAppointment.status.toLowerCase() === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200' :
                           'bg-yellow-50 text-yellow-700 border-yellow-200'
                         }`}>
                           <div className={`w-2 h-2 rounded-full mr-2 ${
-                            selectedAppointment.status === 'confirmed' ? 'bg-green-500' :
-                            selectedAppointment.status === 'completed' ? 'bg-blue-500' :
-                            selectedAppointment.status === 'cancelled' ? 'bg-red-500' :
+                            selectedAppointment.status.toLowerCase() === 'confirmed' ? 'bg-green-500' :
+                            selectedAppointment.status.toLowerCase() === 'completed' ? 'bg-blue-500' :
+                            selectedAppointment.status.toLowerCase() === 'cancelled' ? 'bg-red-500' :
                             'bg-yellow-500'
                           }`} />
                           {selectedAppointment.status}

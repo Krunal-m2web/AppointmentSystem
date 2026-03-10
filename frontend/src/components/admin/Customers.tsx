@@ -14,6 +14,7 @@ import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { NotificationHistoryDrawer } from './NotificationHistoryDrawer';
 import { Skeleton } from '../ui/skeleton';
 import { TableSkeleton } from '../ui/TableSkeleton';
+import { getInitials as getInitialsUtil } from '../../utils/stringUtils';
 
 
 export function CustomersPage() {
@@ -299,13 +300,7 @@ export function CustomersPage() {
     URL.revokeObjectURL(url);
   };
 
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  };
+  const getInitials = (name: string) => getInitialsUtil(name);
 
   const getAvatarColor = (name: string) => {
     const colors = [

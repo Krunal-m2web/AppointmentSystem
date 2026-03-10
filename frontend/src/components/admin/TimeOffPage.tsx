@@ -23,6 +23,7 @@ import type { Staff } from '../../types/types';
 import { toast } from 'sonner';
 import { TableSkeleton } from '../ui/TableSkeleton';
 import { DateInput } from '../ui/DateInput';
+import { getInitials } from '../../utils/stringUtils';
 import {
   Select,
   SelectContent,
@@ -506,7 +507,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 text-xs font-bold border border-indigo-100">
-                            {timeOff.staffName?.substring(0, 2).toUpperCase() || 'ST'}
+                            {getInitials(timeOff.staffName || 'Staff')}
                           </div>
                           <span className="font-medium text-gray-900">{timeOff.staffName}</span>
                         </div>
