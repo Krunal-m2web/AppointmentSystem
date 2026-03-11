@@ -982,9 +982,9 @@ export function DashboardHome() {
                   </button>
               </div>
           </div>
-          <div className="overflow-x-auto">
-              <table id="dashboard-stats-table" className="w-full text-sm text-left">
-                  <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
+          <div className="overflow-x-auto custom-scrollbar mt-4">
+              <table className="w-full text-sm min-w-[800px]">
+                  <thead className="bg-gray-100 text-gray-700 font-semibold border-b-2 border-gray-200">
                       <tr>
                           <th className="px-4 py-3 border-r border-gray-200" rowSpan={2}>Employee</th>
                           <th className="px-4 py-3 border-r border-gray-200" rowSpan={2}>Total Services</th>

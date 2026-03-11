@@ -1019,7 +1019,7 @@ export function HolidaysPage({ role = 'Admin' }: { role?: string }) {
 
   return (
     
-     <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 114px)' }}>
+     <div className="flex flex-col md:flex-row overflow-hidden" style={{ height: 'calc(100vh - 114px)' }}>
       {/* ════════ MAIN CALENDAR AREA ════════ */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
@@ -1163,7 +1163,7 @@ export function HolidaysPage({ role = 'Admin' }: { role?: string }) {
       </div>
 
       {/* ════════ SIDEBAR ════════ */}
-      <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
+      <div className="w-full md:w-72 bg-white border-t md:border-t-0 md:border-l border-gray-200 flex flex-col flex-shrink-0 h-1/2 md:h-auto">
         <div className="px-4 py-4 border-b border-gray-100 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
