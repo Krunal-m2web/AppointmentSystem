@@ -1015,7 +1015,7 @@ function AddTimeOffModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors"
+                  className="flex-1 px-4 py-3 border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
                   disabled={submitting}
                 >
                   Cancel
@@ -1023,7 +1023,7 @@ function AddTimeOffModal({
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {submitting && <Loader2 className="w-5 h-5 animate-spin" />}
                   {submitting ? 'Saving...' : 'Save Time Off'}

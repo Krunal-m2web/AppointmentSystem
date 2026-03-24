@@ -7,6 +7,13 @@ import { parseApiError } from '../../utils/error';
 import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
 import { getCountries, Country } from 'react-phone-number-input/input';
 import en from 'react-phone-number-input/locale/en';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 interface FieldErrors {
     firstName?: string;
@@ -575,34 +582,41 @@ const AdminRegister = () => {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Country</label>
-                      <select
+                      <Select
                         value={companyCountryCode || ''}
-                        onChange={e => handleCompanyCountryChange(e.target.value as Country)}
-                        className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 bg-gray-50 ${
-                          fieldErrors.companyCountry ? 'border-red-400 focus:ring-red-500' : 'border-gray-200 focus:ring-indigo-500'
-                        }`}
+                        onValueChange={(val) => handleCompanyCountryChange(val as Country)}
                       >
-                        <option value="">Select Country</option>
-                        {countryOptions.map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                        <SelectTrigger className={`w-full bg-gray-50 h-[46px] border ${
+                          fieldErrors.companyCountry ? 'border-red-400 focus:ring-red-500' : 'border-gray-200 focus:ring-indigo-500'
+                        } rounded-xl px-4 text-gray-700`}>
+                          <SelectValue placeholder="Select Country" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {countryOptions.map(option => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       {fieldErrors.companyCountry && <p className="mt-1 text-sm text-red-500">{fieldErrors.companyCountry}</p>}
                     </div>
                     <div>
                       <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Currency</label>
-                      <select
+                      <Select
                         value={currency}
-                        onChange={e => setCurrency(e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                        onValueChange={(val) => setCurrency(val)}
                       >
-                        <option value="USD">USD ($)</option>
-                        <option value="EUR">EUR (€)</option>
-                        <option value="GBP">GBP (£)</option>
-                        <option value="INR">INR (₹)</option>
-                        <option value="AUD">AUD (A$)</option>
-                        <option value="CAD">CAD (C$)</option>
-                      </select>
+                        <SelectTrigger className="w-full bg-gray-50 h-[46px] border border-gray-200 focus:ring-indigo-500 rounded-xl px-4 text-gray-700">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="USD">USD ($)</SelectItem>
+                          <SelectItem value="EUR">EUR (€)</SelectItem>
+                          <SelectItem value="GBP">GBP (£)</SelectItem>
+                          <SelectItem value="INR">INR (₹)</SelectItem>
+                          <SelectItem value="AUD">AUD (A$)</SelectItem>
+                          <SelectItem value="CAD">CAD (C$)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 

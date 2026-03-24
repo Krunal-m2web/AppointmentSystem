@@ -10,11 +10,19 @@ import {
   CustomerResponse 
 } from '../../services/customerApi';
 import { toast } from 'sonner';
-import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { NotificationHistoryDrawer } from './NotificationHistoryDrawer';
+import { ConfirmationModal } from '../../components/ConfirmationModal';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Skeleton } from '../ui/skeleton';
 import { TableSkeleton } from '../ui/TableSkeleton';
 import { getInitials as getInitialsUtil } from '../../utils/stringUtils';
+import { useTimezone } from '../../context/TimezoneContext';
 
 
 export function CustomersPage() {
@@ -39,6 +47,8 @@ export function CustomersPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [sortField, setSortField] = useState('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  const { timezone } = useTimezone();
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -543,23 +553,29 @@ export function CustomersPage() {
         
         {/* Pagination Controls */}
         <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <span className="text-sm text-gray-700">
               Showing <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium">{totalItems}</span> results
             </span>
-            <select
-              value={itemsPerPage}
-              onChange={(e) => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              className="ml-4 text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              <option value={10}>10 per page</option>
-              <option value={20}>20 per page</option>
-              <option value={50}>50 per page</option>
-              <option value={100}>100 per page</option>
-            </select>
+            <div className="ml-4">
+              <Select
+                value={itemsPerPage.toString()}
+                onValueChange={(val) => {
+                  setItemsPerPage(Number(val));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[130px] bg-white border-gray-300 text-sm h-9">
+                  <SelectValue placeholder="Items per page" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 per page</SelectItem>
+                  <SelectItem value="20">20 per page</SelectItem>
+                  <SelectItem value="50">50 per page</SelectItem>
+                  <SelectItem value="100">100 per page</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
             
                 <div className="flex items-center gap-2">
@@ -771,6 +787,7 @@ export function CustomersPage() {
                                   }}
                                   placeholder="Enter phone number"
                                   error={formErrors.phone}
+                                  timezone={timezone}
                                 />
                              </div>
                           </div>
@@ -823,7 +840,7 @@ export function CustomersPage() {
                 <button
                   type="button"
                   onClick={handleCloseForm}
-                  className="flex-1 px-5 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium"
+                  className="flex-1 px-5 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium cursor-pointer"
                   disabled={isSaving}
                 >
                   Cancel
@@ -831,7 +848,7 @@ export function CustomersPage() {
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="flex-1 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all font-medium shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all font-medium shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {isSaving ? (
                     <span className="flex items-center justify-center gap-2">
@@ -853,7 +870,7 @@ export function CustomersPage() {
         onClose={() => setDeleteCustomerId(null)}
         onConfirm={confirmDeleteCustomer}
         title="Delete Customer"
-        description="Are you sure you want to delete this customer? This action will set the customer as inactive. You can permanently delete them later if they have no appointments."
+        description="Are you sure you want to delete this customer? This action will set the customer as inactive."
         confirmText="Delete"
         variant="destructive"
       />

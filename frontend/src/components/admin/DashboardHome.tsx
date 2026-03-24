@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { cn } from '../ui/utils';
 import { Calendar, Clock, User, TrendingUp, CreditCard, Filter, ChevronDown, ExternalLink, Loader2, RefreshCw, ChevronLeft, ChevronRight, CalendarDays, Download, Printer } from 'lucide-react';
 import { AnalyticsChart } from './AnalyticsChart';
 import { MiniCalendar } from './MiniCalendar';
@@ -370,7 +371,12 @@ export function DashboardHome() {
         const servicesData = Array.isArray(servicesRaw) ? servicesRaw : (servicesRaw.items || []);
         if (companyData?.slug) setCompanySlug(companyData.slug);
         setFullStaffList(staffData); // Store full data
-        setStaffList(staffData.map((s: any) => ({ id: s.id, name: `${s.firstName} ${s.lastName}` })));
+        setStaffList(staffData.map((s: any) => ({ 
+          id: s.id, 
+          name: `${s.firstName} ${s.lastName}`,
+          serviceIds: s.services?.map((svc: any) => svc.serviceId) || [],
+          services: s.services?.map((svc: any) => ({ serviceId: svc.serviceId, customPrice: svc.customPrice })) || []
+        })));
         setServicesList(servicesData.map((s: any) => ({ id: s.id, name: s.name })));
       } catch (e) { console.error("Metadata fetch error", e); }
   };
@@ -872,11 +878,16 @@ export function DashboardHome() {
               <div className="relative">
                 <button
                   onClick={() => setShowStaffFilter(!showStaffFilter)}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                  className="flex h-9 w-auto min-w-[140px] items-center justify-between gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer text-gray-700"
                 >
-                  <Filter className="w-4 h-4" />
-                  Staff {selectedStaff.length > 0 && `(${selectedStaff.length})`}
-                  <ChevronDown className="w-4 h-4" />
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4 opacity-70 flex-shrink-0" />
+                    <span>Staff {selectedStaff.length > 0 && `(${selectedStaff.length})`}</span>
+                  </div>
+                  <ChevronDown className={cn(
+                    "w-4 h-4 opacity-50 flex-shrink-0 transition-transform duration-200",
+                    showStaffFilter && "rotate-180"
+                  )} />
                 </button>
                 {showStaffFilter && (
                   <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">
@@ -906,11 +917,16 @@ export function DashboardHome() {
               <div className="relative">
                 <button
                   onClick={() => setShowServiceFilter(!showServiceFilter)}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                  className="flex h-9 w-auto min-w-[140px] items-center justify-between gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer text-gray-700"
                 >
-                  <Filter className="w-4 h-4" />
-                  Services {selectedServices.length > 0 && `(${selectedServices.length})`}
-                  <ChevronDown className="w-4 h-4" />
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4 opacity-70 flex-shrink-0" />
+                    <span>Services {selectedServices.length > 0 && `(${selectedServices.length})`}</span>
+                  </div>
+                  <ChevronDown className={cn(
+                    "w-4 h-4 opacity-50 flex-shrink-0 transition-transform duration-200",
+                    showServiceFilter && "rotate-180"
+                  )} />
                 </button>
                 {showServiceFilter && (
                   <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-10">

@@ -9,6 +9,13 @@ import {
   DrawerDescription,
 } from '../ui/drawer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 interface NotificationHistoryDrawerProps {
   isOpen: boolean;
@@ -214,20 +221,21 @@ export function NotificationHistoryDrawer({
                 </TabsList>
               </Tabs>
 
-              <div className="relative inline-block">
-                <select
-                  value={filterDays}
-                  onChange={(e) => setFilterDays(Number(e.target.value))}
-                  className="appearance-none bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full px-3 py-2 pr-8 transition-colors hover:bg-gray-100 cursor-pointer"
+              <div className="relative inline-block w-[130px]">
+                <Select
+                  value={filterDays.toString()}
+                  onValueChange={(val) => setFilterDays(Number(val))}
                 >
-                  <option value={30}>Last 30 Days</option>
-                  <option value={60}>Last 60 Days</option>
-                  <option value={90}>Last 90 Days</option>
-                  <option value={365}>Last Year</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                  <ChevronDown className="w-3 h-3" />
-                </div>
+                  <SelectTrigger className="w-full h-[36px] bg-gray-50 border-gray-200 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">Last 30 Days</SelectItem>
+                    <SelectItem value="60">Last 60 Days</SelectItem>
+                    <SelectItem value="90">Last 90 Days</SelectItem>
+                    <SelectItem value="365">Last Year</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>

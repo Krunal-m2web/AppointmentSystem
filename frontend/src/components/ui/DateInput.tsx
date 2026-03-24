@@ -2,6 +2,13 @@ import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./select";
 
 interface DateInputProps {
   value: string; // Expected format: mm/dd/yyyy
@@ -177,33 +184,41 @@ export function DateInput({ value, onChange, placeholder = 'mm/dd/yyyy', classNa
             </button>
             
             <div className="flex items-center gap-1">
-              <select
-                value={viewDate.getMonth()}
-                onChange={(e) => {
+              <Select
+                value={viewDate.getMonth().toString()}
+                onValueChange={(val) => {
                   const newDate = new Date(viewDate);
-                  newDate.setMonth(Number(e.target.value));
+                  newDate.setMonth(Number(val));
                   setViewDate(newDate);
                 }}
-                className="text-sm font-medium border-none bg-transparent hover:bg-gray-50 rounded cursor-pointer focus:ring-0 focus:outline-none"
               >
-                {months.map((month, i) => (
-                  <option key={month} value={i}>{month}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-8 w-[110px] text-sm font-medium border-none bg-transparent hover:bg-gray-50 rounded focus:ring-0 focus:outline-none px-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {months.map((month, i) => (
+                    <SelectItem key={month} value={i.toString()}>{month}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               
-              <select
-                value={viewDate.getFullYear()}
-                onChange={(e) => {
+              <Select
+                value={viewDate.getFullYear().toString()}
+                onValueChange={(val) => {
                   const newDate = new Date(viewDate);
-                  newDate.setFullYear(Number(e.target.value));
+                  newDate.setFullYear(Number(val));
                   setViewDate(newDate);
                 }}
-                className="text-sm font-medium border-none bg-transparent hover:bg-gray-50 rounded cursor-pointer focus:ring-0 focus:outline-none"
               >
-                {years.map(year => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-8 w-[80px] text-sm font-medium border-none bg-transparent hover:bg-gray-50 rounded focus:ring-0 focus:outline-none px-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {years.map(year => (
+                    <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             
             <button

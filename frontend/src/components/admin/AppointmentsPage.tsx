@@ -12,10 +12,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { Button } from '../ui/button';
 import { useTimezone } from '../../context/TimezoneContext';
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '../ui/hover-card';
+import { cn } from '../ui/utils';
 import { formatDate, formatTime, formatDateTime, combineDateTimeToUTC, getTimezoneOffset, getDateString, getTimeString } from '../../utils/datetime';
 import type { Appointment } from '../../types/types';
 import { getAppointments, AppointmentResponse, createAppointment, updateAppointment } from '../../services/appointmentApi';
@@ -396,7 +404,8 @@ export function AppointmentsPage() {
           setStaffList(activeStaff.map((s: any) => ({ 
             id: s.id, 
             name: `${s.firstName} ${s.lastName}`,
-            serviceIds: s.services?.map((svc: any) => svc.serviceId) || []
+            serviceIds: s.services?.map((svc: any) => svc.serviceId) || [],
+            services: s.services?.map((svc: any) => ({ serviceId: svc.serviceId, customPrice: svc.customPrice })) || []
           })));
 
           const servicesData = Array.isArray(servicesRaw) ? servicesRaw : (servicesRaw.items || []);
@@ -856,7 +865,7 @@ export function AppointmentsPage() {
           <p className="text-red-600">{error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors cursor-pointer"
           >
             Retry
           </button>
@@ -899,7 +908,7 @@ export function AppointmentsPage() {
             
             <button
               onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all shadow-sm hover:shadow-md w-full md:w-auto justify-center font-medium"
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all shadow-sm hover:shadow-md w-full md:w-auto justify-center font-medium cursor-pointer"
             >
               <Plus className="w-5 h-5" />
               <span>New Appointment</span>
@@ -919,7 +928,7 @@ export function AppointmentsPage() {
                 <button
                   key={pill.id}
                   onClick={() => setFilterStatus(pill.id as any)}
-                  className={`flex-1 lg:flex-none px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  className={`flex-1 lg:flex-none px-4 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                     filterStatus === pill.id
                       ? 'bg-white text-indigo-600 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
@@ -934,111 +943,80 @@ export function AppointmentsPage() {
             <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
               {/* Date Range Filter */}
               <div className="relative flex-1 lg:flex-none">
-                <button
-                  onClick={() => setShowCustomDatePicker(!showCustomDatePicker)}
-                  className="flex items-center justify-between gap-2 w-full px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
+                <Select
+                  value={dateRangeFilter}
+                  onValueChange={(val) => {
+                    setDateRangeFilter(val);
+                    if (val === 'custom') {
+                      setShowCustomDatePicker(true);
+                    } else {
+                      setShowCustomDatePicker(false);
+                      setCurrentPage(1);
+                    }
+                  }}
                 >
-                  <div className="flex items-center gap-2">
-                    <CalendarDays className="w-4 h-4 text-indigo-500" />
-                    <span>
-                      {dateRangeFilter === 'upcoming' ? 'Upcoming (30 Days)' :
-                       dateRangeFilter === 'any_time' ? 'Any Time' :
-                       dateRangeFilter === 'yesterday' ? 'Yesterday' :
-                       dateRangeFilter === 'today' ? 'Today' :
-                       dateRangeFilter === 'this_week' ? 'This Week' :
-                       dateRangeFilter === 'this_month' ? 'This Month' :
-                       dateRangeFilter === 'this_year' ? 'This Year' :
-                       dateRangeFilter === 'custom' ? 'Custom Range' : 'Any Time'}
-                    </span>
-                  </div>
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                </button>
-                {showCustomDatePicker && (
-                  <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150">
-                    <div className="p-3 space-y-1">
-                      {dateRangeFilter !== 'custom' ? (
-                        <>
-                          {[
-                            { value: 'upcoming', label: 'Upcoming (30 Days)' },
-                            { value: 'today', label: 'Today' },
-                            { value: 'this_week', label: 'This Week' },
-                            { value: 'this_month', label: 'This Month' },
-                            { value: 'any_time', label: 'Any Time' },
-                            { value: 'yesterday', label: 'Yesterday' },
-                            { value: 'this_year', label: 'This Year' },
-                          ].map((option) => (
-                            <button
-                              key={option.value}
-                              onClick={() => {
-                                setDateRangeFilter(option.value);
-                                setShowCustomDatePicker(false);
-                                setCurrentPage(1);
-                              }}
-                              className={`w-full text-left px-3 py-2 rounded-lg transition-colors text-sm ${
-                                dateRangeFilter === option.value 
-                                  ? 'bg-indigo-50 text-indigo-700 font-semibold' 
-                                  : 'text-gray-700 hover:bg-gray-50'
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                          <div className="border-t border-gray-100 pt-2 mt-2">
-                            <button
-                              onClick={() => setDateRangeFilter('custom')}
-                              className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                            >
-                              <span>Custom Range</span>
-                              <ChevronDown className="w-4 h-4 -rotate-90 opacity-40" />
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="space-y-3 p-1">
-                          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-50">
-                            <button onClick={() => setDateRangeFilter('upcoming')} className="p-1 hover:bg-gray-100 rounded-full">
-                               <ChevronDown className="w-4 h-4 rotate-90" />
-                            </button>
-                            <span className="font-semibold text-gray-800 text-sm">Select Range</span>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">Start Date</label>
-                            <DateInput
-                              value={customStartDate}
-                              onChange={setCustomStartDate}
-                              placeholder="mm/dd/yyyy"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-500 mb-1">End Date</label>
-                            <DateInput
-                              value={customEndDate}
-                              onChange={setCustomEndDate}
-                              placeholder="mm/dd/yyyy"
-                            />
-                          </div>
-                          <div className="flex gap-2 pt-2">
-                            <button
-                              onClick={() => setDateRangeFilter('upcoming')}
-                              className="flex-1 px-3 py-2 text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 text-xs font-semibold"
-                            >
-                              Back
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (customStartDate || customEndDate) {
-                                  setShowCustomDatePicker(false);
-                                  setCurrentPage(1);
-                                }
-                              }}
-                              disabled={!customStartDate && !customEndDate}
-                              className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-semibold shadow-sm"
-                            >
-                              Apply
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                  <SelectTrigger className="w-full lg:w-[180px] bg-white border-gray-200 text-gray-700 font-medium">
+                    <SelectValue placeholder="Select Range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="upcoming">Upcoming (30 Days)</SelectItem>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="this_week">This Week</SelectItem>
+                    <SelectItem value="this_month">This Month</SelectItem>
+                    <SelectItem value="any_time">Any Time</SelectItem>
+                    <SelectItem value="yesterday">Yesterday</SelectItem>
+                    <SelectItem value="this_year">This Year</SelectItem>
+                    <SelectItem value="custom">Custom Range</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {/* Custom Date Range Picker */}
+                {showCustomDatePicker && dateRangeFilter === 'custom' && (
+                  <div className="absolute left-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-xl z-30 p-4 min-w-[300px] animate-in fade-in zoom-in-95 duration-150">
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-50">
+                      <CalendarDays className="w-5 h-5 text-indigo-500" />
+                      <span className="font-semibold text-gray-800 text-sm">Custom Range</span>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Start Date</label>
+                        <DateInput
+                          value={customStartDate}
+                          onChange={setCustomStartDate}
+                          placeholder="mm/dd/yyyy"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">End Date</label>
+                        <DateInput
+                          value={customEndDate}
+                          onChange={setCustomEndDate}
+                          placeholder="mm/dd/yyyy"
+                        />
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          onClick={() => {
+                            setDateRangeFilter('upcoming');
+                            setShowCustomDatePicker(false);
+                          }}
+                          className="flex-1 px-3 py-2 text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 text-xs font-semibold cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (customStartDate || customEndDate) {
+                              setShowCustomDatePicker(false);
+                              setCurrentPage(1);
+                            }
+                          }}
+                          disabled={!customStartDate && !customEndDate}
+                          className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-semibold shadow-sm cursor-pointer"
+                        >
+                          Apply
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1049,13 +1027,16 @@ export function AppointmentsPage() {
                 <div className="relative flex-1 lg:flex-none">
                   <button
                     onClick={() => setShowStaffFilter(!showStaffFilter)}
-                    className="flex items-center justify-between gap-2 w-full px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
+                    className="flex items-center justify-between gap-2 w-full px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
                       <Filter className="w-4 h-4 text-indigo-500" />
                       <span>Staff {selectedStaff.length > 0 ? `(${selectedStaff.length})` : ''}</span>
                     </div>
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                    <ChevronDown className={cn(
+                      "w-4 h-4 text-gray-400 transition-transform duration-200",
+                      showStaffFilter && "rotate-180"
+                    )} />
                   </button>
                   {showStaffFilter && (
                     <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 p-2">
@@ -1083,7 +1064,7 @@ export function AppointmentsPage() {
               {/* Export CSV Button */}
               <button 
                 onClick={handleExportCSV}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-all text-sm font-medium flex-1 lg:flex-none"
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-all text-sm font-medium flex-1 lg:flex-none cursor-pointer"
                 title="Export filtered appointments to CSV"
               >
                 <Download className="w-4 h-4 text-gray-400" />
@@ -1192,14 +1173,14 @@ export function AppointmentsPage() {
                         <div className="flex gap-2">
                           <button
                             onClick={handleSave}
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
                             title="Save"
                           >
                             <Save className="w-4 h-4" />
                           </button>
                           <button
                             onClick={handleCancel}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                             title="Cancel"
                           >
                             <XCircle className="w-4 h-4" />
@@ -1209,14 +1190,14 @@ export function AppointmentsPage() {
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => openEditModal(appointment)}
-                            className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                            className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200 cursor-pointer"
                             title="Edit"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                            <button
                             onClick={() => setSelectedAppointment(appointment)}
-                            className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200"
+                            className="p-2 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md active:scale-95 rounded-md transition-all duration-200 cursor-pointer"
                             title="View Details"
                           >
                             <Eye className="w-4 h-4" />
@@ -1237,25 +1218,31 @@ export function AppointmentsPage() {
             <span className="text-sm text-gray-700">
               Showing <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium">{totalItems}</span> results
             </span>
-            <select
-              value={itemsPerPage}
-              onChange={(e) => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              className="ml-4 text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              <option value={10}>10 per page</option>
-              <option value={20}>20 per page</option>
-              <option value={50}>50 per page</option>
-              <option value={100}>100 per page</option>
-            </select>
+            <div className="ml-4">
+              <Select
+                value={itemsPerPage.toString()}
+                onValueChange={(val) => {
+                  setItemsPerPage(Number(val));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[130px] bg-white border-gray-300 text-sm h-9">
+                  <SelectValue placeholder="Items per page" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 per page</SelectItem>
+                  <SelectItem value="20">20 per page</SelectItem>
+                  <SelectItem value="50">50 per page</SelectItem>
+                  <SelectItem value="100">100 per page</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1 || isLoading}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 cursor-pointer disabled:cursor-not-allowed"
             >
              <ChevronLeft className="w-4 h-4" />
             </button>
@@ -1265,7 +1252,7 @@ export function AppointmentsPage() {
             <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages || totalPages === 0 || isLoading}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 cursor-pointer disabled:cursor-not-allowed"
             >
              <ChevronRight className="w-4 h-4" />
             </button>
@@ -1461,7 +1448,7 @@ export function AppointmentsPage() {
                 {selectedAppointment.status === 'Pending' && (
                   <button
                     onClick={() => handleStatusUpdate(selectedAppointment.id, 'Confirmed')}
-                    className="flex-1 px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-medium uppercase tracking-wide text-xs shadow-sm hover:shadow-md"
+                    className="flex-1 px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-medium uppercase tracking-wide text-xs shadow-sm hover:shadow-md cursor-pointer"
                   >
                     Confirm Appointment
                   </button>
@@ -1469,14 +1456,14 @@ export function AppointmentsPage() {
                 {selectedAppointment.status === 'Confirmed' && (
                   <button
                     onClick={() => handleReschedule(selectedAppointment)}
-                    className="flex-1 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium uppercase tracking-wide text-xs shadow-sm hover:shadow-md"
+                    className="flex-1 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium uppercase tracking-wide text-xs shadow-sm hover:shadow-md cursor-pointer"
                   >
                     Reschedule
                   </button>
                 )}
                 <button
                   onClick={() => handleCancelAppointment(selectedAppointment.id)}
-                  className="flex-1 px-5 py-2.5 bg-red-50 border-2 border-red-200 text-red-600 rounded-lg hover:bg-red-600 hover:text-white hover:border-red-600 transition-all font-medium uppercase tracking-wide text-xs"
+                  className="flex-1 px-5 py-2.5 bg-red-50 border-2 border-red-200 text-red-600 rounded-lg hover:bg-red-600 hover:text-white hover:border-red-600 transition-all font-medium uppercase tracking-wide text-xs cursor-pointer"
                 >
                   Cancel Appointment
                 </button>

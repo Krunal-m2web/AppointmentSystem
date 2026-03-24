@@ -305,26 +305,12 @@ export const AdminRescheduleFlow: React.FC<AdminRescheduleFlowProps> = ({
             const dateStr = `${year}-${month}-${day}`;
             const startTimeUtc = combineDateTimeToUTC(dateStr, selectedTime, timezone);
 
-            const companyId = getCompanyIdFromToken(getToken() || '') || 0;
-            const nameParts = appointment.customerName.trim().split(/\s+/);
-            const firstName = nameParts[0];
-            const lastName = nameParts.slice(1).join(' ') || '.';
-
-            await createAppointment({
-                companyId,
-                firstName,
-                lastName,
-                email: appointment.customerEmail,
-                phone: appointment.customerPhone,
-                serviceId: appointment.serviceId,
-                staffId: appointment.staffId || null,
+            await updateAppointment(appointment.id, {
                 startTime: startTimeUtc,
-                meetingType: appointment.meetingType,
-                paymentMethod: appointment.paymentMethod as any,
-                notes: appointment.notes || '',
-                status: 'Confirmed',
-                price: price ? parseFloat(price) : undefined
-            });
+                price: price ? parseFloat(price) : undefined,
+                status: 'Confirmed'
+            }, getToken() || '');
+
 
             toast.success("Appointment rescheduled successfully!");
             onSuccess();

@@ -9,6 +9,13 @@ import { useTimezone } from '../../context/TimezoneContext';
 import { formatTime } from '../../utils/datetime';
 import { getCurrencySymbol } from '../../utils/currency';
 import { getDefaultCurrency } from '../../services/settingsService';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 // ==================== Types ====================
 
@@ -44,6 +51,7 @@ interface StaffOption {
   id: number;
   name: string;
   serviceIds?: number[];
+  services?: { serviceId: number; customPrice?: number }[];
 }
 
 interface ServiceOption {
@@ -390,15 +398,31 @@ export function AppointmentFormModal({
     onClose();
   };
 
-  const handleServiceChange = (serviceId: number) => {
+  const getEffectivePrice = (staffId: number, serviceId: number): number | undefined => {
+    const service = servicesList.find((s) => s.id === serviceId);
+    if (!service) return undefined;
+
+    if (staffId === 0) return service.price;
+    const staff = staffList.find((s) => s.id === staffId);
+    if (!staff) return service.price;
+
+    const staffService = staff.services?.find((ss) => ss.serviceId === serviceId);
+    if (staffService && staffService.customPrice !== undefined && staffService.customPrice !== null) {
+      return staffService.customPrice;
+    }
+    return service.price;
+  };
+
+  const handleServiceChange = (serviceId: number, currentStaffId: number = formData.staffId) => {
     const service = servicesList.find((s) => s.id === serviceId);
     if (service) {
-      setFormData({
-        ...formData,
+      const effectivePrice = getEffectivePrice(currentStaffId, serviceId) ?? service.price;
+      setFormData(prev => ({
+        ...prev,
         serviceId,
         duration: service.duration,
-        price: service.price.toString(),
-      });
+        price: effectivePrice.toString(),
+      }));
     }
   };
 
@@ -731,11 +755,11 @@ export function AppointmentFormModal({
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Service <span className="text-red-500">*</span>
                       </label>
-                      <select
-                        value={formData.serviceId}
-                        onChange={(e) => {
-                          const newServiceId = Number(e.target.value);
-                          handleServiceChange(newServiceId);
+                      <Select
+                        value={formData.serviceId === 0 ? "" : formData.serviceId.toString()}
+                        onValueChange={(val) => {
+                          const newServiceId = Number(val);
+                          handleServiceChange(newServiceId, formData.staffId);
                           
                           // If current staff doesn't provide this service, reset staff (unless they are Staff role)
                           if (newServiceId !== 0 && formData.staffId !== 0 && currentUserRole !== 'Staff') {
@@ -748,23 +772,31 @@ export function AppointmentFormModal({
                           if (formErrors.serviceId)
                             setFormErrors({ ...formErrors, serviceId: '' });
                         }}
-                        className={`w-full px-3.5 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white ${
-                          formErrors.serviceId ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
-                        }`}
                       >
-                        <option value={0}>Select a service</option>
-                        {servicesList
-                          .filter(service => {
-                            if (formData.staffId === 0) return true;
-                            const staff = staffList.find(s => s.id === formData.staffId);
-                            return staff?.serviceIds?.includes(service.id);
-                          })
-                          .map((service) => (
-                          <option key={service.id} value={service.id}>
-                            {service.name} ({getCurrencySymbol(defaultCurrency)}{service.price} - {service.duration} min)
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger className={`w-full bg-white h-[42px] ${
+                          formErrors.serviceId ? 'border-red-300 bg-red-50/50 focus:ring-red-500' : 'border-gray-300 focus:ring-indigo-500'
+                        }`}>
+                          <SelectValue placeholder="Select a service" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {servicesList
+                            .filter(service => {
+                              if (formData.staffId === 0) return true;
+                              const staff = staffList.find(s => s.id === formData.staffId);
+                              return staff?.serviceIds?.includes(service.id);
+                            })
+                            .map((service) => {
+                              const effectivePrice = formData.staffId === 0 
+                                ? service.price 
+                                : (getEffectivePrice(formData.staffId, service.id) ?? service.price);
+                              return (
+                                <SelectItem key={service.id} value={service.id.toString()}>
+                                  {service.name} ({getCurrencySymbol(defaultCurrency)}{effectivePrice} - {service.duration} min)
+                                </SelectItem>
+                              );
+                            })}
+                        </SelectContent>
+                      </Select>
                       {formErrors.serviceId && (
                         <p className="text-red-600 text-xs mt-1.5">
                           {formErrors.serviceId}
@@ -780,38 +812,51 @@ export function AppointmentFormModal({
                           {staffList.find(s => s.id === currentUserId)?.name || 'Your Profile'}
                         </div>
                       ) : (
-                        <select
-                          value={formData.staffId}
-                          onChange={(e) => {
-                            const newStaffId = Number(e.target.value);
-                            setFormData({ ...formData, staffId: newStaffId });
-                            
-                            // If current service isn't provided by this staff, reset service
-                            if (newStaffId !== 0 && formData.serviceId !== 0) {
-                              const staff = staffList.find(s => s.id === newStaffId);
-                              if (staff && !staff.serviceIds?.includes(formData.serviceId)) {
-                                setFormData(prev => ({ ...prev, serviceId: 0, price: '', duration: 30 }));
+                        <Select
+                          value={formData.staffId === 0 ? "" : formData.staffId.toString()}
+                          onValueChange={(val) => {
+                            const newStaffId = Number(val);
+                            setFormData((prev) => {
+                              const updated = { ...prev, staffId: newStaffId };
+                              // If current service isn't provided by this staff, reset service
+                              if (newStaffId !== 0 && prev.serviceId !== 0) {
+                                const staff = staffList.find(s => s.id === newStaffId);
+                                if (staff && !staff.serviceIds?.includes(prev.serviceId)) {
+                                  updated.serviceId = 0;
+                                  updated.price = '';
+                                  updated.duration = 30;
+                                } else {
+                                  // Update price if staff has a custom price for this service
+                                  const effectivePrice = getEffectivePrice(newStaffId, prev.serviceId);
+                                  if (effectivePrice !== undefined) {
+                                      updated.price = effectivePrice.toString();
+                                  }
+                                }
                               }
-                            }
+                              return updated;
+                            });
 
                             if (formErrors.staffId) setFormErrors({ ...formErrors, staffId: '' });
                           }}
-                          className={`w-full px-3.5 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white ${
-                            formErrors.staffId ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
-                          }`}
                         >
-                          <option value={0}>Select staff member</option>
-                          {staffList
-                            .filter(staff => {
-                              if (formData.serviceId === 0) return true;
-                              return staff.serviceIds?.includes(formData.serviceId);
-                            })
-                            .map((staff) => (
-                            <option key={staff.id} value={staff.id}>
-                              {staff.name}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger className={`w-full bg-white h-[42px] ${
+                            formErrors.staffId ? 'border-red-300 bg-red-50/50 focus:ring-red-500' : 'border-gray-300 focus:ring-indigo-500'
+                          }`}>
+                            <SelectValue placeholder="Select staff member" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {staffList
+                              .filter(staff => {
+                                if (formData.serviceId === 0) return true;
+                                return staff.serviceIds?.includes(formData.serviceId);
+                              })
+                              .map((staff) => (
+                              <SelectItem key={staff.id} value={staff.id.toString()}>
+                                {staff.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       )}
                       {formErrors.staffId && (
                         <p className="text-red-600 text-xs mt-1.5">
@@ -894,30 +939,33 @@ export function AppointmentFormModal({
                         ) : (formData.staffId > 0 || (currentUserRole === 'Staff' && currentUserId > 0)) && formData.serviceId > 0 && formData.date ? (
                           availableSlots.length > 0 ? (
                             <div className="relative">
-                              <select
+                              <Select
                                 value={formData.time}
-                                onChange={(e) => {
-                                  setFormData({ ...formData, time: e.target.value });
+                                onValueChange={(val) => {
+                                  setFormData({ ...formData, time: val });
                                   if (formErrors.time) setFormErrors({ ...formErrors, time: '' });
                                 }}
-                                className={`w-full px-3.5 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white appearance-none pr-10 ${
-                                  formErrors.time ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
-                                }`}
                               >
-                                <option value="">Select a time slot</option>
-                                {/* In edit mode, include the existing time as an option if not in available slots */}
-                                {editMode && formData.time && !availableSlots.some(slot => formatTime(slot.startTime, timezone) === formData.time) && (
-                                  <option value={formData.time}>{formData.time} (current)</option>
-                                )}
-                                {availableSlots.map((slot) => {
-                                  const timeStr = formatTime(slot.startTime, timezone);
-                                  return (
-                                    <option key={slot.startTime} value={timeStr}>
-                                      {timeStr}
-                                    </option>
-                                  );
-                                })}
-                              </select>
+                                <SelectTrigger className={`w-full bg-white h-[42px] pr-10 ${
+                                  formErrors.time ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
+                                }`}>
+                                  <SelectValue placeholder="Select a time slot" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-[300px]">
+                                  {/* In edit mode, include the existing time as an option if not in available slots */}
+                                  {editMode && formData.time && !availableSlots.some(slot => formatTime(slot.startTime, timezone) === formData.time) && (
+                                    <SelectItem value={formData.time}>{formData.time} (current)</SelectItem>
+                                  )}
+                                  {availableSlots.map((slot) => {
+                                    const timeStr = formatTime(slot.startTime, timezone);
+                                    return (
+                                      <SelectItem key={slot.startTime} value={timeStr}>
+                                        {timeStr}
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
                               <div className="absolute right-3.5 top-1/2 transform -translate-y-1/2 pointer-events-none">
                                 <Clock className="w-4 h-4 text-gray-400" />
                               </div>
@@ -1081,33 +1129,41 @@ export function AppointmentFormModal({
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Payment Method
                       </label>
-                      <select
+                      <Select
                         value={formData.paymentMethod}
-                        onChange={(e) =>
-                          setFormData({ ...formData, paymentMethod: e.target.value as any })
+                        onValueChange={(val) =>
+                          setFormData({ ...formData, paymentMethod: val as any })
                         }
-                        className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white transition-all"
                       >
-                        <option value="Card">Credit / Debit Card</option>
-                        <option value="Cash">Cash (Pay Later)</option>
-                        <option value="PayPal">PayPal</option>
-                      </select>
+                        <SelectTrigger className="w-full bg-white h-[42px] border-gray-300">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Card">Credit / Debit Card</SelectItem>
+                          <SelectItem value="Cash">Cash (Pay Later)</SelectItem>
+                          <SelectItem value="PayPal">PayPal</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Appointment Status
                       </label>
-                      <select
+                      <Select
                         value={formData.status}
-                        onChange={(e) =>
-                          setFormData({ ...formData, status: e.target.value as any })
+                        onValueChange={(val) =>
+                          setFormData({ ...formData, status: val as any })
                         }
-                        className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white transition-all"
                       >
-                        <option value="Pending">Pending</option>
-                        <option value="Confirmed">Confirmed</option>
-                        <option value="Cancelled">Cancelled</option>
-                      </select>
+                        <SelectTrigger className="w-full bg-white h-[42px] border-gray-300">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Pending">Pending</SelectItem>
+                          <SelectItem value="Confirmed">Confirmed</SelectItem>
+                          <SelectItem value="Cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>
@@ -1142,7 +1198,7 @@ export function AppointmentFormModal({
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 px-5 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium"
+              className="flex-1 px-5 py-2.5 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium cursor-pointer"
               disabled={isSubmitting}
             >
               Cancel
@@ -1150,7 +1206,7 @@ export function AppointmentFormModal({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
+              className="flex-1 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md cursor-pointer"
             >
               {isSubmitting ? (
                 <span className="flex items-center justify-center gap-2">

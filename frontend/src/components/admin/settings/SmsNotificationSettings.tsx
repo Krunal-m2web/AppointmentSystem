@@ -2,6 +2,13 @@ import { Clock, MessageSquare, Edit, Send, X, Plus } from 'lucide-react';
 import { SmsNotificationConfig, SmsTemplate, TimingConfig } from '../types/settings';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../ui/select";
 
 interface SmsNotificationSettingsProps {
   smsSettings: {
@@ -81,33 +88,41 @@ export const SmsNotificationSettings: React.FC<SmsNotificationSettingsProps> = (
                 className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
               />
               
-              <select
+              <Select
                 value={config.unit}
-                onChange={(e) => onUpdateTimingConfig(key, 'unit', e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                onValueChange={(val) => onUpdateTimingConfig(key, 'unit', val)}
               >
-                <option value="minutes">Minutes</option>
-                <option value="hours">Hours</option>
-                <option value="days">Days</option>
-              </select>
+                <SelectTrigger className="w-[110px] bg-white border-gray-300 h-[42px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="minutes">Minutes</SelectItem>
+                  <SelectItem value="hours">Hours</SelectItem>
+                  <SelectItem value="days">Days</SelectItem>
+                </SelectContent>
+              </Select>
             </>
           )}
 
-          <select
+          <Select
             value={config.context}
-            onChange={(e) => onUpdateTimingConfig(key, 'context', e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+            onValueChange={(val) => onUpdateTimingConfig(key, 'context', val)}
           >
-            {/* Reminders can only be before or immediately */}
-            {/* Followups and Conf/Cancel can only be after or immediately */}
-            {!isConfOrCancel && !isFollowup && (
-              <option value="before_appointment">Before Appointment</option>
-            )}
-            {!isReminder && (
-              <option value="after_appointment">After Appointment</option>
-            )}
-            <option value="immediately">Immediately</option>
-          </select>
+            <SelectTrigger className="w-[200px] bg-white border-gray-300 h-[42px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Reminders can only be before or immediately */}
+              {/* Followups and Conf/Cancel can only be after or immediately */}
+              {!isConfOrCancel && !isFollowup && (
+                <SelectItem value="before_appointment">Before Appointment</SelectItem>
+              )}
+              {!isReminder && (
+                <SelectItem value="after_appointment">After Appointment</SelectItem>
+              )}
+              <SelectItem value="immediately">Immediately</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="mt-3 flex items-center gap-2 text-sm text-green-700 bg-green-50 px-3 py-2 rounded-md border border-green-100">

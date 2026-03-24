@@ -5,6 +5,13 @@ import { TIMEZONES } from '../../utils/datetime';
 import { useTimezone } from '../../context/TimezoneContext';
 import { getAuthHeaders } from '../../services/staffApi';
 import { toast } from 'sonner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5289";
 
@@ -72,24 +79,28 @@ export const SettingsPage: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                         Select Timezone
                     </label>
-                     <select
+                     <Select
                         value={selectedTimezone}
-                        onChange={(e) => setSelectedTimezone(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        onValueChange={(val) => setSelectedTimezone(val)}
                     >
-                        {TIMEZONES.map((tz) => (
-                            <option key={tz.value} value={tz.value}>
-                                {tz.label} ({tz.value})
-                            </option>
-                        ))}
-                    </select>
+                        <SelectTrigger className="w-full bg-white border-gray-300">
+                            <SelectValue placeholder="Select a timezone" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                            {TIMEZONES.map((tz) => (
+                                <SelectItem key={tz.value} value={tz.value}>
+                                    {tz.label} ({tz.value})
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
 
                 <div className="flex justify-end pt-4 border-t border-gray-100">
                     <button
                         onClick={handleSave}
                         disabled={loading}
-                        className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                        className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
                     >
                         <Save className="w-4 h-4" />
                         {loading ? 'Saving...' : 'Save Changes'}

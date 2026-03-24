@@ -325,7 +325,7 @@ export function BookingFormSettings({}: BookingFormSettingsProps) {
           ) : (
             <Save className="w-4 h-4" />
           )}
-          Save Settings
+          Save Changes
         </button>
       </div>
     </div>

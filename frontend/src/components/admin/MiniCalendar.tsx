@@ -2,6 +2,13 @@ import { useState } from 'react';
 import { ChevronLeft, ChevronRight, Clock, Globe } from 'lucide-react';
 import { useTimezone } from '../../context/TimezoneContext';
 import { getDateString } from '../../utils/datetime';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 interface CalendarProps {
   selectedDate: Date | null;
@@ -129,17 +136,21 @@ export function Calendar({
           <Globe className="w-4 h-4" />
           Timezone
         </label>
-        <select
+        <Select
           value={timezone}
-          onChange={(e) => setTimezone(e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          onValueChange={(val) => setTimezone(val)}
         >
-          {TIMEZONES.map((tz) => (
-            <option key={tz} value={tz}>
-              {tz}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full bg-white border-gray-300">
+            <SelectValue placeholder="Select timezone" />
+          </SelectTrigger>
+          <SelectContent>
+            {TIMEZONES.map((tz) => (
+              <SelectItem key={tz} value={tz}>
+                {tz}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* View Toggle */}
@@ -329,20 +340,24 @@ export function MiniCalendar({ selectedDate, onSelectDate, isUnavailable }: Mini
           </button>
         </div>
 
-        <select
-           value={currentMonth.getFullYear()}
-           onChange={(e) => {
-               const newYear = parseInt(e.target.value);
-               const newDate = new Date(currentMonth);
-               newDate.setFullYear(newYear);
-               setCurrentMonth(newDate);
-           }}
-           className="text-sm font-medium border-none bg-transparent hover:bg-gray-50 rounded cursor-pointer focus:ring-0"
+        <Select
+          value={currentMonth.getFullYear().toString()}
+          onValueChange={(val) => {
+            const newYear = parseInt(val);
+            const newDate = new Date(currentMonth);
+            newDate.setFullYear(newYear);
+            setCurrentMonth(newDate);
+          }}
         >
+          <SelectTrigger className="text-sm font-medium border-none bg-transparent hover:bg-gray-50 rounded focus:ring-0 focus:outline-none w-[80px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-[300px]">
             {Array.from({ length: 101 }, (_, i) => new Date().getFullYear() - 50 + i).map(year => (
-                <option key={year} value={year}>{year}</option>
+              <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
             ))}
-        </select>
+          </SelectContent>
+        </Select>
       </div>
 
       <div>

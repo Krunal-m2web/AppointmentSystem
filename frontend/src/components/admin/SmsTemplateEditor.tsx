@@ -299,7 +299,7 @@ export function SmsTemplateEditor({
             <button
               onClick={handleSave}
               disabled={!body || isSaving}
-              className="flex items-center gap-2 px-8 py-2.5 bg-green-600 text-white text-sm font-bold rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-100 hover:shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+              className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white font-semibold rounded-xl hover:bg-green-700 transition-all shadow-md disabled:opacity-50"
             >
               {isSaving ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

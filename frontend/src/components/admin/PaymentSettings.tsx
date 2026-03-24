@@ -272,12 +272,12 @@ export function PaymentSettings() {
           <button
             onClick={handleSave}
             disabled={loading || currencyLoading}
-            className="flex items-center gap-3 px-10 py-3.5 bg-indigo-600 text-white font-semibold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 hover:shadow-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] uppercase tracking-wider"
+            className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-md disabled:opacity-50"
           >
             {loading ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
-              <Save className="w-5 h-5" />
+              <Save className="w-4 h-4" />
             )}
             Save Changes
           </button>

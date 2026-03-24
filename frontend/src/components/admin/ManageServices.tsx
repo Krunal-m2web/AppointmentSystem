@@ -8,6 +8,13 @@ import { getToken, getCompanyIdFromToken, getRoleFromToken } from '../../utils/a
 import { getDefaultCurrency } from '../../services/settingsService';
 import { getCurrencySymbol, formatPrice } from '../../utils/currency';
 import { Skeleton } from '../ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 export function ManageServices() {
   const [services, setServices] = useState<Service[]>([]);
@@ -452,10 +459,10 @@ export function ManageServices() {
                               {/* Hours */}
                               <div className="relative flex-1">
                                 <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                                <select
-                                  value={durationHours}
-                                  onChange={e => {
-                                    const h = parseInt(e.target.value);
+                                <Select
+                                  value={durationHours.toString()}
+                                  onValueChange={val => {
+                                    const h = parseInt(val);
                                     setEditingService({ ...editingService, serviceDuration: h * 60 + durationMinutes });
                                     if (formErrors.serviceDuration) {
                                       const newErrors = { ...formErrors };
@@ -463,21 +470,27 @@ export function ManageServices() {
                                       setFormErrors(newErrors);
                                     }
                                   }}
-                                  className={`w-full pl-9 pr-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all appearance-none bg-white ${
-                                    formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
-                                  }`}
                                 >
-                                  {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(h => (
-                                    <option key={h} value={h}>{h} hr</option>
-                                  ))}
-                                </select>
+                                  <SelectTrigger
+                                    className={`w-full bg-white transition-all pl-9 ${
+                                      formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
+                                    }`}
+                                  >
+                                    <SelectValue placeholder="Hours" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {[0,1,2,3,4,5,6,7,8,9,10,11,12].map(h => (
+                                      <SelectItem key={h} value={h.toString()}>{h} hr</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               </div>
                               {/* Minutes */}
                               <div className="relative flex-1">
-                                <select
-                                  value={durationMinutes}
-                                  onChange={e => {
-                                    const m = parseInt(e.target.value);
+                                <Select
+                                  value={durationMinutes.toString()}
+                                  onValueChange={val => {
+                                    const m = parseInt(val);
                                     setEditingService({ ...editingService, serviceDuration: durationHours * 60 + m });
                                     if (formErrors.serviceDuration) {
                                       const newErrors = { ...formErrors };
@@ -485,14 +498,20 @@ export function ManageServices() {
                                       setFormErrors(newErrors);
                                     }
                                   }}
-                                  className={`w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all appearance-none bg-white ${
-                                    formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
-                                  }`}
                                 >
-                                  {[0,5,10,15,20,25,30,35,40,45,50,55].map(m => (
-                                    <option key={m} value={m}>{m} min</option>
-                                  ))}
-                                </select>
+                                  <SelectTrigger
+                                    className={`w-full bg-white transition-all ${
+                                      formErrors.serviceDuration ? 'border-red-300 bg-red-50/50' : 'border-gray-300'
+                                    }`}
+                                  >
+                                    <SelectValue placeholder="Minutes" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {[0,5,10,15,20,25,30,35,40,45,50,55].map(m => (
+                                      <SelectItem key={m} value={m.toString()}>{m} min</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               </div>
                             </div>
                             {formErrors.serviceDuration && (
@@ -508,19 +527,23 @@ export function ManageServices() {
                             </label>
                             <div className="relative">
                               <Clock className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                              <select
-                                value={editingService.bufferTimeMinutes ?? 0}
-                                onChange={e => setEditingService({...editingService, bufferTimeMinutes: parseInt(e.target.value)})}
-                                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white appearance-none"
+                              <Select
+                                value={editingService.bufferTimeMinutes?.toString() ?? "0"}
+                                onValueChange={val => setEditingService({...editingService, bufferTimeMinutes: parseInt(val)})}
                               >
-                                <option value={0}>No buffer</option>
-                                <option value={5}>5 minutes</option>
-                                <option value={10}>10 minutes</option>
-                                <option value={15}>15 minutes</option>
-                                <option value={30}>30 minutes</option>
-                                <option value={45}>45 minutes</option>
-                                <option value={60}>60 minutes</option>
-                              </select>
+                                <SelectTrigger className="w-full pl-10 pr-4 h-[42px] border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white text-gray-700">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="0">No buffer</SelectItem>
+                                  <SelectItem value="5">5 minutes</SelectItem>
+                                  <SelectItem value="10">10 minutes</SelectItem>
+                                  <SelectItem value="15">15 minutes</SelectItem>
+                                  <SelectItem value="30">30 minutes</SelectItem>
+                                  <SelectItem value="45">45 minutes</SelectItem>
+                                  <SelectItem value="60">60 minutes</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </div>
                             <p className="text-xs text-gray-500 mt-1.5">Blocks the calendar after each appointment (e.g. for cleanup or travel).</p>
                           </div>
@@ -691,18 +714,25 @@ export function ManageServices() {
                             <span className="text-sm text-gray-700">
                                 Showing <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium">{totalItems}</span> results
                             </span>
-                            <select
-                                value={itemsPerPage}
-                                onChange={(e) => {
-                                    setItemsPerPage(Number(e.target.value));
-                                    setCurrentPage(1);
+                            <div className="ml-4">
+                              <Select
+                                value={itemsPerPage.toString()}
+                                onValueChange={(val) => {
+                                  setItemsPerPage(Number(val));
+                                  setCurrentPage(1);
                                 }}
-                                className="ml-4 text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
-                            >
-                                <option value={10}>10 per page</option>
-                                <option value={20}>20 per page</option>
-                                <option value={50}>50 per page</option>
-                            </select>
+                              >
+                                <SelectTrigger className="w-[130px] bg-white border-gray-300 text-sm h-9">
+                                  <SelectValue placeholder="Items per page" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="10">10 per page</SelectItem>
+                                  <SelectItem value="20">20 per page</SelectItem>
+                                  <SelectItem value="50">50 per page</SelectItem>
+                                  <SelectItem value="100">100 per page</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
                         </div>
                         
                         <div className="flex items-center gap-2">

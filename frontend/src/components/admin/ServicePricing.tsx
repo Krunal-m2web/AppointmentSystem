@@ -11,6 +11,13 @@ import { getCompanyIdFromToken, getToken } from '../../utils/auth';
 import { getCurrencySymbol } from '../../utils/currency';
 import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 export function ServicePricing() {
   // State
@@ -344,18 +351,24 @@ export function ServicePricing() {
                         <span className="text-sm text-gray-700">
                             Showing <span className="font-medium">{totalItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-medium">{totalItems}</span> results
                         </span>
-                        <select
-                            value={itemsPerPage}
-                            onChange={(e) => {
-                                setItemsPerPage(Number(e.target.value));
-                                setCurrentPage(1);
+                        <div className="ml-4">
+                          <Select
+                            value={itemsPerPage.toString()}
+                            onValueChange={(val) => {
+                              setItemsPerPage(Number(val));
+                              setCurrentPage(1);
                             }}
-                            className="ml-4 text-sm border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
-                        >
-                            <option value={10}>10 per page</option>
-                            <option value={20}>20 per page</option>
-                            <option value={50}>50 per page</option>
-                        </select>
+                          >
+                            <SelectTrigger className="w-[130px] bg-white border-gray-300 text-sm h-9">
+                              <SelectValue placeholder="Items per page" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="10">10 per page</SelectItem>
+                              <SelectItem value="20">20 per page</SelectItem>
+                              <SelectItem value="50">50 per page</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                     </div>
                     
                     <div className="flex items-center gap-2">

@@ -868,7 +868,7 @@ export function Settings() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2.5 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 whitespace-nowrap ${
+                className={`flex items-center gap-2.5 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 whitespace-nowrap cursor-pointer ${
                   isActive
                     ? 'bg-white text-indigo-600 shadow-sm border border-gray-100'
                     : 'text-gray-500 hover:text-gray-800 hover:bg-white/40'
@@ -1041,14 +1041,14 @@ export function Settings() {
                   <button
                     onClick={handleSaveCompany}
                     disabled={isSavingCompany}
-                    className="flex items-center gap-2.5 px-8 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 hover:shadow-indigo-200 active:scale-[0.98] disabled:opacity-50"
+                    className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-all shadow-md disabled:opacity-50 cursor-pointer"
                   >
                     {isSavingCompany ? (
-                      <div className="w-4.5 h-4.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      <Save className="w-4.5 h-4.5" />
+                      <Save className="w-4 h-4" />
                     )}
-                    Save Profile
+                    Save Changes
                   </button>
                 </div>
               </div>
@@ -1065,7 +1065,7 @@ export function Settings() {
           <div className="flex border-b border-gray-200 mb-6">
             <button
               onClick={() => setNotificationsActiveTab('email')}
-              className={`px-6 py-3 text-sm font-bold transition-all relative ${
+              className={`px-6 py-3 text-sm font-bold transition-all relative cursor-pointer ${
                 notificationsActiveTab === 'email'
                   ? 'text-indigo-600'
                   : 'text-gray-500 hover:text-gray-700'
@@ -1078,7 +1078,7 @@ export function Settings() {
             </button>
             <button
               onClick={() => setNotificationsActiveTab('sms')}
-              className={`px-6 py-3 text-sm font-bold transition-all relative ${
+              className={`px-6 py-3 text-sm font-bold transition-all relative cursor-pointer ${
                 notificationsActiveTab === 'sms'
                   ? 'text-indigo-600'
                   : 'text-gray-500 hover:text-gray-700'

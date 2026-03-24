@@ -6,6 +6,13 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../ui/select";
 
 interface EmailNotificationSettingsProps {
   notificationSettings: {
@@ -119,46 +126,52 @@ export const EmailNotificationSettings: React.FC<EmailNotificationSettingsProps>
                 className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               
-              <select
+              <Select
                 value={config.unit}
-                onChange={(e) => onUpdateTimingConfig(key, 'unit', e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                onValueChange={(val) => onUpdateTimingConfig(key, 'unit', val)}
               >
-                <option value="minutes">Minutes</option>
-                <option value="hours">Hours</option>
-                <option value="days">Days</option>
-              </select>
+                <SelectTrigger className="w-[110px] bg-white border-gray-300 h-[42px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="minutes">Minutes</SelectItem>
+                  <SelectItem value="hours">Hours</SelectItem>
+                  <SelectItem value="days">Days</SelectItem>
+                </SelectContent>
+              </Select>
             </>
           )}
 
-          <select
+          <Select
             value={config.context}
-            onChange={(e) => onUpdateTimingConfig(key, 'context', e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            onValueChange={(val) => onUpdateTimingConfig(key, 'context', val)}
           >
-            {/* Reminders: only before_appointment (Immediately doesn't make sense for reminders) */}
-            {isReminder && (
-              <>
-                <option value="before_appointment">Before Appointment</option>
-              </>
-            )}
-            
-            {/* Confirmations/Cancellations: after_booking or immediately */}
-            {isConfOrCancel && (
-              <>
-                <option value="after_booking">After Booking</option>
-                <option value="immediately">Immediately</option>
-              </>
-            )}
-            
-            {/* Follow-ups: after_appointment or immediately */}
-            {isFollowup && (
-              <>
-                <option value="after_appointment">After Appointment</option>
-                <option value="immediately">Immediately</option>
-              </>
-            )}
-          </select>
+            <SelectTrigger className="w-[200px] bg-white border-gray-300 h-[42px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Reminders: only before_appointment (Immediately doesn't make sense for reminders) */}
+              {isReminder && (
+                <SelectItem value="before_appointment">Before Appointment</SelectItem>
+              )}
+              
+              {/* Confirmations/Cancellations: after_booking or immediately */}
+              {isConfOrCancel && (
+                <>
+                  <SelectItem value="after_booking">After Booking</SelectItem>
+                  <SelectItem value="immediately">Immediately</SelectItem>
+                </>
+              )}
+              
+              {/* Follow-ups: after_appointment or immediately */}
+              {isFollowup && (
+                <>
+                  <SelectItem value="after_appointment">After Appointment</SelectItem>
+                  <SelectItem value="immediately">Immediately</SelectItem>
+                </>
+              )}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="mt-3 flex items-center gap-2 text-sm text-indigo-700 bg-indigo-50 px-3 py-2 rounded-md border border-indigo-100">

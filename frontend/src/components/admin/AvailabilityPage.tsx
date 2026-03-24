@@ -1,5 +1,12 @@
 import { useState } from 'react';
 import { Clock, Plus, Trash2 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 interface TimeSlot {
   start: string;
@@ -27,6 +34,9 @@ export function AvailabilityPage() {
   const [availability, setAvailability] = useState(initialAvailability);
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [bufferTime, setBufferTime] = useState("0");
+  const [noticePeriod, setNoticePeriod] = useState("24");
+  const [bookingWindow, setBookingWindow] = useState("60");
 
   const handleSaveSchedule = () => {
     setIsSavingSchedule(true);
@@ -191,12 +201,17 @@ export function AvailabilityPage() {
             <label className="block text-sm text-gray-700 mb-2">
               Buffer Time Between Appointments
             </label>
-            <select className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="0">No buffer</option>
-              <option value="15">15 minutes</option>
-              <option value="30">30 minutes</option>
-              <option value="60">60 minutes</option>
-            </select>
+            <Select value={bufferTime} onValueChange={setBufferTime}>
+              <SelectTrigger className="w-full md:w-64 bg-white border-gray-300">
+                <SelectValue placeholder="Select buffer time" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">No buffer</SelectItem>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="60">60 minutes</SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-sm text-gray-600 mt-1">
               Time between appointments to prepare or take a break
             </p>
@@ -206,12 +221,17 @@ export function AvailabilityPage() {
             <label className="block text-sm text-gray-700 mb-2">
               Minimum Notice Period
             </label>
-            <select className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="0">Same day</option>
-              <option value="24">24 hours</option>
-              <option value="48">48 hours</option>
-              <option value="72">72 hours</option>
-            </select>
+            <Select value={noticePeriod} onValueChange={setNoticePeriod}>
+              <SelectTrigger className="w-full md:w-64 bg-white border-gray-300">
+                <SelectValue placeholder="Select notice period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">Same day</SelectItem>
+                <SelectItem value="24">24 hours</SelectItem>
+                <SelectItem value="48">48 hours</SelectItem>
+                <SelectItem value="72">72 hours</SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-sm text-gray-600 mt-1">
               How far in advance clients must book
             </p>
@@ -221,12 +241,17 @@ export function AvailabilityPage() {
             <label className="block text-sm text-gray-700 mb-2">
               Maximum Booking Window
             </label>
-            <select className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="30">30 days</option>
-              <option value="60">60 days</option>
-              <option value="90">90 days</option>
-              <option value="180">6 months</option>
-            </select>
+            <Select value={bookingWindow} onValueChange={setBookingWindow}>
+              <SelectTrigger className="w-full md:w-64 bg-white border-gray-300">
+                <SelectValue placeholder="Select booking window" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30">30 days</SelectItem>
+                <SelectItem value="60">60 days</SelectItem>
+                <SelectItem value="90">90 days</SelectItem>
+                <SelectItem value="180">6 months</SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-sm text-gray-600 mt-1">
               How far in advance clients can book
             </p>

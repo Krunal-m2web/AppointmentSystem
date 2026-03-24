@@ -184,7 +184,8 @@ export function CalendarPage() {
             ...s,
             name: `${s.firstName} ${s.lastName}`,
             color: s.avatar ? '#4f46e5' : getStaffColor(index),
-            serviceIds: s.services?.map((svc: any) => svc.serviceId) || []
+            serviceIds: s.services?.map((svc: any) => svc.serviceId) || [],
+            services: s.services?.map((svc: any) => ({ serviceId: svc.serviceId, customPrice: svc.customPrice })) || []
         }));
 
         setStaffList(mappedStaff);
@@ -634,7 +635,7 @@ export function CalendarPage() {
           <div className="flex items-center gap-2 relative">
             <button
               onClick={previousPeriod}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm cursor-pointer"
               title="Previous"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -668,7 +669,7 @@ export function CalendarPage() {
             
             <button
               onClick={nextPeriod}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm cursor-pointer"
               title="Next"
             >
               <ChevronRight className="w-5 h-5" />
@@ -679,7 +680,7 @@ export function CalendarPage() {
                 setCurrentDate(new Date());
                 setSelectedDate(new Date());
               }}
-              className="ml-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm"
+              className="ml-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200 bg-white shadow-sm cursor-pointer"
             >
               Today
             </button>
@@ -692,7 +693,7 @@ export function CalendarPage() {
               <button
                 key={mode}
                 onClick={() => setViewMode(mode.toLowerCase() as ViewMode)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-all cursor-pointer ${
                   viewMode === mode.toLowerCase()
                     ? 'bg-white text-indigo-600 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
@@ -1027,14 +1028,14 @@ export function CalendarPage() {
                     <div className="flex items-center gap-3 pt-2">
                       <button
                         onClick={() => handleEditAppointment(selectedAppointment)}
-                        className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-md hover:shadow-lg active:scale-[0.98]"
+                        className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-md hover:shadow-lg active:scale-[0.98] cursor-pointer"
                       >
                         <Edit className="w-4 h-4" />
                         Edit
                       </button>
                       <button
                         onClick={() => handleCancelAppointment(selectedAppointment.id)}
-                        className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-white text-red-600 border-2 border-red-100 rounded-xl hover:bg-red-50 hover:border-red-200 transition-all font-bold active:scale-[0.98]"
+                        className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-white text-red-600 border-2 border-red-100 rounded-xl hover:bg-red-50 hover:border-red-200 transition-all font-bold active:scale-[0.98] cursor-pointer"
                       >
                         <XCircle className="w-4 h-4" />
                         Cancel
@@ -1197,7 +1198,7 @@ function MonthView({
                             onSelectDate(date);
                             onCreateAppointment(date);
                         }}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-indigo-100 rounded transition-opacity"
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-indigo-100 rounded transition-opacity cursor-pointer"
                         title="Add Appointment"
                     >
                         <AlertCircle className="w-3 h-3 text-indigo-600" />
@@ -1313,7 +1314,7 @@ function WeekView({
           return (
             <div 
                 key={index} 
-                className="min-h-[400px] border border-gray-200 rounded-lg p-2 space-y-2 hover:bg-gray-50 transition-colors"
+                className="min-h-[400px] border border-gray-200 rounded-lg p-2 space-y-2 hover:bg-gray-50 transition-colors cursor-pointer"
                 onClick={() => {
                    onCreateAppointment(date);
                 }}
