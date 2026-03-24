@@ -218,6 +218,16 @@ export const AdminRescheduleFlow: React.FC<AdminRescheduleFlowProps> = ({
                 return;
             }
 
+            // Don't attempt to fetch slots for past dates
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const selected = new Date(selectedDate);
+            selected.setHours(0, 0, 0, 0);
+            if (selected < today) {
+                setAvailableSlots([]);
+                return;
+            }
+
             try {
                 setSlotsLoading(true);
                 const year = selectedDate.getFullYear();
@@ -253,9 +263,12 @@ export const AdminRescheduleFlow: React.FC<AdminRescheduleFlowProps> = ({
                     });
                 
                 setAvailableSlots(Array.from(new Set(formattedSlots)));
-            } catch (err) {
+            } catch (err: any) {
                 console.error("Error loading slots:", err);
-                toast.error("Failed to load available slots.");
+                const msg = err?.message && err.message !== 'Failed to fetch available slots'
+                    ? err.message
+                    : 'Could not load available slots for this date.';
+                toast.error(msg);
             } finally {
                 setSlotsLoading(false);
             }
