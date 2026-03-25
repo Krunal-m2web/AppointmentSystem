@@ -164,7 +164,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
                   <Mail className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-[15px] font-semibold text-slate-900 tracking-tight">Email Delivery Overrides</h4>
+                  <h4 className="text-[15px] font-semibold text-slate-900 tracking-tight">Turn Off Email Notifications</h4>
                   <p className="text-[13px] text-slate-500 mt-0.5 leading-snug">Functions as a master kill-switch for all automated system email notifications</p>
                 </div>
               </div>

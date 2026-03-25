@@ -37,45 +37,36 @@ namespace Appointmentbookingsystem.Backend.Services
 
             if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(domain) || string.IsNullOrEmpty(apiKey))
             {
-                // Fallback to database logging only if configuration is missing, or throw? 
-                // For now, let's just log sending failure to console and proceed to DB log
+                throw new InvalidOperationException("Mailgun configuration is missing in appsettings.json. Please check BaseUrl, Domain, and ApiKey.");
             }
             else
             {
-                try 
+                var client = _httpClientFactory.CreateClient();
+                client.BaseAddress = new Uri(baseUrl);
+                
+                var authToken = Convert.ToBase64String(Encoding.ASCII.GetBytes($"api:{apiKey}"));
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", authToken);
+
+                var formContent = new List<KeyValuePair<string, string>>
                 {
-                    var client = _httpClientFactory.CreateClient();
-                    client.BaseAddress = new Uri(baseUrl);
-                    
-                    var authToken = Convert.ToBase64String(Encoding.ASCII.GetBytes($"api:{apiKey}"));
-                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", authToken);
+                    new KeyValuePair<string, string>("from", string.IsNullOrEmpty(fromName) ? fromEmail : $"{fromName} <{fromEmail}>"),
+                    new KeyValuePair<string, string>("to", to),
+                    new KeyValuePair<string, string>("subject", subject),
+                    new KeyValuePair<string, string>("html", body), // Using HTML body
+                    new KeyValuePair<string, string>("o:tracking", "no") // Disable link tracking for localhost links
+                };
 
-                    var formContent = new List<KeyValuePair<string, string>>
-                    {
-                        new KeyValuePair<string, string>("from", string.IsNullOrEmpty(fromName) ? fromEmail : $"{fromName} <{fromEmail}>"),
-                        new KeyValuePair<string, string>("to", to),
-                        new KeyValuePair<string, string>("subject", subject),
-                        new KeyValuePair<string, string>("html", body), // Using HTML body
-                        new KeyValuePair<string, string>("o:tracking", "no") // Disable link tracking for localhost links
-                    };
-
-                    if (!string.IsNullOrEmpty(replyTo))
-                    {
-                         formContent.Add(new KeyValuePair<string, string>("h:Reply-To", replyTo));
-                    }
-
-                    var response = await client.PostAsync($"{domain}/messages", new FormUrlEncodedContent(formContent));
-
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        var errorContent = await response.Content.ReadAsStringAsync();
-                    }
-                    else 
-                    {
-                    }
+                if (!string.IsNullOrEmpty(replyTo))
+                {
+                     formContent.Add(new KeyValuePair<string, string>("h:Reply-To", replyTo));
                 }
-                catch (Exception ex)
+
+                var response = await client.PostAsync($"{domain}/messages", new FormUrlEncodedContent(formContent));
+
+                if (!response.IsSuccessStatusCode)
                 {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    throw new Exception($"Mailgun API error ({response.StatusCode}): {errorContent}");
                 }
             }
 
