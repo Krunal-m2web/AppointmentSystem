@@ -242,3 +242,32 @@ input::-ms-clear {
 .animate-fadeIn {
   animation: fadeIn 0.4s ease-out;
 }
+
+/* Sonner toast close button - force top-right corner */
+[data-sonner-toast] [data-close-button] {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  left: auto !important;
+  transform: none !important;
+  color: #374151 !important;
+  opacity: 1 !important;
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  border: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  background: rgba(0, 0, 0, 0.08) !important;
+  color: #111827 !important;
+}
+
+[data-sonner-toast] [data-close-button] svg {
+  width: 14px !important;
+  height: 14px !important;
+}

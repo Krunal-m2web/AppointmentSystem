@@ -945,6 +945,12 @@ export function AppointmentsPage() {
               <div className="relative flex-1 lg:flex-none">
                 <Select
                   value={dateRangeFilter}
+                  onOpenChange={(open) => {
+                    // When dropdown closes and custom is already selected, reopen the date picker
+                    if (!open && dateRangeFilter === 'custom') {
+                      setShowCustomDatePicker(true);
+                    }
+                  }}
                   onValueChange={(val) => {
                     setDateRangeFilter(val);
                     if (val === 'custom') {
@@ -999,6 +1005,8 @@ export function AppointmentsPage() {
                           onClick={() => {
                             setDateRangeFilter('upcoming');
                             setShowCustomDatePicker(false);
+                            setCustomStartDate('');
+                            setCustomEndDate('');
                           }}
                           className="flex-1 px-3 py-2 text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 text-xs font-semibold cursor-pointer"
                         >

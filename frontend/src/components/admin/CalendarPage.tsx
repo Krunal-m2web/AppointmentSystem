@@ -710,7 +710,7 @@ export function CalendarPage() {
             <button
               onClick={handleSync}
               disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all shadow-sm disabled:opacity-50"
+              className="flex items-center justify-center gap-2 px-4 h-[42px] bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all shadow-sm disabled:opacity-50 whitespace-nowrap flex-shrink-0"
             >
               {syncing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
