@@ -576,7 +576,9 @@ export function CalendarPage() {
             setAppointments(prev => prev.map(a => a.id === cancelAppointmentId ? { ...a, status: 'cancelled' } : a));
             setShowDetailModal(false);
             setSelectedAppointment(null);
-            toast.success("Appointment cancelled successfully");
+            toast.error("Appointment cancelled successfully", {
+                icon: '❌'
+            });
         }
     } catch(err) {
         console.error(err);

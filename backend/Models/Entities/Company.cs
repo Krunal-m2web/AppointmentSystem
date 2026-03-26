@@ -66,7 +66,7 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         public string? EnabledMeetingLocations { get; set; } // JSON array of enabled meeting locations
 
         // Time Off Settings
-        public bool RequireTimeOffApproval { get; set; } = true; // When true, staff time off needs admin approval
+        public bool RequireTimeOffApproval { get; set; } = false; // When true, staff time off needs admin approval
 
         // Rescheduling & Cancellation Settings
         public bool AllowCustomerRescheduling { get; set; } = true;

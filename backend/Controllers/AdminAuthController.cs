@@ -230,8 +230,10 @@ namespace Appointmentbookingsystem.Backend.Controllers
             var verification = await _context.EmailVerifications
                 .FirstOrDefaultAsync(ev => ev.Email == normalizedEmail && !ev.IsUsed);
 
-            // Generate new 6-digit OTP
-            var otp = new Random().Next(100000, 999999).ToString();
+            // Generate new 6-digit OTP using a cryptographically secure generator
+            var bytes = new byte[4];
+            System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+            var otp = (Math.Abs(System.BitConverter.ToInt32(bytes, 0)) % 900000 + 100000).ToString();
 
             if (verification != null)
             {
@@ -389,6 +391,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
         /// Call this if you get "PK" violation errors
         /// </summary>
         [HttpPost("maintenance/fix-sequences")]
+        [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin")]
         public async Task<IActionResult> FixSequences()
         {
             try 

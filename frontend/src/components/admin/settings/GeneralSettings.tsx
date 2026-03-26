@@ -187,7 +187,7 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h4 className="text-[15px] font-semibold text-slate-900 tracking-tight">SMS Delivery Overrides</h4>
+                    <h4 className="text-[15px] font-semibold text-slate-900 tracking-tight">Turn Off SMS Notifications</h4>
                     <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded uppercase tracking-wider">
                       Coming Soon
                     </span>
@@ -213,15 +213,15 @@ export const GeneralSettings: React.FC<GeneralSettingsProps> = ({
                   <User className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-[15px] font-semibold text-slate-900 tracking-tight">Strict Time-Off Approvals</h4>
-                  <p className="text-[13px] text-slate-500 mt-0.5 leading-snug">When disabled, any submitted staff absence requests bypass management and are automatically approved</p>
+                  <h4 className="text-[15px] font-semibold text-slate-900 tracking-tight">Auto-Approve Time-Off Requests</h4>
+                  <p className="text-[13px] text-slate-500 mt-0.5 leading-snug">When enabled, any submitted staff absence requests are automatically approved without management review</p>
                 </div>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={requireTimeOffApproval}
-                  onChange={(e) => setRequireTimeOffApproval(e.target.checked)}
+                  checked={!requireTimeOffApproval}
+                  onChange={(e) => setRequireTimeOffApproval(!e.target.checked)}
                   className="sr-only peer"
                 />
                 <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-[20px] peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-[20px] after:w-[20px] after:transition-all peer-checked:bg-indigo-600 shadow-inner"></div>

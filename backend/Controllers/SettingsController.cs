@@ -575,7 +575,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
     public class TimeOffSettingsDto
     {
-        public bool RequireTimeOffApproval { get; set; } = true;
+        public bool RequireTimeOffApproval { get; set; } = false;
     }
 
     public class SendTestEmailDto

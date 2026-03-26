@@ -3,6 +3,7 @@ using System;
 using Appointmentbookingsystem.Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260325054523_UpdateRequireTimeOffApprovalDefault")]
+    partial class UpdateRequireTimeOffApprovalDefault
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1018,9 +1021,6 @@ namespace Backend.Migrations
                         .HasColumnType("int");
 
                     b.Property<int?>("ApprovedByAdminId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("ConflictCount")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")

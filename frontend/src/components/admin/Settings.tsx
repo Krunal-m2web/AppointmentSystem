@@ -52,6 +52,7 @@ export function Settings() {
   // Company Profile State
   const [companyName, setCompanyName] = useState('My Business');
   const [companyLogo, setCompanyLogo] = useState('');
+  const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null);
   const [businessEmail, setBusinessEmail] = useState('info@mybusiness.com');
   const [businessPhone, setBusinessPhone] = useState('');
   const [companyAddress, setCompanyAddress] = useState('');
@@ -431,12 +432,21 @@ export function Settings() {
   const handleSaveCompany = async () => {
     setIsSavingCompany(true);
     try {
+      // If user selected a new logo file, upload it now (on Save, not on select)
+      let finalLogoUrl = companyLogo.replace(API_BASE_URL, '');
+      if (pendingLogoFile) {
+        const res = await uploadCompanyLogo(pendingLogoFile);
+        finalLogoUrl = res.logoUrl;
+        setCompanyLogo(`${API_BASE_URL}${res.logoUrl}`);
+        setPendingLogoFile(null);
+      }
+
       await updateMyCompany({
         companyName,
         email: businessEmail,
         phone: businessPhone,
         address: companyAddress,
-        logoUrl: companyLogo.replace(API_BASE_URL, ''),
+        logoUrl: finalLogoUrl,
       });
 
       // Also save timezone
@@ -451,12 +461,6 @@ export function Settings() {
         }
       }
 
-      // Update state with prefixed URL to ensure consistency
-      if (companyLogo && !companyLogo.startsWith('http')) {
-        const logoPath = companyLogo.startsWith('/') ? companyLogo : `/${companyLogo}`;
-        setCompanyLogo(`${API_BASE_URL}${logoPath}`);
-      }
-
       toast.success("Company profile saved successfully!");
     } catch (err) {
       console.error(err);
@@ -466,17 +470,14 @@ export function Settings() {
     }
   };
 
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    try {
-      const res = await uploadCompanyLogo(file);
-      setCompanyLogo(`${API_BASE_URL}${res.logoUrl}`);
-    } catch (err) {
-      console.error(err);
-      toast.error("Logo upload failed");
-    }
+    // Store file in state — actual upload happens when Save is clicked
+    setPendingLogoFile(file);
+    // Show a local preview immediately without hitting the server
+    const previewUrl = URL.createObjectURL(file);
+    setCompanyLogo(previewUrl);
   };
 
   const saveAllNotifications = async (updatedEmailSettings?: any, updatedSmsSettings?: any) => {
@@ -672,7 +673,9 @@ export function Settings() {
 
     try {
         await saveAllNotifications(newSettings);
-        toast.success('Notification removed');
+        toast.error('Notification removed', {
+          icon: '❌'
+        });
     } catch (e) {
         console.error(e);
         toast.error('Failed to remove notification');
@@ -818,7 +821,9 @@ export function Settings() {
     
     try {
       await saveAllNotifications(undefined, newSettings);
-      toast.success('SMS notification removed');
+      toast.error('SMS notification removed', {
+        icon: '❌'
+      });
     } catch (e) {
       toast.error('Failed to remove SMS notification');
     }
@@ -850,7 +855,7 @@ export function Settings() {
     { id: 'company' as SettingsTab, label: 'Company Profile', icon: Building },
     { id: 'notifications' as SettingsTab, label: 'Notifications', icon: Bell },
     { id: 'payment' as SettingsTab, label: 'Payment Settings', icon: DollarSign },
-    { id: 'locations' as SettingsTab, label: 'Meeting Locations', icon: MapPin },
+    { id: 'locations' as SettingsTab, label: 'Meeting Type', icon: MapPin },
     { id: 'bookingForm' as SettingsTab, label: 'Booking Form', icon: Palette },
   ];
 

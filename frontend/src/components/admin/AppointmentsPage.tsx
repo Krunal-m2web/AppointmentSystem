@@ -562,7 +562,9 @@ export function AppointmentsPage() {
         await handleStatusUpdate(cancelAppointmentId, 'Cancelled', cancelReason);
         setCancelAppointmentId(null);
         setCancelReason('');
-        toast.success("Appointment cancelled successfully");
+        toast.error("Appointment cancelled successfully", {
+          icon: '❌'
+        });
       } finally {
         setIsCancelling(false);
       }

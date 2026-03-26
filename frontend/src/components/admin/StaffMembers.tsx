@@ -548,7 +548,9 @@ const hasUnsavedChanges = () => {
 
         try {
             await deleteStaff(editedStaff.id);
-            toast.success("Staff member removed successfully.");
+            toast.error("Staff member removed successfully.", {
+                icon: '❌'
+            });
             
             // Refresh list
             const refreshed = await fetchStaff();
@@ -699,7 +701,9 @@ const hasUnsavedChanges = () => {
                  const updated = await fetchTimeOff(editedStaff.id);
                  setTimeOffs(updated);
              }
-             toast.success("Time Off removed successfully");
+             toast.error("Time Off removed successfully", {
+                 icon: '❌'
+             });
         } catch (e: any) {
             toast.error(e.message);
         } finally {

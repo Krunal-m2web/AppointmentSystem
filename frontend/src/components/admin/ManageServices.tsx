@@ -253,7 +253,9 @@ export function ManageServices() {
     if (!deleteServiceId) return;
     try {
       await deleteService(deleteServiceId);
-      toast.success('Service deleted successfully');
+      toast.error('Service deleted successfully', {
+        icon: '❌'
+      });
       loadServices();
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete service. It may be in use.');
@@ -268,7 +270,9 @@ export function ManageServices() {
     try {
       setIsBulkDeleting(true);
       await bulkDeleteServices(selectedServices);
-      toast.success(`${selectedServices.length} services deleted successfully`);
+      toast.error(`${selectedServices.length} services deleted successfully`, {
+        icon: '❌'
+      });
       setSelectedServices([]);
       loadServices();
     } catch (err: any) {

@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { cn } from '../ui/utils';
-import { Calendar, Clock, User, TrendingUp, CreditCard, Filter, ChevronDown, ExternalLink, Loader2, RefreshCw, ChevronLeft, ChevronRight, CalendarDays, Download, Printer } from 'lucide-react';
+import { Calendar, Clock, User, TrendingUp, CreditCard, Filter, ChevronDown, ExternalLink, Loader2, RefreshCw, ChevronLeft, ChevronRight, CalendarDays, Download, Printer, AlertTriangle } from 'lucide-react';
 import { AnalyticsChart } from './AnalyticsChart';
 import { MiniCalendar } from './MiniCalendar';
 import { getToken, getCompanyIdFromToken, getRoleFromToken, getUserIdFromToken, getUserNameFromToken } from '../../utils/auth';
 import { AppointmentResponse, getAppointments } from '../../services/appointmentApi';
-import { fetchStaff } from '../../services/staffApi';
+import { fetchStaff, TimeOff, fetchPendingTimeOffs } from '../../services/staffApi';
 import { fetchServices } from '../../services/serviceApi';
 import { getMyCompany } from '../../services/CompanyService';
 import { useTimezone } from '../../context/TimezoneContext';
-import { formatTime as centralFormatTime, getDateString, combineDateTimeToUTC } from '../../utils/datetime';
+import { formatDate, formatTime as centralFormatTime, getDateString, combineDateTimeToUTC } from '../../utils/datetime';
 import { toast } from 'sonner';
 import { Skeleton } from '../ui/skeleton';
 import { CardSkeleton, ChartSkeleton } from '../ui/CardSkeleton';
@@ -97,6 +97,7 @@ export function DashboardHome() {
   const [fullStaffList, setFullStaffList] = useState<Staff[]>([]);
   const [servicesList, setServicesList] = useState<ServiceOption[]>([]);
   const [defaultCurrency, setDefaultCurrency] = useState('');
+  const [needsAttentionTimeOffs, setNeedsAttentionTimeOffs] = useState<TimeOff[]>([]);
   const userName = getToken() ? getUserNameFromToken(getToken()!) : 'Admin';
 
   const toggleStaff = (staffId: number) => {
@@ -610,6 +611,13 @@ export function DashboardHome() {
           const filteredUpcoming = filterAppointments(upcomingRes.appointments).slice(0, 5);
           setUpcomingAppointments(filteredUpcoming);
 
+          // Fetch NeedsAttention time-offs for alerts
+          const role = getRoleFromToken(token);
+          if (role === 'Admin') {
+            const pending = await fetchPendingTimeOffs();
+            setNeedsAttentionTimeOffs(pending.filter(t => t.status === 'NeedsAttention'));
+          }
+
       } catch (err) {
           console.error("Global stats fetch error:", err);
       }
@@ -730,6 +738,54 @@ export function DashboardHome() {
             </div> */}
         </div>
       </div>
+
+      {/* Critical Alerts for Admin */}
+      {needsAttentionTimeOffs.length > 0 && (
+        <div className="mb-6 animate-in slide-in-from-top-4 duration-500">
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 md:p-5 shadow-sm">
+            <div className="flex items-start gap-4">
+              <div className="bg-orange-100 p-2.5 rounded-xl flex-shrink-0 mt-0.5 shadow-sm border border-orange-200">
+                <AlertTriangle className="w-5 h-5 text-orange-600" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-sm font-bold text-orange-900 uppercase tracking-tight">Critical Time-Off Conflicts</h3>
+                  <span className="bg-orange-200 text-orange-900 text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest">Action Required</span>
+                </div>
+                <p className="text-sm text-orange-800 mb-3 opacity-90">
+                  {needsAttentionTimeOffs.length} staff member{needsAttentionTimeOffs.length !== 1 ? 's have' : ' has'} requested time off that overlaps with existing appointments.
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {needsAttentionTimeOffs.slice(0, 4).map((alert) => (
+                    <a
+                      key={alert.id}
+                      href="/admin/time-off"
+                      className="group flex flex-col p-3 bg-white/60 hover:bg-white border border-orange-200/50 hover:border-orange-300 rounded-xl transition-all shadow-sm active:scale-[0.98]"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-orange-950">{alert.staffName}</span>
+                        <span className="flex items-center gap-1 text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full uppercase">
+                           Conflicts ({alert.conflictCount || 0})
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-orange-800/80 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                        {formatDate(alert.startDateTimeUtc, timezone)} • {alert.isFullDay ? 'Full Day' : 'Partial'}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+                {needsAttentionTimeOffs.length > 4 && (
+                  <div className="mt-3 flex justify-end">
+                    <a href="/admin/time-off" className="text-xs font-bold text-orange-700 hover:text-orange-900 underline underline-offset-4 decoration-orange-300 transition-colors">
+                      View all alerts ({needsAttentionTimeOffs.length}) →
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
@@ -999,7 +1055,7 @@ export function DashboardHome() {
               </div>
           </div>
           <div className="overflow-x-auto custom-scrollbar mt-4">
-              <table className="w-full text-sm min-w-[800px]">
+              <table id="dashboard-stats-table" className="w-full text-sm min-w-[800px]">
                   <thead className="bg-gray-100 text-gray-700 font-semibold border-b-2 border-gray-200">
                       <tr>
                           <th className="px-4 py-3 border-r border-gray-200" rowSpan={2}>Employee</th>

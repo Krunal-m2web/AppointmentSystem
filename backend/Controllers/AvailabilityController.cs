@@ -1,6 +1,7 @@
 using Appointmentbookingsystem.Backend.Data;
 using Appointmentbookingsystem.Backend.DTOs.Availability;
 using Appointmentbookingsystem.Backend.Models.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,16 +9,19 @@ namespace Appointmentbookingsystem.Backend.Controllers
 {
     [Route("api/availability")]
     [ApiController]
+    [Authorize(Roles = "Admin,Staff")] // Schedule management requires authentication
     public class AvailabilityController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly ILogger<AvailabilityController> _logger;
 
         // Private record to hold slot information internally
         private record BookedSlot(DateTime Start, DateTime End);
 
-        public AvailabilityController(AppDbContext context)
+        public AvailabilityController(AppDbContext context, ILogger<AvailabilityController> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         // ===== WEEKLY SCHEDULE MANAGEMENT ENDPOINTS =====
@@ -274,6 +278,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
         /// Returns available time slots for a specific staff member, service, and date
         /// </summary>
         [HttpGet("slots")]
+        [AllowAnonymous] // Public: booking form reads available slots without being logged in
         public async Task<ActionResult<List<TimeSlotDto>>> GetAvailableSlots(
             [FromQuery] int staffId,
             [FromQuery] int serviceId,
@@ -464,6 +469,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
         /// Refactored for high performance with bulk queries.
         /// </summary>
         [HttpGet("service/{serviceId}/slots")]
+        [AllowAnonymous] // Public: booking form reads available slots without being logged in
         public async Task<ActionResult<List<TimeSlotDto>>> GetAnyStaffSlots(
             int serviceId,
             [FromQuery] DateTime date,
@@ -641,8 +647,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             }
             catch (Exception ex)
             {
-                // Log detailed error to console
-                
+                _logger.LogError(ex, "Failed to fetch availability");
                 return StatusCode(500, "An error occurred while fetching availability. Please check server logs.");
             }
         }

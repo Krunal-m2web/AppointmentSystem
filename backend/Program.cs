@@ -10,10 +10,13 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 var builder = WebApplication.CreateBuilder(args);
 
 // DbContext
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+// Use a generic Hardcoded version to prevent connection pooling limits breaking the app on startup
+var serverVersion = ServerVersion.Parse("8.0.30-mysql");
+
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+    options.UseMySql(connectionString, serverVersion);
 });
 
 builder.Services.AddControllers()

@@ -195,7 +195,9 @@ export function CustomersPage() {
     if (!deleteCustomerId) return;
     try {
       await deleteCustomer(deleteCustomerId);
-      toast.success('Customer deleted successfully');
+      toast.error('Customer deleted successfully', {
+        icon: '❌'
+      });
       loadCustomers();
       setSelectedCustomers(selectedCustomers.filter((cId) => cId !== deleteCustomerId));
     } catch (err: any) {
@@ -214,7 +216,9 @@ export function CustomersPage() {
     try {
       setIsBulkDeleting(true);
       await bulkDeleteCustomers(selectedCustomers);
-      toast.success(`${selectedCustomers.length} customers deleted successfully`);
+      toast.error(`${selectedCustomers.length} customers deleted successfully`, {
+        icon: '❌'
+      });
       setSelectedCustomers([]);
       loadCustomers();
     } catch (err: any) {

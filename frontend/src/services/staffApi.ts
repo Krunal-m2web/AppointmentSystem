@@ -14,6 +14,7 @@ export interface TimeOff {
   approvedByAdminName?: string;
   createdAt: string;
   hasConflicts?: boolean;
+  conflictCount?: number;
 }
 
 const API_BASE_URL =
@@ -69,9 +70,12 @@ export async function fetchStaff(companyId?: number): Promise<Staff[]> {
     ? `${API_BASE_URL}/api/staff?companyId=${tid}`
     : `${API_BASE_URL}/api/staff`;
 
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) throw new Error("Failed to fetch staff");
   return response.json();
+
 }
 
 export async function createStaff(data: {
@@ -104,11 +108,28 @@ export async function createStaff(data: {
 }
 
 export async function updateStaff(staff: Staff): Promise<Staff> {
-  const password =
-    typeof (staff as any).password === "string" &&
-    (staff as any).password.trim().length >= 6
+  const rawPassword =
+    typeof (staff as any).password === "string"
       ? (staff as any).password.trim()
-      : undefined;
+      : "";
+
+  let password: string | undefined;
+  if (rawPassword.length > 0) {
+    // Mirror backend PasswordValidator rules so the user gets feedback before hitting the API
+    if (rawPassword.length < 8)
+      throw new Error("Password must be at least 8 characters long.");
+    if (rawPassword.includes(" "))
+      throw new Error("Password cannot contain spaces.");
+    if (!/[A-Z]/.test(rawPassword))
+      throw new Error("Password must contain at least one uppercase letter.");
+    if (!/[a-z]/.test(rawPassword))
+      throw new Error("Password must contain at least one lowercase letter.");
+    if (!/[0-9]/.test(rawPassword))
+      throw new Error("Password must contain at least one number.");
+    if (!/[!@#$%^&*(),.?"':{}|<>]/.test(rawPassword))
+      throw new Error("Password must contain at least one special character.");
+    password = rawPassword;
+  }
 
   const payload = {
     firstName: staff.firstName,

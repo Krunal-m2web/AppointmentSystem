@@ -63,7 +63,9 @@ export default function GoogleCalendarSettings() {
 
     try {
       await googleCalendarApi.disconnect();
-      toast.success('Disconnected successfully');
+      toast.error('Disconnected successfully', {
+        icon: '❌'
+      });
       loadStatus();
     } catch (error) {
       console.error('Error disconnecting:', error);

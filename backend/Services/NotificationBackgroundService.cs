@@ -15,12 +15,14 @@ namespace Appointmentbookingsystem.Backend.Services
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
+        private readonly Microsoft.Extensions.Logging.ILogger<NotificationBackgroundService> _logger;
         private readonly TimeSpan _checkInterval = TimeSpan.FromSeconds(30);
 
-        public NotificationBackgroundService(IServiceProvider serviceProvider, Microsoft.Extensions.Configuration.IConfiguration configuration)
+        public NotificationBackgroundService(IServiceProvider serviceProvider, Microsoft.Extensions.Configuration.IConfiguration configuration, Microsoft.Extensions.Logging.ILogger<NotificationBackgroundService> logger)
         {
             _serviceProvider = serviceProvider;
             _configuration = configuration;
+            _logger = logger;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -33,6 +35,7 @@ namespace Appointmentbookingsystem.Backend.Services
                 }
                 catch (Exception ex)
                 {
+                    _logger.LogError(ex, "Error occurred executing notification background check.");
                 }
 
                 await Task.Delay(_checkInterval, stoppingToken);
@@ -173,9 +176,9 @@ namespace Appointmentbookingsystem.Backend.Services
 
                 var eligibleAppointments = await query.ToListAsync();
                 if (eligibleAppointments.Count > 0)
-
-                foreach (var appt in eligibleAppointments)
                 {
+                    foreach (var appt in eligibleAppointments)
+                    {
                     var alreadySent = await context.EmailLogs.AnyAsync(l => 
                         l.AppointmentId == appt.Id && l.NotificationConfigId == config.Id);
 
@@ -211,11 +214,13 @@ namespace Appointmentbookingsystem.Backend.Services
                         }
                         catch (Exception ex)
                         {
+                            _logger.LogError(ex, "Failed to send notification email (AppointmentId={AppointmentId}, ConfigId={ConfigId})", appt.Id, config.Id);
                         }
                     }
                     else
                     {
                     }
+                }
                 }
             }
 

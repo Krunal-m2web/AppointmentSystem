@@ -42,7 +42,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             var claim = User.FindFirst("companyId");
             if (claim != null && int.TryParse(claim.Value, out int id))
                 return id;
-            return 0; // Should handle this appropriately, maybe throw exception if strict
+            throw new UnauthorizedAccessException("Company context missing from token.");
         }
 
         // POST /api/timeoff - Create time off request/entry
@@ -71,7 +71,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 return Forbid(); // Staff can only create time-off for themselves
             }
 
-            // Check for overlaps
+            // Check for overlapping TIME-OFF blocks
             var hasOverlap = await _context.TimeOffs
                 .AnyAsync(t => t.StaffId == dto.StaffId &&
                                t.Status != TimeOffStatus.Rejected &&
@@ -80,25 +80,42 @@ namespace Appointmentbookingsystem.Backend.Controllers
             
             if (hasOverlap)
             {
-                return BadRequest("You have one or more appointments booked on these dates. Please resolve them before adding time off.");
+                return BadRequest("This staff member already has a time-off block covering these dates.");
             }
+
+            // Count appointment conflicts in this time range
+            var conflictCount = await _context.Appointments
+                .CountAsync(a => a.StaffId == dto.StaffId &&
+                                 a.Status != AppointmentStatus.Cancelled &&
+                                 a.StartDateTimeUtc < dto.EndDateTimeUtc &&
+                                 a.EndDateTimeUtc > dto.StartDateTimeUtc);
 
             // Get company settings for approval requirement
             var company = await _context.Companies.FindAsync(staff.CompanyId);
 
-            // Determine status based on who creates it and company settings
+            // Determine status based on who creates it, company settings, and conflicts
             TimeOffStatus status;
             int? approvedByAdminId = null;
             
             if (userRole == "Admin")
             {
+                // Admin-created: always approved regardless of conflicts
                 status = TimeOffStatus.Approved;
                 approvedByAdminId = userId;
             }
             else if (company != null && !company.RequireTimeOffApproval)
             {
-                // Auto-approve if company doesn't require approval
-                status = TimeOffStatus.Approved;
+                // Auto-approve is ON
+                if (conflictCount > 0)
+                {
+                    // Conflicts exist — flag for admin attention instead of silently approving
+                    status = TimeOffStatus.NeedsAttention;
+                }
+                else
+                {
+                    // No conflicts — auto-approve silently
+                    status = TimeOffStatus.Approved;
+                }
             }
             else
             {
@@ -107,6 +124,9 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             // Determine if created by self (for Viewed flags)
             bool isSelf = userId.HasValue && userId.Value == dto.StaffId;
+
+            // Admin badge: don't mark as viewed if NeedsAttention (they need to see it)
+            bool isViewedByAdmin = userRole == "Admin" || status == TimeOffStatus.Approved;
 
             // Create Entity
             var timeOff = new TimeOff
@@ -117,11 +137,12 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Reason = dto.Reason,
                 IsFullDay = dto.IsFullDay,
                 Status = status,
+                ConflictCount = conflictCount,
                 ApprovedByAdminId = approvedByAdminId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 IsViewedByStaff = isSelf,
-                IsViewedByAdmin = userRole == "Admin"
+                IsViewedByAdmin = isViewedByAdmin
             };
 
             _context.TimeOffs.Add(timeOff);
@@ -139,7 +160,6 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
         // GET /api/timeoff/staff/{staffId} - Get time-offs for specific staff
         [HttpGet("staff/{staffId}")]
-        [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<TimeOffResponseDto>>> GetTimeOffByStaff(int staffId)
         {
             // Authorization: Staff can only view their own
@@ -188,7 +208,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             return Ok(await MapListToDtoAsync(list));
         }
 
-        // GET /api/timeoff/pending - Get pending requests (Admin only)
+        // GET /api/timeoff/pending - Get pending + needs-attention requests (Admin only)
         [HttpGet("pending")]
         [Authorize(Roles = "Admin")]
         public async Task<ActionResult<IEnumerable<TimeOffResponseDto>>> GetPendingTimeOffs()
@@ -198,14 +218,14 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             var list = await _context.TimeOffs
                 .Include(t => t.Staff)
-                .Where(t => t.Status == TimeOffStatus.Pending && t.Staff.CompanyId == companyId)
+                .Where(t => (t.Status == TimeOffStatus.Pending || t.Status == TimeOffStatus.NeedsAttention) && t.Staff.CompanyId == companyId)
                 .OrderByDescending(t => t.CreatedAt) // Newest first
                 .ToListAsync();
 
             return Ok(await MapListToDtoAsync(list));
         }
 
-        // GET /api/timeoff/pending/count - Get count of pending requests (Admin only)
+        // GET /api/timeoff/pending/count - Get count of actionable requests (Admin only)
         [HttpGet("pending/count")]
         [Authorize(Roles = "Admin")]
         public async Task<ActionResult<int>> GetPendingTimeOffCount()
@@ -214,7 +234,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (companyId == 0) return Forbid();
 
             var count = await _context.TimeOffs
-                .CountAsync(t => t.Status == TimeOffStatus.Pending && t.Staff.CompanyId == companyId);
+                .CountAsync(t => (t.Status == TimeOffStatus.Pending || t.Status == TimeOffStatus.NeedsAttention) && t.Staff.CompanyId == companyId);
 
             return Ok(count);
         }
@@ -236,8 +256,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (timeOff.Staff.CompanyId != companyId && companyId != 0)
                 return Forbid();
 
-            if (timeOff.Status != TimeOffStatus.Pending)
-                return BadRequest("Only pending requests can be approved.");
+            if (timeOff.Status != TimeOffStatus.Pending && timeOff.Status != TimeOffStatus.NeedsAttention)
+                return BadRequest("Only pending or needs-attention requests can be approved.");
 
             var userId = GetCurrentUserId();
             
@@ -268,8 +288,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (timeOff.Staff.CompanyId != companyId && companyId != 0)
                 return Forbid();
 
-            if (timeOff.Status != TimeOffStatus.Pending)
-                return BadRequest("Only pending requests can be rejected.");
+            if (timeOff.Status != TimeOffStatus.Pending && timeOff.Status != TimeOffStatus.NeedsAttention)
+                return BadRequest("Only pending or needs-attention requests can be rejected.");
 
             var userId = GetCurrentUserId();
             
@@ -508,7 +528,8 @@ namespace Appointmentbookingsystem.Backend.Controllers
                 Status = timeOff.Status.ToString(),
                 ApprovedByAdminId = timeOff.ApprovedByAdminId,
                 ApprovedByAdminName = timeOff.ApprovedByAdmin != null ? $"{timeOff.ApprovedByAdmin.FirstName} {timeOff.ApprovedByAdmin.LastName}" : null,
-                CreatedAt = timeOff.CreatedAt
+                CreatedAt = timeOff.CreatedAt,
+                ConflictCount = timeOff.ConflictCount
             };
         }
 

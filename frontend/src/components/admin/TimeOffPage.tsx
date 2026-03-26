@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Clock, Check, X, Plus, Search, Loader2, Calendar, User, AlertCircle, ChevronDown, Filter, Trash2, AlertTriangle } from 'lucide-react';
 import { HolidaysPage } from './HolidaysPage';
 import { 
@@ -65,6 +65,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<TimeOff | null>(null);
+  const [visibleCount, setVisibleCount] = useState(10);
   
   // Filters
   const [staffFilter, setStaffFilter] = useState<string>('all');
@@ -141,6 +142,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
 
   useEffect(() => {
     fetchData();
+    setVisibleCount(10); // Reset pagination on tab change
   }, [activeTab, isAdmin, userId]);
 
   // Load staff list for add modal (only if admin)
@@ -172,7 +174,9 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
   const handleReject = async (id: number) => {
     try {
       await rejectTimeOff(id);
-      toast.success('Time off rejected');
+      toast.error('Time off rejected', {
+        icon: '❌'
+      });
       fetchData();
       refreshBadgeCount();
     } catch (err) {
@@ -193,7 +197,9 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
     if (!deleteConfirm) return;
     try {
       await deleteTimeOff(deleteConfirm.id);
-      toast.success('Time off deleted successfully');
+      toast.error('Time off deleted successfully', {
+        icon: '❌'
+      });
       fetchData();
       refreshBadgeCount();
     } catch (err) {
@@ -254,16 +260,25 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
     return true;
   });
 
-  // Status badge
+  // Status badge - NeedsAttention shows as "Pending" to staff (awaiting admin review)
   const StatusBadge = ({ status }: { status: string }) => {
-    const colors = {
+    // Staff members see NeedsAttention as "Pending" since they're waiting for admin action
+    const effectiveStatus = (!isAdmin && status === 'NeedsAttention') ? 'Pending' : status;
+
+    const colors: Record<string, string> = {
       Pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
       Approved: 'bg-green-100 text-green-800 border-green-200',
-      Rejected: 'bg-red-100 text-red-800 border-red-200'
+      Rejected: 'bg-red-100 text-red-800 border-red-200',
+      NeedsAttention: 'bg-orange-100 text-orange-800 border-orange-200'
     };
+    
+    const displayNames: Record<string, string> = {
+      NeedsAttention: 'Needs Attention',
+    };
+
     return (
-      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${colors[effectiveStatus] || 'bg-gray-100 text-gray-800'}`}>
+        {displayNames[effectiveStatus] || effectiveStatus}
       </span>
     );
   };
@@ -443,6 +458,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                 setStaffFilter('all');
                 setTypeFilter('all');
                 setDateRangeFilter({ start: '', end: '' });
+                setVisibleCount(10);
               }}
               className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
             >
@@ -469,6 +485,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
             </p>
           </div>
         ) : (
+          <>
           <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full min-w-[800px]">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -501,7 +518,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredTimeOffs.map((timeOff) => (
+                {filteredTimeOffs.slice(0, visibleCount).map((timeOff) => (
                   <tr key={timeOff.id} className="hover:bg-gray-50/50 transition-colors">
                     {isAdmin && (
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -516,10 +533,10 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col gap-2 items-start">
                         <TypeBadge isFullDay={timeOff.isFullDay} />
-                        {isAdmin && timeOff.hasConflicts && (
-                          <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-xs font-medium" title="This time off overlaps with one or more appointments">
+                        {isAdmin && (timeOff.hasConflicts || (timeOff.conflictCount ?? 0) > 0) && (
+                          <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 text-red-700 border border-red-200 rounded-md text-xs font-bold" title={`${timeOff.conflictCount || ''} overlapping appointments`}>
                             <AlertTriangle className="w-3.5 h-3.5" />
-                            <span>Conflict</span>
+                            <span>Conflicts ({timeOff.conflictCount || 0})</span>
                           </div>
                         )}
                       </div>
@@ -556,7 +573,7 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
                     )}
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {isAdmin && timeOff.status === 'Pending' && (
+                        {isAdmin && (timeOff.status === 'Pending' || timeOff.status === 'NeedsAttention') && (
                           <>
                             <button
                               onClick={() => handleApprove(timeOff.id)}
@@ -592,6 +609,22 @@ export function TimeOffPage({ onCountChange }: TimeOffPageProps) {
               </tbody>
             </table>
           </div>
+          {/* Show More / count indicator */}
+          {visibleCount < filteredTimeOffs.length && (
+            <div className="flex flex-col items-center gap-2 py-4 border-t border-gray-100">
+              <p className="text-xs text-gray-400">
+                Showing {Math.min(visibleCount, filteredTimeOffs.length)} of {filteredTimeOffs.length} records
+              </p>
+              <button
+                onClick={() => setVisibleCount(v => v + 10)}
+                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-all cursor-pointer"
+              >
+                <ChevronDown className="w-4 h-4" />
+                Show More ({filteredTimeOffs.length - visibleCount} remaining)
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
 
@@ -639,6 +672,7 @@ function AddTimeOffModal({
   onSuccess: () => void;
 }) {
   const { timezone } = useTimezone();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isFullDay, setIsFullDay] = useState(true);
   const [formData, setFormData] = useState({
     staffId: isAdmin ? '' : (currentUserId?.toString() || ''),
@@ -745,6 +779,10 @@ function AddTimeOffModal({
       const conflicts = await checkConflicts();
       if (conflicts?.hasConflicts) {
         setShowConflictWarning(true);
+        // Ensure user sees the warning
+        setTimeout(() => {
+          scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 100);
         return;
       }
     }
@@ -777,6 +815,10 @@ function AddTimeOffModal({
       onSuccess();
     } catch (err: any) {
       setError(err.message || 'Failed to save time-off');
+      // Ensure user sees the error
+      setTimeout(() => {
+        scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 100);
     } finally {
       setSubmitting(false);
     }
@@ -802,7 +844,7 @@ function AddTimeOffModal({
             </div>
           </div>
           
-          <div className="p-6 max-h-[70vh] overflow-y-auto">
+          <div ref={scrollContainerRef} className="p-6 max-h-[70vh] overflow-y-auto scroll-smooth">
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-700 text-sm">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -812,25 +854,44 @@ function AddTimeOffModal({
 
             {/* Conflict Warning */}
             {showConflictWarning && conflictInfo && (
-              <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-xl shadow-sm">
+                <div className="flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <AlertTriangle className="w-6 h-6 text-orange-600" />
+                  </div>
                   <div className="flex-1">
-                    <p className="font-semibold text-amber-800">
-                      This time off overlaps with {conflictInfo.conflictCount} existing appointment{conflictInfo.conflictCount !== 1 ? 's' : ''}
+                    <h4 className="font-bold text-orange-900 leading-tight">
+                      Conflict Detected
+                    </h4>
+                    <p className="mt-1 text-sm text-orange-800">
+                      This period overlaps with <strong>{conflictInfo.conflictCount}</strong> existing appointment{conflictInfo.conflictCount !== 1 ? 's' : ''}.
                     </p>
-                    <ul className="mt-2 space-y-1 text-sm text-amber-700">
-                      {conflictInfo.conflicts.slice(0, 3).map((c, i) => (
-                        <li key={i}>• {c.customerName} - {c.serviceName}</li>
-                      ))}
-                      {conflictInfo.conflicts.length > 3 && (
-                        <li>• and {conflictInfo.conflicts.length - 3} more...</li>
-                      )}
-                    </ul>
-                    <div className="mt-3 flex gap-2">
+                    
+                    <div className="mt-3 bg-white/50 rounded-lg p-2.5 border border-orange-100">
+                      <p className="text-xs font-semibold text-orange-900 mb-1 uppercase tracking-wider">Affected Appointments:</p>
+                      <ul className="space-y-1 text-xs text-orange-800">
+                        {conflictInfo.conflicts.slice(0, 3).map((c, i) => (
+                          <li key={i} className="flex items-center gap-1.5 line-clamp-1">
+                            <span className="w-1 h-1 bg-orange-400 rounded-full" />
+                            <span className="font-medium underline decoration-orange-300 underline-offset-2">{c.customerName}</span> — {c.serviceName}
+                          </li>
+                        ))}
+                        {conflictInfo.conflicts.length > 3 && (
+                          <li className="pl-2.5 text-orange-600 font-medium italic">...and {conflictInfo.conflicts.length - 3} more</li>
+                        )}
+                      </ul>
+                    </div>
+
+                    <div className="mt-4 p-3 bg-orange-100/50 rounded-lg border border-orange-200">
+                      <p className="text-xs text-orange-900 font-medium">
+                        👉 <strong>Note:</strong> Your request will be marked as <span className="underline decoration-orange-500 underline-offset-2 font-bold italic">Needs Attention</span> for the admin to review.
+                      </p>
+                    </div>
+
+                    <div className="mt-4 flex gap-3">
                       <button
                         onClick={() => setShowConflictWarning(false)}
-                        className="px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100 rounded-lg transition-colors"
+                        className="flex-1 px-3 py-2 text-sm font-bold text-orange-900 bg-white border border-orange-200 rounded-xl hover:bg-orange-50 transition-all cursor-pointer shadow-sm"
                       >
                         Go Back
                       </button>
@@ -839,9 +900,9 @@ function AddTimeOffModal({
                           setShowConflictWarning(false);
                           handleSubmit(e, true);
                         }}
-                        className="px-3 py-1.5 text-sm font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                        className="flex-1 px-3 py-2 text-sm font-bold bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-all cursor-pointer shadow-md shadow-orange-100 active:scale-95"
                       >
-                        Continue Anyway
+                        Submit Anyway
                       </button>
                     </div>
                   </div>

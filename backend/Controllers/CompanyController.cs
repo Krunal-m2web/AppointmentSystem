@@ -30,13 +30,17 @@ public async Task<IActionResult> UploadLogo(IFormFile file)
     var company = await _context.Companies.FindAsync(companyId);
     if (company == null) return NotFound();
 
-    // Create uploads directory
-    var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "logos");
+    // Per-company subdirectory: wwwroot/logos/{companyId}/
+    var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "logos", companyId.ToString());
     if (!Directory.Exists(uploadsDir))
         Directory.CreateDirectory(uploadsDir);
 
+    // Delete any existing logo files (handles extension changes, e.g. old logo.jpg when saving logo.png)
+    foreach (var oldFile in Directory.GetFiles(uploadsDir))
+        System.IO.File.Delete(oldFile);
+
     var fileExt = Path.GetExtension(file.FileName);
-    var fileName = $"company-{companyId}{fileExt}";
+    var fileName = $"logo{fileExt}";
     var filePath = Path.Combine(uploadsDir, fileName);
 
     // Save file
@@ -46,7 +50,7 @@ public async Task<IActionResult> UploadLogo(IFormFile file)
     }
 
     // Save URL
-    company.LogoUrl = $"/logos/{fileName}";
+    company.LogoUrl = $"/logos/{companyId}/{fileName}";
     company.UpdatedAt = DateTime.UtcNow;
 
     await _context.SaveChangesAsync();

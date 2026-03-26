@@ -18,17 +18,20 @@ namespace Appointmentbookingsystem.Backend.Controllers
         private readonly IEmailService _emailService;
         private readonly IConfiguration _configuration;
         private readonly IGoogleCalendarService _googleCalendarService;
+        private readonly ILogger<AppointmentController> _logger;
 
         public AppointmentController(
             AppDbContext context,
             IEmailService emailService,
             IConfiguration configuration,
-            IGoogleCalendarService googleCalendarService)
+            IGoogleCalendarService googleCalendarService,
+            ILogger<AppointmentController> logger)
         {
             _context = context;
             _emailService = emailService;
             _configuration = configuration;
             _googleCalendarService = googleCalendarService;
+            _logger = logger;
         }
 
         /// <summary>
@@ -599,9 +602,10 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                                      confirmationConfig?.Id 
                                  );
                               }
-                              catch (Exception ex)
-                              {
-                              }
+                               catch (Exception ex)
+                               {
+                                   _logger.LogError(ex, "[Email] Failed to send appointment confirmation (AppointmentId={AppointmentId})", appointment.Id);
+                               }
                           }
                           else
                           {
@@ -617,7 +621,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             }
             catch (Exception ex)
             {
-                // Log error but don't fail the request
+                _logger.LogError(ex, "[Email] Notification dispatch error (AppointmentId={AppointmentId})", appointment.Id);
             }
 
             // STEP 10: SYNC TO GOOGLE CALENDAR
@@ -737,9 +741,10 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                                              config.Id
                                          );
                                      }
-                                     catch(Exception ex)
-                                     {
-                                     }
+                                      catch(Exception ex)
+                                      {
+                                          _logger.LogError(ex, "[Email] Failed to send cancellation/confirmation email (AppointmentId={AppointmentId})", appointment.Id);
+                                      }
                                  }
                                  else
                                  {
@@ -802,6 +807,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                                         }
                                         catch (Exception ex)
                                         {
+                                            _logger.LogError(ex, "[Status Update] Failed to send email (AppointmentId={AppointmentId})", appointment.Id);
                                         }
                                     }
                                     else
@@ -1002,7 +1008,9 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 ServiceId = appointment.ServiceId,
                 ServiceName = appointment.Service.Name,
                 StaffId = appointment.StaffId,
-                StaffName = appointment.Staff?.FirstName + " " + appointment.Staff?.LastName ?? "Unassigned",
+                StaffName = appointment.Staff != null
+                    ? $"{appointment.Staff.FirstName} {appointment.Staff.LastName}"
+                    : "Unassigned",
                 StartDateTime = appointment.StartDateTimeUtc,
                 EndDateTime = appointment.EndDateTimeUtc,
                 Status = appointment.Status,
@@ -1026,10 +1034,15 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
         {
             if (staffId == 0) return true;
 
-            // Check existing appointments (including their buffer time)
+            // Only load appointments that could overlap with the requested time window
+            var windowStart = startTime.AddDays(-1);
+            var windowEnd = endTime.AddDays(1);
             var appointmentsWithBuffer = await _context.Appointments
                 .Include(a => a.Service)
-                .Where(a => a.StaffId == staffId && a.Status != AppointmentStatus.Cancelled)
+                .Where(a => a.StaffId == staffId &&
+                            a.Status != AppointmentStatus.Cancelled &&
+                            a.StartDateTimeUtc < windowEnd &&
+                            a.EndDateTimeUtc > windowStart)
                 .ToListAsync();
 
             foreach (var a in appointmentsWithBuffer)
@@ -1256,6 +1269,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             }
             catch(Exception ex)
             {
+                _logger.LogError(ex, "[Cancellation] Failed to send email (AppointmentId={AppointmentId})", appointment.Id);
             }
 
             await _context.SaveChangesAsync();
@@ -1269,6 +1283,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 }
                 catch (Exception ex)
                 {
+                    _logger.LogError(ex, "[Cancellation] Failed to delete Google Calendar event (AppointmentId={AppointmentId})", appointment.Id);
                 }
             }
 
@@ -1380,6 +1395,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             }
             catch(Exception ex)
             {
+                _logger.LogError(ex, "[Reschedule] Failed to send email (AppointmentId={AppointmentId})", appointment.Id);
             }
 
             await _context.SaveChangesAsync();
@@ -1393,6 +1409,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 }
                 catch (Exception ex)
                 {
+                    _logger.LogError(ex, "[Reschedule] Failed to update Google Calendar event (AppointmentId={AppointmentId})", appointment.Id);
                 }
             }
 

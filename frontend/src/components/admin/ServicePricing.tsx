@@ -185,7 +185,9 @@ export function ServicePricing() {
           : s
       ));
       
-      toast.success('Price removed! Service hidden from booking page.');
+      toast.error('Price removed! Service hidden from booking page.', {
+        icon: '❌'
+      });
     } catch (err: any) {
       toast.error(err.message || 'Failed to remove price.');
     } finally {

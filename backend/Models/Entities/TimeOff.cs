@@ -34,6 +34,9 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
+        // Conflict tracking
+        public int ConflictCount { get; set; } = 0;
+
         // Badge/Notification flags
         public bool IsViewedByStaff { get; set; }
         public bool IsViewedByAdmin { get; set; }
@@ -43,6 +46,7 @@ namespace Appointmentbookingsystem.Backend.Models.Entities
     {
         Pending,
         Approved,
-        Rejected
+        Rejected,
+        NeedsAttention
     }
 }
