@@ -37,10 +37,24 @@ namespace Appointmentbookingsystem.Backend.Controllers
             // Validation for email if provided
             if (!string.IsNullOrWhiteSpace(dto.Email))
             {
+                var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
                 var emailAttribute = new System.ComponentModel.DataAnnotations.EmailAddressAttribute();
-                if (!emailAttribute.IsValid(dto.Email))
+                if (!emailAttribute.IsValid(normalizedEmail))
                 {
                     return BadRequest("Invalid email address format.");
+                }
+
+                // Check if email already exists in any user table (global uniqueness)
+                var existingStaff = await _context.Staff.AnyAsync(s => s.Email.ToLower() == normalizedEmail);
+                if (existingStaff)
+                {
+                    return BadRequest("A staff member with this email address already exists.");
+                }
+
+                var existingAdmin = await _context.Users.AnyAsync(u => u.Email.ToLower() == normalizedEmail);
+                if (existingAdmin)
+                {
+                    return BadRequest("This email address is already registered as an admin account.");
                 }
             }
 

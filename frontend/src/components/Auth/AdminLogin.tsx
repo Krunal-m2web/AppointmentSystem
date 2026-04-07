@@ -155,7 +155,17 @@ const AdminLogin = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">Password</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500">Password</label>
+                {loginEmail.trim().length > 0 && (
+                  <Link
+                    to={`/auth/admin/forgot-password?email=${encodeURIComponent(loginEmail)}`}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                  >
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
               <input
                 type="password"
                 value={loginPassword}
@@ -193,7 +203,7 @@ const AdminLogin = () => {
             <Link to="/auth/admin/register" className="text-sm font-medium text-indigo-600 hover:text-indigo-800">
             New here? Create a Company Account →
             </Link>
-            <Link to="/auth/staff" className="text-sm text-gray-500 hover:text-gray-700">
+            <Link to="/" className="text-sm text-gray-500 hover:text-gray-700">
             Staff member? Sign in here →
             </Link>
         </div>

@@ -35,9 +35,9 @@ namespace Appointmentbookingsystem.Backend.Controllers
             if (company == null)
                 return BadRequest("Invalid company ID.");
 
-            // Check for duplicate email globally (across all companies)
-            bool emailExists = await _context.Staff
-                .AnyAsync(s => s.Email.ToLower() == dto.Email.ToLower());
+            // Check for duplicate email globally (Staff or Admin)
+            bool emailExists = await _context.Staff.AnyAsync(s => s.Email.ToLower() == dto.Email.ToLower()) ||
+                               await _context.Users.AnyAsync(u => u.Email.ToLower() == dto.Email.ToLower());
 
             if (emailExists)
                 return BadRequest("Email already exists in the system.");
@@ -242,10 +242,9 @@ namespace Appointmentbookingsystem.Backend.Controllers
             // Update email with duplicate check
             if (dto.Email != null && staff.Email != dto.Email.ToLowerInvariant())
             {
-                // Check for duplicate email globally
-                bool emailExists = await _context.Staff
-                    .AnyAsync(s => s.Email.ToLower() == dto.Email.ToLower() && 
-                                   s.Id != id);
+                // Check for duplicate email globally (Staff or Admin)
+                bool emailExists = await _context.Staff.AnyAsync(s => s.Email.ToLower() == dto.Email.ToLower() && s.Id != id) ||
+                                   await _context.Users.AnyAsync(u => u.Email.ToLower() == dto.Email.ToLower());
 
                 if (emailExists)
                     return BadRequest("Email already exists in the system.");

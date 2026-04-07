@@ -187,6 +187,85 @@ export const resetPassword = async (data: {
   return response.json();
 };
 
+export const staffVerifyResetToken = async (token: string): Promise<{ message: string }> => {
+  const url = `${API_BASE_URL}/api/auth/staff/verify-reset-token?token=${encodeURIComponent(token)}`;
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    });
+    
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(parseErrorMessage(text) || "Invalid or expired reset token");
+    }
+
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      return await response.json();
+    } else {
+      throw new Error("Invalid server response (Expected JSON, but received HTML). Check if the API backend is running.");
+    }
+  } catch (err: any) {
+    console.error(`[AuthService] Error verifying staff reset token:`, err);
+    throw err;
+  }
+};
+
+export const adminForgotPassword = async (email: string): Promise<{ message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/admin/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseErrorMessage(text) || "Failed to send reset link");
+  }
+  return response.json();
+};
+
+export const adminResetPassword = async (data: {
+  token: string;
+  newPassword: string;
+}): Promise<{ message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/api/auth/admin/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(parseErrorMessage(text) || "Failed to reset password");
+  }
+  return response.json();
+};
+
+export const adminVerifyResetToken = async (token: string): Promise<{ message: string }> => {
+  const url = `${API_BASE_URL}/api/auth/admin/verify-reset-token?token=${encodeURIComponent(token)}`;
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    });
+    
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(parseErrorMessage(text) || "Invalid or expired reset token");
+    }
+
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      return await response.json();
+    } else {
+      throw new Error("Invalid server response (Expected JSON, but received HTML). Check if the API backend is running.");
+    }
+  } catch (err: any) {
+    console.error(`[AuthService] Error verifying admin reset token:`, err);
+    throw err;
+  }
+};
+
 // ============ TOKEN MANAGEMENT ============
 
 export const saveToken = (token: string): void => {

@@ -78,9 +78,12 @@ namespace Appointmentbookingsystem.Backend.Controllers
 
             var normalizedEmail = dto.Email.Trim().ToLowerInvariant();
 
-            // Check for duplicate email globally
-            if (await _context.Staff.AnyAsync(s => s.Email.ToLower() == normalizedEmail))
+            // Check for duplicate email globally (Staff or Admin)
+            if (await _context.Staff.AnyAsync(s => s.Email.ToLower() == normalizedEmail) ||
+                await _context.Users.AnyAsync(u => u.Email.ToLower() == normalizedEmail))
+            {
                 throw new ConflictException(BusinessErrors.DUPLICATE_EMAIL, "Email already in use.", "email");
+            }
 
             var passwordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
 
@@ -198,7 +201,7 @@ namespace Appointmentbookingsystem.Backend.Controllers
                         A password reset was requested for your staff account. Please click the button below to set a new password. This link will expire in 1 hour.
                     </p>
                     <div style='text-align: center; margin: 32px 0;'>
-                        <a href='{resetLink}' style='display: inline-block; padding: 14px 28px; background-color: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.1), 0 2px 4px -1px rgba(79, 70, 229, 0.06);'>Reset Password</a>
+                        <a href=""{resetLink}"" style=""display: inline-block; padding: 14px 28px; background-color: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.1), 0 2px 4px -1px rgba(79, 70, 229, 0.06);"">Reset Password</a>
                     </div>
                     <p style='color: #6b7280; font-size: 14px; margin-top: 32px; border-top: 1px solid #e5e7eb; padding-top: 16px; line-height: 1.4;'>
                         If the button above doesn't work, copy and paste this link into your browser:<br/>
@@ -212,6 +215,25 @@ namespace Appointmentbookingsystem.Backend.Controllers
             await _emailService.SendEmailAsync(staff.Email, "Reset Your Password", emailBody, "Appointment System");
 
             return Ok(new { Message = "Reset link sent successfully." });
+        }
+
+        /// <summary>
+        /// Verify if a reset password token is valid.
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("verify-reset-token")]
+        public async Task<IActionResult> VerifyResetToken([FromQuery] string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return BadRequest(new { Message = "Token is required." });
+
+            var tokenRecord = await _context.PasswordResetTokens
+                .FirstOrDefaultAsync(t => t.Token == token && !t.IsUsed && t.ExpiresAt > DateTime.UtcNow && t.UserRole == "Staff");
+
+            if (tokenRecord == null)
+                return BadRequest(new { Message = "This reset link is invalid or has expired." });
+
+            return Ok(new { Message = "Token is valid." });
         }
 
         /// <summary>

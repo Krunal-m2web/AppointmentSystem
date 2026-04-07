@@ -46,7 +46,7 @@ export function InviteStaffModal({ isOpen, onClose }: InviteStaffModalProps) {
             const res = await createInvite(email || undefined);
             
             const baseUrl = window.location.origin;
-            const fullLink = `${baseUrl}/auth/staff?token=${res.token}`;
+            const fullLink = `${baseUrl}/?token=${res.token}`;
             
             setInviteLink(fullLink);
             setInviteToken(res.token);

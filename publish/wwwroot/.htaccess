@@ -1,0 +1,17 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  
+  # If the requested path is exactly index.html, do nothing
+  RewriteRule ^index\.html$ - [L]
+  
+  # Pass through API requests directly (so backend still works!)
+  RewriteCond %{REQUEST_URI} !^/api/ [NC]
+  
+  # If the requested file or directory does not exist
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  
+  # Redirect all other requests to index.html for React Router
+  RewriteRule . /index.html [L]
+</IfModule>

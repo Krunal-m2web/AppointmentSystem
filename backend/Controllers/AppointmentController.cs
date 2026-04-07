@@ -1034,9 +1034,54 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
         {
             if (staffId == 0) return true;
 
-            // Only load appointments that could overlap with the requested time window
+            // Load staff with company once for all checks
+            var staff = await _context.Staff
+                .Include(s => s.Company)
+                .FirstOrDefaultAsync(s => s.Id == staffId);
+
+            if (staff != null)
+            {
+                // ── CHECK 1: WEEKLY SCHEDULE ──────────────────────────────────────
+                // Convert UTC start time to the company's local timezone to get the
+                // correct local day-of-week and to compare against stored work hours.
+                string timezoneId = staff.Company?.Timezone ?? "UTC";
+                TimeZoneInfo tzInfo;
+                try { tzInfo = TimeZoneInfo.FindSystemTimeZoneById(timezoneId); }
+                catch { tzInfo = TimeZoneInfo.Utc; }
+
+                DateTime localStartTime = TimeZoneInfo.ConvertTimeFromUtc(startTime, tzInfo);
+                DayOfWeek localDayOfWeek = localStartTime.DayOfWeek;
+
+                // Fetch staff availability for this local day of week
+                var availability = await _context.Availabilities
+                    .FirstOrDefaultAsync(a =>
+                        a.StaffId == staffId &&
+                        a.DayOfWeek == localDayOfWeek &&
+                        a.IsAvailable);
+
+                // No schedule set for this day → staff is off duty, block the booking
+                if (availability == null)
+                    return false;
+
+                // Convert stored local work-hours to UTC for a fair comparison
+                DateTime localWorkStart = localStartTime.Date.Add(availability.StartTime);
+                DateTime localWorkEnd   = localStartTime.Date.Add(availability.EndTime);
+                DateTime utcWorkStart   = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localWorkStart, DateTimeKind.Unspecified), tzInfo);
+                DateTime utcWorkEnd     = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localWorkEnd,   DateTimeKind.Unspecified), tzInfo);
+
+                // Slot must fit entirely within the staff's working hours
+                if (startTime < utcWorkStart || endTime > utcWorkEnd)
+                    return false;
+
+                // ── CHECK 2: HOLIDAY ─────────────────────────────────────────────
+                var appointmentDate = DateOnly.FromDateTime(localStartTime);
+                if (await IsHolidayAsync(staff.CompanyId, appointmentDate))
+                    return false;
+            }
+
+            // ── CHECK 3: EXISTING APPOINTMENTS (with buffer time) ────────────────
             var windowStart = startTime.AddDays(-1);
-            var windowEnd = endTime.AddDays(1);
+            var windowEnd   = endTime.AddDays(1);
             var appointmentsWithBuffer = await _context.Appointments
                 .Include(a => a.Service)
                 .Where(a => a.StaffId == staffId &&
@@ -1050,15 +1095,11 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                 int buffer = a.Service?.BufferTimeMinutes ?? 0;
                 DateTime blockedEnd = a.EndDateTimeUtc.AddMinutes(buffer);
 
-                // Check if the new appointment overlaps with the existing appointment OR its buffer
                 if (startTime < blockedEnd && endTime > a.StartDateTimeUtc)
-                {
                     return false;
-                }
             }
 
-
-            // Check active reservations
+            // ── CHECK 4: ACTIVE RESERVATIONS ─────────────────────────────────────
             var now = DateTime.UtcNow;
             var hasReservationConflict = await _context.AppointmentReservations
                 .AnyAsync(r =>
@@ -1069,7 +1110,7 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
 
             if (hasReservationConflict) return false;
 
-            // Check external calendar events (Google Calendar)
+            // ── CHECK 5: EXTERNAL CALENDAR EVENTS (Google Calendar) ───────────────
             var hasExternalConflict = await _context.ExternalCalendarEvents
                 .AnyAsync(e =>
                     e.StaffId == staffId &&
@@ -1077,16 +1118,6 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
                     e.EndDateTimeUtc > startTime);
 
             if (hasExternalConflict) return false;
-
-            // Check if it's a holiday (highest priority)
-            // Resolve companyId from staff
-            var staff = await _context.Staff.FindAsync(staffId);
-            if (staff != null)
-            {
-                var appointmentDate = DateOnly.FromDateTime(startTime);
-                if (await IsHolidayAsync(staff.CompanyId, appointmentDate))
-                    return false;
-            }
 
             return true;
         }
@@ -1337,15 +1368,46 @@ public async Task<ActionResult<PaginatedAppointmentsResponseDto>> GetAllAppointm
             // Check availability for assigned staff
             if (appointment.StaffId.HasValue)
             {
-                // Note: We need to EXCLUDE the current appointment to avoid self-conflict
-                var hasConflict = await _context.Appointments
-                    .AnyAsync(a => a.Id != appointment.Id &&
-                                 a.StaffId == appointment.StaffId &&
-                                 a.Status != AppointmentStatus.Cancelled &&
-                                 a.StartDateTimeUtc < newEndTime &&
-                                 a.EndDateTimeUtc > dto.NewStartTime);
+                // STEP 1: Enforce working hours, holidays, reservations & external events
+                var isSlotAvailable = await IsSlotAvailableForBooking(
+                    appointment.StaffId.Value,
+                    dto.NewStartTime,
+                    newEndTime);
 
-                if (hasConflict)
+                if (!isSlotAvailable)
+                {
+                    // Determine a friendly reason: outside working hours or a generic conflict
+                    return Conflict(new
+                    {
+                        message = "The selected time is outside the staff member's working hours or they are unavailable on that day.",
+                        suggestion = "Please choose a different time slot."
+                    });
+                }
+
+                // STEP 2: Check for appointment-overlap, excluding the current appointment
+                // (IsSlotAvailableForBooking blocks on OTHER appointments, but also on THIS one
+                //  since it hasn't been moved yet – so we need the self-exclusion check here.)
+                var onlyBlockedBySelf = await _context.Appointments
+                    .Where(a => a.Id == appointment.Id &&
+                                a.StaffId == appointment.StaffId &&
+                                a.Status != AppointmentStatus.Cancelled &&
+                                a.StartDateTimeUtc < newEndTime &&
+                                a.EndDateTimeUtc > dto.NewStartTime)
+                    .AnyAsync();
+
+                // If IsSlotAvailableForBooking returned true there's no conflict,
+                // but if it returned false AND it's only blocked by the current appointment
+                // (same timeslot reschedule), we allow it through.
+                // The check above already handles the !isSlotAvailable case, so we only
+                // need to verify there's no OTHER appointment blocking the slot.
+                var hasOtherConflict = await _context.Appointments
+                    .AnyAsync(a => a.Id != appointment.Id &&
+                                   a.StaffId == appointment.StaffId &&
+                                   a.Status != AppointmentStatus.Cancelled &&
+                                   a.StartDateTimeUtc < newEndTime &&
+                                   a.EndDateTimeUtc > dto.NewStartTime);
+
+                if (hasOtherConflict)
                 {
                     return Conflict(new { message = "Selected staff member is not available at this new time." });
                 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { resetPassword } from '../../services/authService';
+import { resetPassword, staffVerifyResetToken } from '../../services/authService';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Lock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
@@ -18,12 +18,33 @@ export default function ResetPasswordPage() {
   const [failedRequirements, setFailedRequirements] = useState<string[]>([]);
   const [showFailedReqs, setShowFailedReqs] = useState(false);
 
+  const [tokenValidating, setTokenValidating] = useState(true);
+  const [tokenError, setTokenError] = useState('');
+
   useEffect(() => {
+    console.log('[StaffResetPassword] Page loaded with token:', token);
+
     if (!token) {
-      toast.error("Invalid reset link");
-      navigate('/auth/staff');
+      setTokenError('Invalid reset link: Token is missing.');
+      setTokenValidating(false);
+      return;
     }
-  }, [token, navigate]);
+
+    const validateToken = async () => {
+      try {
+        console.log('[StaffResetPassword] Attempting to verify token...');
+        await staffVerifyResetToken(token);
+        console.log('[StaffResetPassword] Token verification successful.');
+        setTokenValidating(false);
+      } catch (err: any) {
+        console.error('[StaffResetPassword] Token verification failed:', err);
+        setTokenError(err.message || 'This reset link has expired or is invalid.');
+        setTokenValidating(false);
+      }
+    };
+
+    validateToken();
+  }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,13 +68,41 @@ export default function ResetPasswordPage() {
       await resetPassword({ token, newPassword: password });
       setSuccess(true);
       toast.success("Password reset successfully");
-      setTimeout(() => navigate('/auth/staff'), 3000);
+      setTimeout(() => navigate('/'), 3000);
     } catch (err: any) {
       toast.error(err.message || "Failed to reset password");
     } finally {
       setLoading(false);
     }
   };
+
+  if (tokenValidating) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  if (tokenError) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-6">
+            <AlertCircle className="w-8 h-8 text-red-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Invalid Link</h2>
+          <p className="text-gray-600 mb-8">{tokenError}</p>
+          <button
+            onClick={() => navigate('/')}
+            className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
+          >
+            Request New Reset Link
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (success) {
     return (
@@ -67,7 +116,7 @@ export default function ResetPasswordPage() {
             Your password has been successfully updated. You will be redirected to the login page shortly.
           </p>
           <button
-            onClick={() => navigate('/auth/staff')}
+            onClick={() => navigate('/')}
             className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
           >
             Go to Login

@@ -39,6 +39,12 @@ namespace Appointmentbookingsystem.Backend.Middleware
         {
             var response = context.Response;
             response.ContentType = "application/json";
+            
+            // Allow browser to read this error response
+            if (!response.Headers.ContainsKey("Access-Control-Allow-Origin"))
+            {
+                response.Headers.Append("Access-Control-Allow-Origin", "*");
+            }
 
             ApiErrorResponse errorResponse;
             HttpStatusCode statusCode;
@@ -133,12 +139,10 @@ namespace Appointmentbookingsystem.Backend.Middleware
                     statusCode = HttpStatusCode.InternalServerError;
                     _logger.LogError(exception, "Unhandled exception occurred");
                     
-                    // Never expose stack traces in production
+                    // Temporarily expose stack traces for debugging live server 500 errors
                     errorResponse = ApiErrorResponse.Create(
                         "INTERNAL_ERROR",
-                        _env.IsDevelopment() 
-                            ? exception.Message 
-                            : "An unexpected error occurred. Please try again later."
+                        exception.ToString()
                     );
                     break;
             }

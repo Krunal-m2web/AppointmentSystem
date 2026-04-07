@@ -151,4 +151,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Serve index.html for any unhandled routes (React Router fallback)
+app.MapFallbackToFile("index.html");
+
 app.Run();

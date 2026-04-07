@@ -11,6 +11,7 @@ import { getCurrencySymbol } from '../../utils/currency';
 import { toast } from 'sonner';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { InviteStaffModal } from './InviteStaffModal';
+import { DetailsSkeleton, ServicesSkeleton, SchedulesSkeleton } from './StaffSkeletons';
 import { forgotPassword } from '../../services/authService';
 import { PASSWORD_REQUIREMENTS, validatePassword } from '../../utils/passwordValidation';
 import { EyeOff, Eye } from 'lucide-react';
@@ -45,6 +46,7 @@ export function StaffMembers() {
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     // Use EditableStaff for the form state
     const [editedStaff, setEditedStaff] = useState<EditableStaff | null>(null);
+    const [isDataLoading, setIsDataLoading] = useState(false);
     const [bulkDays, setBulkDays] = useState<number[]>([]);
     
     useEffect(() => {
@@ -115,7 +117,7 @@ export function StaffMembers() {
   let cancelled = false;
 
   const loadStaffData = async () => {
-
+    setIsDataLoading(true);
     try {
       const [availability, timeOffData] = await Promise.all([
         fetchStaffAvailability(selectedStaff.id),
@@ -127,7 +129,6 @@ export function StaffMembers() {
       if (cancelled) return;
 
       const dayMap: Record<string, number> = {
-
         Sunday: 0,
         Monday: 1,
         Tuesday: 2,
@@ -154,6 +155,8 @@ export function StaffMembers() {
       });
     } catch (e) {
       console.error("Failed to load availability", e);
+    } finally {
+        if (!cancelled) setIsDataLoading(false);
     }
   };
 
@@ -440,8 +443,15 @@ const handleSave = async () => {
                 setSelectedStaff(updated);
                 
                 const currentServices = updated.services as any[];
-                const serviceIds = Array.isArray(currentServices)
-                    ? currentServices.map((s: any) => (typeof s === 'object' ? s.serviceId : s))
+                // Keep services as { serviceId, customPrice } objects — NOT plain numbers.
+                // Using plain numbers breaks toggleService (duplicate detection fails) and
+                // shows a wrong count in the "X service(s) selected" label.
+                const serviceObjects: { serviceId: number; customPrice?: number }[] = Array.isArray(currentServices)
+                    ? currentServices.map((s: any) =>
+                        typeof s === 'object' && s !== null
+                            ? { serviceId: s.serviceId, customPrice: s.customPrice }
+                            : { serviceId: s as number }
+                    )
                     : [];
 
                 const dayMap: Record<string, number> = {
@@ -465,7 +475,7 @@ const handleSave = async () => {
 
                 const finalState: EditableStaff = {
                     ...updated,
-                    services: serviceIds,
+                    services: serviceObjects,
                     schedule: scheduleData,
                     role: ''
                 };
@@ -517,9 +527,22 @@ const hasUnsavedChanges = () => {
         editedStaff.phone !== initialStaffState.phone ||
         (editedStaff.password !== undefined && editedStaff.password !== '');
 
-    const servicesChanged = 
-        editedStaff.services.length !== initialStaffState.services.length ||
-        !editedStaff.services.every(id => initialStaffState.services.includes(id));
+    const servicesChanged = (() => {
+        const normalizeServices = (services: any[]) => {
+            return services
+                .map(s => {
+                    if (typeof s === 'object') {
+                        return { serviceId: s.serviceId, customPrice: s.customPrice ?? null };
+                    }
+                    return { serviceId: s as number, customPrice: null };
+                })
+                .sort((a, b) => a.serviceId - b.serviceId);
+        };
+        const editedStr = JSON.stringify(normalizeServices(editedStaff.services));
+        const initialStr = JSON.stringify(normalizeServices(initialStaffState.services));
+        return editedStr !== initialStr;
+    })();
+
 
     const scheduleChanged = 
         editedStaff.schedule.length !== initialStaffState.schedule.length ||
@@ -528,20 +551,6 @@ const hasUnsavedChanges = () => {
     return basicChanged || servicesChanged || scheduleChanged;
 };
 
-// Update the Save button to show loading state:
-// In the JSX, replace the save button with:
-<button
-    onClick={handleSave}
-    disabled={isSaving}
-    className={`flex items-center gap-2 px-6 py-2 rounded-lg transition-colors ${
-        isSaving 
-            ? 'bg-gray-400 cursor-not-allowed' 
-            : 'bg-indigo-600 hover:bg-indigo-700'
-    } text-white`}
->
-    <Save className="w-5 h-5" />
-    {isSaving ? 'Saving...' : 'Save Changes'}
-</button>
 
     const confirmDeleteStaff = async () => {
         if (!editedStaff) return;
@@ -910,6 +919,9 @@ const hasUnsavedChanges = () => {
                             {/* Tab Content */}
                             <div className="p-6">
                                 {activeTab === 'details' && (
+                                    isDataLoading ? (
+                                        <DetailsSkeleton />
+                                    ) : (
                                     <div className="space-y-4">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
@@ -1122,9 +1134,13 @@ const hasUnsavedChanges = () => {
                                             />
                                         </div> */}
                                     </div>
+                                    )
                                 )}
 
-                                {activeTab === 'services' && (
+                                 {activeTab === 'services' && (
+                                    isDataLoading ? (
+                                        <ServicesSkeleton />
+                                    ) : (
   <div className="space-y-4">
     <p className="text-sm text-gray-600">
       Select which services this staff member can provide and set custom prices if needed
@@ -1228,10 +1244,14 @@ const hasUnsavedChanges = () => {
         )}
     </div>
   </div>
+                                    )
 )}
 
 
                                 {activeTab === 'schedules' && (
+                                    isDataLoading ? (
+                                        <SchedulesSkeleton />
+                                    ) : (
                                     <div className="space-y-6">
                                         
                                         {/* <div>
@@ -1355,6 +1375,7 @@ const hasUnsavedChanges = () => {
                                             </div>
                                         </div>
                                     </div>
+                                    )
                                 )}
 
                             

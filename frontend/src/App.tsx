@@ -8,6 +8,8 @@ import StaffAuth from './components/Auth/StaffAuth';
 import ResetPasswordPage from './components/Auth/ResetPasswordPage';
 import AdminLogin from './components/Auth/AdminLogin';
 import AdminRegister from './components/Auth/AdminRegister';
+import ForgotPasswordPage from './components/Auth/ForgotPasswordPage';
+import AdminResetPasswordPage from './components/Auth/AdminResetPasswordPage';
 import { ProtectedRoute } from './components/Auth/ProtectedRoute';
 import { AdminDashboard } from './Pages/AdminPage';
 import { SettingsPage } from './components/admin/SettingsPage';
@@ -25,7 +27,7 @@ export default function App() {
     if (token) {
       const role = getRoleFromToken(token);
       if (role === 'Admin') {
-        redirectPath = '/'; // Admin login is at root
+        redirectPath = '/auth/admin'; // Admin login path
       }
     }
     
@@ -44,10 +46,14 @@ export default function App() {
         
         
         {/* Auth Routes */}
-        <Route path="/" element={<AdminLogin />} />
+        <Route path="/" element={<StaffAuth />} />
+        <Route path="/auth/admin" element={<AdminLogin />} />
         <Route path="/auth/admin/register" element={<AdminRegister />} />
-        <Route path="/auth/staff" element={<StaffAuth />} />
+        <Route path="/auth/staff" element={<Navigate to="/" replace />} />
         <Route path="/auth/staff/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/staff/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/auth/admin/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/auth/admin/reset-password" element={<AdminResetPasswordPage />} />
 
         
         {/* Protected Dashboard Routes */}

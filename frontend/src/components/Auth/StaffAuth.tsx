@@ -344,12 +344,22 @@ const StaffAuth = () => {
               </div>
 
               <div>
-                <label
-                  htmlFor="loginPassword"
-                  className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1"
-                >
-                  Password
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label
+                    htmlFor="loginPassword"
+                    className="block text-xs font-semibold uppercase tracking-wider text-gray-500"
+                  >
+                    Password
+                  </label>
+                  {loginEmail.trim().length > 0 && (
+                    <Link
+                      to={`/auth/staff/forgot-password?email=${encodeURIComponent(loginEmail)}`}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                    >
+                      Forgot password?
+                    </Link>
+                  )}
+                </div>
                 <div className="relative">
                   <input
                     id="loginPassword"

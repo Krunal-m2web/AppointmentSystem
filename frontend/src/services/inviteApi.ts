@@ -25,7 +25,10 @@ export const createInvite = async (email?: string) => {
     },
     body: JSON.stringify({ email }),
   });
-  if (!res.ok) throw new Error("Failed to create invite");
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(errorText || "Failed to create invite");
+  }
   return res.json() as Promise<CreateInviteResponse>;
 };
 
